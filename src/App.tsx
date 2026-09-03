@@ -354,7 +354,7 @@ export default function App() {
               <Building2 className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="font-bold text-base tracking-wide leading-none text-white">PORTAL KPI DESAIN</h1>
+              <h1 className="font-bold text-base tracking-wide leading-none text-white">Rekapitulasi DESAIN 2026</h1>
               <span className="text-xs text-slate-400">Tahun Anggaran 2026</span>
             </div>
           </div>
