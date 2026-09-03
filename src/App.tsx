@@ -387,7 +387,7 @@ export default function App() {
           <div className="space-y-8 animate-fadeIn">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-800 pb-6">
               <div>
-                <h2 className="text-2xl sm:text-3xl font-extrabold text-white">Dashboard KPI Desain 2026</h2>
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-white">Dashboard Rekapitulasi Jam Kerja Desain 2026</h2>
                 <p className="text-slate-400 text-sm mt-1">Pilih salah satu departemen untuk mengakses tombol bulan setiap biro.</p>
               </div>
               <div className="relative w-full md:w-72">
