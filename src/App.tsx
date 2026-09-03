@@ -47,7 +47,7 @@ const csvMonthMap: Record<string, string> = {
   'juni': csvJun,
 };
 
-// Membaca file CSV Timesheet di sub-folder src/ secara otomatis
+// Membaca semua file CSV/TXT di sub-folder src/ secara otomatis
 const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', { 
   query: '?raw', 
   import: 'default', 
@@ -61,10 +61,11 @@ interface ExcelRow {
   effectiveHour: number;
   overtimeHour: number;
   idleHour: number;
-  timesheetHour: number;
+  timesheetReguler: number;   // Kolom 1: Timesheet Reguler
+  timesheetOvertime: number;  // Kolom 2: Timesheet Overtime
   terlambat: number;
   sakit: number;
-  ipm: number; // Kolom IPM Baru
+  ipm: number;
 }
 
 interface SelectedBiroPage {
@@ -109,7 +110,7 @@ export default function App() {
     return isNaN(num) ? 0 : num;
   };
 
-  // Helper Parser CSV Absensi (Terlambat, Sakit, dan IPM di nilai paling akhir)
+  // Helper Parser CSV Absensi (Terlambat, Sakit, IPM)
   const parseAbsensiCSV = (csvContent: string): Map<string, { terlambat: number; sakit: number; ipm: number }> => {
     const absensiMap = new Map<string, { terlambat: number; sakit: number; ipm: number }>();
     if (!csvContent) return absensiMap;
@@ -120,14 +121,12 @@ export default function App() {
 
       const parts = line.split(',');
       if (parts.length >= 6) {
-        // Nama berada di antara koma ke-1 dan ke-2 (Index 1)
         const rawNama = parts[1] ? parts[1].trim() : '';
         const cleanNameKey = rawNama.toLowerCase().replace(/\s+/g, ' ').trim();
 
-        // Terlambat, Sakit, dan IPM (Nilai Paling Akhir)
         const terlambatVal = parseValToNumber(parts[parts.length - 3] ?? parts[4]);
         const sakitVal = parseValToNumber(parts[parts.length - 2] ?? parts[5]);
-        const ipmVal = parseValToNumber(parts[parts.length - 1] ?? parts[6]); // Nilai paling akhir
+        const ipmVal = parseValToNumber(parts[parts.length - 1] ?? parts[6]);
 
         if (cleanNameKey) {
           absensiMap.set(cleanNameKey, {
@@ -142,38 +141,54 @@ export default function App() {
     return absensiMap;
   };
 
-  // Helper Parser Folder Timesheet
-  const parseTimesheetFolder = (targetMonth: string): Map<string, number> => {
-    const timesheetMap = new Map<string, number>();
+  // Helper Parser Folder Timesheet (Memisahkan Reguler & Overtime)
+  const parseTimesheetFolder = (targetMonth: string): Map<string, { reguler: number; overtime: number }> => {
+    const timesheetMap = new Map<string, { reguler: number; overtime: number }>();
     const monthLower = targetMonth.toLowerCase().trim();
     const monthPrefix = monthLower.slice(0, 3);
 
     Object.entries(allCsvFiles).forEach(([filePath, content]) => {
       const pathLower = filePath.toLowerCase();
 
+      // Lewati file absensi
       if (pathLower.includes('absensi_')) return;
 
+      // Cek apakah file berada di sub-folder bulan terkait
       const isTargetMonthFile = pathLower.includes(`/${monthLower}/`) || 
                                 pathLower.includes(`/${monthPrefix}/`) ||
                                 pathLower.includes(`\\${monthLower}\\`) ||
                                 pathLower.includes(`\\${monthPrefix}\\`);
 
       if (isTargetMonthFile && content) {
+        // Cek apakah file ini adalah Timesheet Overtime atau Timesheet Reguler
+        const isOvertimeFile = pathLower.includes('overtime') || 
+                               pathLower.includes('lembur') || 
+                               content.toLowerCase().includes('total overtime hours');
+
         const lines = content.split(/\r?\n/);
         lines.forEach((line, lineIdx) => {
-          if (lineIdx === 0 || !line.trim()) return;
+          if (lineIdx === 0 || !line.trim()) return; // Lewati header
 
           const parts = line.split(',');
           if (parts.length >= 3) {
+            // Nama berada setelah koma ke-2 (Index 2)
             const rawNama = parts[2] ? parts[2].replace(/"/g, '').trim() : '';
             const cleanNameKey = rawNama.toLowerCase().replace(/\s+/g, ' ').trim();
 
+            // Nilai persentase berada setelah koma terakhir
             const rawLastVal = parts[parts.length - 1] ? parts[parts.length - 1].replace(/"/g, '').trim() : '0';
             const numVal = parseValToNumber(rawLastVal);
 
             if (cleanNameKey) {
-              const currentTotal = timesheetMap.get(cleanNameKey) || 0;
-              timesheetMap.set(cleanNameKey, currentTotal + numVal);
+              const current = timesheetMap.get(cleanNameKey) || { reguler: 0, overtime: 0 };
+              
+              if (isOvertimeFile) {
+                current.overtime += numVal;
+              } else {
+                current.reguler += numVal;
+              }
+
+              timesheetMap.set(cleanNameKey, current);
             }
           }
         });
@@ -183,7 +198,7 @@ export default function App() {
     return timesheetMap;
   };
 
-  // Filter daftar departemen di menu utama
+  // Filter departemen di menu utama
   const filteredDepartments = departmentsData.filter((dept) => 
     dept.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (dept.description || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -207,11 +222,11 @@ export default function App() {
       return;
     }
 
-    // 1. Data Absensi & IPM
+    // 1. Data Absensi (Terlambat, Sakit, IPM)
     const rawCsvData = csvMonthMap[month.toLowerCase()] || '';
     const absensiDataMap = parseAbsensiCSV(rawCsvData);
 
-    // 2. Data Timesheet
+    // 2. Data Timesheet (Reguler & Overtime)
     const timesheetDataMap = parseTimesheetFolder(month);
 
     const worksheet = workbook.Sheets[targetSheetName];
@@ -293,7 +308,7 @@ export default function App() {
 
       const cleanName = person.nama.toLowerCase().replace(/\s+/g, ' ').trim();
       const absensi = absensiDataMap.get(cleanName);
-      const timesheetTotal = timesheetDataMap.get(cleanName) || 0;
+      const ts = timesheetDataMap.get(cleanName) || { reguler: 0, overtime: 0 };
 
       formattedData.push({
         nip: person.nip,
@@ -302,10 +317,11 @@ export default function App() {
         effectiveHour: Math.round(person.effectiveSum * 10) / 10,
         overtimeHour: Math.round(person.overtimeSum * 10) / 10,
         idleHour: Math.round(person.idleSum * 10) / 10,
-        timesheetHour: Math.round(timesheetTotal * 10) / 10,
+        timesheetReguler: Math.round(ts.reguler * 10) / 10,
+        timesheetOvertime: Math.round(ts.overtime * 10) / 10,
         terlambat: absensi ? absensi.terlambat : 0,
         sakit: absensi ? absensi.sakit : 0,
-        ipm: absensi ? absensi.ipm : 0, // Nilai IPM
+        ipm: absensi ? absensi.ipm : 0,
       });
     });
 
@@ -507,7 +523,7 @@ export default function App() {
           </div>
         )}
 
-        {/* LEVEL 3: TABEL LENGKAP DENGAN KOLOM IPM SETELAH SAKIT */}
+        {/* LEVEL 3: TABEL LENGKAP DENGAN 2 KOLOM TIMESHEET BERSEBELAHAN */}
         {selectedBiroPage && (
           <div className="space-y-6 animate-fadeIn">
             <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 sm:p-8">
@@ -556,26 +572,29 @@ export default function App() {
               </span>
             </div>
 
-            {/* Tabel Utama KPI + Timesheet + Terlambat + Sakit + IPM */}
+            {/* Tabel Utama KPI + 2 Kolom Timesheet + Terlambat + Sakit + IPM */}
             <div className="bg-slate-800/60 border border-slate-700/80 rounded-2xl overflow-hidden shadow-xl">
               {filteredTableData.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-sm">
                     <thead>
                       <tr className="bg-slate-800/90 text-slate-300 text-xs font-semibold uppercase tracking-wider border-b border-slate-700">
-                        <th className="py-4 px-3 w-12 text-center">No</th>
-                        <th className="py-4 px-4 w-36">NIP</th>
-                        <th className="py-4 px-4">Nama Pegawai</th>
+                        <th className="py-4 px-3 w-10 text-center">No</th>
+                        <th className="py-4 px-3 w-36">NIP</th>
+                        <th className="py-4 px-4 w-44">Nama Pegawai</th>
                         <th className="py-4 px-3 text-right">Planned</th>
                         <th className="py-4 px-3 text-right">Effective</th>
                         <th className="py-4 px-3 text-right">Overtime</th>
                         <th className="py-4 px-3 text-right">Idle</th>
-                        <th className="py-4 px-3 text-right text-indigo-400 bg-indigo-950/20">
-                          Pengisian Timesheet
+                        {/* 2 KOLOM TIMESHEET BERSEBELAHAN */}
+                        <th className="py-4 px-3 text-right text-indigo-400 bg-indigo-950/25 border-l border-slate-700/60">
+                          Timesheet Reguler
+                        </th>
+                        <th className="py-4 px-3 text-right text-violet-400 bg-violet-950/25 border-r border-slate-700/60">
+                          Timesheet Overtime
                         </th>
                         <th className="py-4 px-3 text-center text-rose-400 bg-rose-950/20">Terlambat</th>
                         <th className="py-4 px-3 text-center text-amber-400 bg-amber-950/20">Sakit</th>
-                        {/* KOLOM BARU: IPM */}
                         <th className="py-4 px-3 text-center text-purple-400 bg-purple-950/20">IPM</th>
                       </tr>
                     </thead>
@@ -583,7 +602,7 @@ export default function App() {
                       {filteredTableData.map((row, idx) => (
                         <tr key={idx} className="hover:bg-slate-700/40 transition">
                           <td className="py-3.5 px-3 text-center font-mono text-xs text-slate-400">{idx + 1}</td>
-                          <td className="py-3.5 px-4 font-mono font-medium text-blue-400">{row.nip}</td>
+                          <td className="py-3.5 px-3 font-mono font-medium text-blue-400">{row.nip}</td>
                           <td className="py-3.5 px-4 font-medium text-white">{row.nama}</td>
                           <td className="py-3.5 px-3 text-right font-mono font-bold text-emerald-400">
                             {row.plannedHour}
@@ -597,8 +616,13 @@ export default function App() {
                           <td className="py-3.5 px-3 text-right font-mono font-bold text-slate-300">
                             {row.idleHour}
                           </td>
-                          <td className="py-3.5 px-3 text-right font-mono font-bold text-indigo-300 bg-indigo-950/10">
-                            {row.timesheetHour}%
+                          {/* NILAI TIMESHEET REGULER */}
+                          <td className="py-3.5 px-3 text-right font-mono font-bold text-indigo-300 bg-indigo-950/10 border-l border-slate-700/40">
+                            {row.timesheetReguler}%
+                          </td>
+                          {/* NILAI TIMESHEET OVERTIME */}
+                          <td className="py-3.5 px-3 text-right font-mono font-bold text-violet-300 bg-violet-950/10 border-r border-slate-700/40">
+                            {row.timesheetOvertime}%
                           </td>
                           <td className="py-3.5 px-3 text-center font-mono font-bold text-rose-400 bg-rose-950/10">
                             {row.terlambat}
@@ -606,7 +630,6 @@ export default function App() {
                           <td className="py-3.5 px-3 text-center font-mono font-bold text-amber-400 bg-amber-950/10">
                             {row.sakit}
                           </td>
-                          {/* NILAI IPM */}
                           <td className="py-3.5 px-3 text-center font-mono font-bold text-purple-400 bg-purple-950/10">
                             {row.ipm}
                           </td>
