@@ -150,32 +150,27 @@ export default function App() {
     Object.entries(allCsvFiles).forEach(([filePath, content]) => {
       const pathLower = filePath.toLowerCase();
 
-      // Lewati file absensi
       if (pathLower.includes('absensi_')) return;
 
-      // Cek apakah file berada di sub-folder bulan terkait
       const isTargetMonthFile = pathLower.includes(`/${monthLower}/`) || 
                                 pathLower.includes(`/${monthPrefix}/`) ||
                                 pathLower.includes(`\\${monthLower}\\`) ||
                                 pathLower.includes(`\\${monthPrefix}\\`);
 
       if (isTargetMonthFile && content) {
-        // Cek apakah file ini adalah Timesheet Overtime atau Timesheet Reguler
         const isOvertimeFile = pathLower.includes('overtime') || 
                                pathLower.includes('lembur') || 
                                content.toLowerCase().includes('total overtime hours');
 
         const lines = content.split(/\r?\n/);
         lines.forEach((line, lineIdx) => {
-          if (lineIdx === 0 || !line.trim()) return; // Lewati header
+          if (lineIdx === 0 || !line.trim()) return;
 
           const parts = line.split(',');
           if (parts.length >= 3) {
-            // Nama berada setelah koma ke-2 (Index 2)
             const rawNama = parts[2] ? parts[2].replace(/"/g, '').trim() : '';
             const cleanNameKey = rawNama.toLowerCase().replace(/\s+/g, ' ').trim();
 
-            // Nilai persentase berada setelah koma terakhir
             const rawLastVal = parts[parts.length - 1] ? parts[parts.length - 1].replace(/"/g, '').trim() : '0';
             const numVal = parseValToNumber(rawLastVal);
 
@@ -222,11 +217,8 @@ export default function App() {
       return;
     }
 
-    // 1. Data Absensi (Terlambat, Sakit, IPM)
     const rawCsvData = csvMonthMap[month.toLowerCase()] || '';
     const absensiDataMap = parseAbsensiCSV(rawCsvData);
-
-    // 2. Data Timesheet (Reguler & Overtime)
     const timesheetDataMap = parseTimesheetFolder(month);
 
     const worksheet = workbook.Sheets[targetSheetName];
@@ -523,7 +515,7 @@ export default function App() {
           </div>
         )}
 
-        {/* LEVEL 3: TABEL LENGKAP DENGAN 2 KOLOM TIMESHEET BERSEBELAHAN */}
+        {/* LEVEL 3: TABEL DENGAN NILAI ANGKA YANG LEBIH BESAR & JELAS */}
         {selectedBiroPage && (
           <div className="space-y-6 animate-fadeIn">
             <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 sm:p-8">
@@ -572,65 +564,91 @@ export default function App() {
               </span>
             </div>
 
-            {/* Tabel Utama KPI + 2 Kolom Timesheet + Terlambat + Sakit + IPM */}
+            {/* TABEL DENGAN FONT ANGKA DIPERBESAR */}
             <div className="bg-slate-800/60 border border-slate-700/80 rounded-2xl overflow-hidden shadow-xl">
               {filteredTableData.length > 0 ? (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-sm">
+                  <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="bg-slate-800/90 text-slate-300 text-xs font-semibold uppercase tracking-wider border-b border-slate-700">
-                        <th className="py-4 px-3 w-10 text-center">No</th>
-                        <th className="py-4 px-3 w-36">NIP</th>
-                        <th className="py-4 px-4 w-44">Nama Pegawai</th>
-                        <th className="py-4 px-3 text-right">Planned</th>
-                        <th className="py-4 px-3 text-right">Effective</th>
-                        <th className="py-4 px-3 text-right">Overtime</th>
-                        <th className="py-4 px-3 text-right">Idle</th>
-                        {/* 2 KOLOM TIMESHEET BERSEBELAHAN */}
-                        <th className="py-4 px-3 text-right text-indigo-400 bg-indigo-950/25 border-l border-slate-700/60">
+                      <tr className="bg-slate-800/95 text-slate-300 text-xs sm:text-sm font-bold uppercase tracking-wider border-b border-slate-700">
+                        <th className="py-4 px-3 w-12 text-center">No</th>
+                        <th className="py-4 px-3 w-40">NIP</th>
+                        <th className="py-4 px-4 min-w-[200px]">Nama Pegawai</th>
+                        <th className="py-4 px-4 text-right">Planned</th>
+                        <th className="py-4 px-4 text-right">Effective</th>
+                        <th className="py-4 px-4 text-right">Overtime</th>
+                        <th className="py-4 px-4 text-right">Idle</th>
+                        <th className="py-4 px-4 text-right text-indigo-400 bg-indigo-950/30 border-l border-slate-700/70">
                           Timesheet Reguler
                         </th>
-                        <th className="py-4 px-3 text-right text-violet-400 bg-violet-950/25 border-r border-slate-700/60">
+                        <th className="py-4 px-4 text-right text-violet-400 bg-violet-950/30 border-r border-slate-700/70">
                           Timesheet Overtime
                         </th>
-                        <th className="py-4 px-3 text-center text-rose-400 bg-rose-950/20">Terlambat</th>
-                        <th className="py-4 px-3 text-center text-amber-400 bg-amber-950/20">Sakit</th>
-                        <th className="py-4 px-3 text-center text-purple-400 bg-purple-950/20">IPM</th>
+                        <th className="py-4 px-4 text-center text-rose-400 bg-rose-950/30">Terlambat</th>
+                        <th className="py-4 px-4 text-center text-amber-400 bg-amber-950/30">Sakit</th>
+                        <th className="py-4 px-4 text-center text-purple-400 bg-purple-950/30">IPM</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700/60 text-slate-200">
                       {filteredTableData.map((row, idx) => (
                         <tr key={idx} className="hover:bg-slate-700/40 transition">
-                          <td className="py-3.5 px-3 text-center font-mono text-xs text-slate-400">{idx + 1}</td>
-                          <td className="py-3.5 px-3 font-mono font-medium text-blue-400">{row.nip}</td>
-                          <td className="py-3.5 px-4 font-medium text-white">{row.nama}</td>
-                          <td className="py-3.5 px-3 text-right font-mono font-bold text-emerald-400">
+                          {/* NO */}
+                          <td className="py-4 px-3 text-center font-mono text-sm text-slate-400">
+                            {idx + 1}
+                          </td>
+
+                          {/* NIP */}
+                          <td className="py-4 px-3 font-mono text-sm font-semibold text-blue-400">
+                            {row.nip}
+                          </td>
+
+                          {/* NAMA PEGAWAI */}
+                          <td className="py-4 px-4 font-semibold text-white text-base">
+                            {row.nama}
+                          </td>
+
+                          {/* PLANNED HOUR (DIPERBESAR) */}
+                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-emerald-400">
                             {row.plannedHour}
                           </td>
-                          <td className="py-3.5 px-3 text-right font-mono font-bold text-cyan-400">
+
+                          {/* EFFECTIVE HOUR (DIPERBESAR) */}
+                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-cyan-400">
                             {row.effectiveHour}
                           </td>
-                          <td className="py-3.5 px-3 text-right font-mono font-bold text-amber-400">
+
+                          {/* OVERTIME HOUR (DIPERBESAR) */}
+                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-amber-400">
                             {row.overtimeHour}
                           </td>
-                          <td className="py-3.5 px-3 text-right font-mono font-bold text-slate-300">
+
+                          {/* IDLE HOUR (DIPERBESAR) */}
+                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-slate-200">
                             {row.idleHour}
                           </td>
-                          {/* NILAI TIMESHEET REGULER */}
-                          <td className="py-3.5 px-3 text-right font-mono font-bold text-indigo-300 bg-indigo-950/10 border-l border-slate-700/40">
+
+                          {/* TIMESHEET REGULER (DIPERBESAR) */}
+                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-indigo-300 bg-indigo-950/15 border-l border-slate-700/50">
                             {row.timesheetReguler}%
                           </td>
-                          {/* NILAI TIMESHEET OVERTIME */}
-                          <td className="py-3.5 px-3 text-right font-mono font-bold text-violet-300 bg-violet-950/10 border-r border-slate-700/40">
+
+                          {/* TIMESHEET OVERTIME (DIPERBESAR) */}
+                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-violet-300 bg-violet-950/15 border-r border-slate-700/50">
                             {row.timesheetOvertime}%
                           </td>
-                          <td className="py-3.5 px-3 text-center font-mono font-bold text-rose-400 bg-rose-950/10">
+
+                          {/* TERLAMBAT (DIPERBESAR) */}
+                          <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-rose-400 bg-rose-950/15">
                             {row.terlambat}
                           </td>
-                          <td className="py-3.5 px-3 text-center font-mono font-bold text-amber-400 bg-amber-950/10">
+
+                          {/* SAKIT (DIPERBESAR) */}
+                          <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-amber-400 bg-amber-950/15">
                             {row.sakit}
                           </td>
-                          <td className="py-3.5 px-3 text-center font-mono font-bold text-purple-400 bg-purple-950/10">
+
+                          {/* IPM (DIPERBESAR) */}
+                          <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-purple-400 bg-purple-950/15">
                             {row.ipm}
                           </td>
                         </tr>
