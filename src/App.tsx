@@ -22,10 +22,10 @@ import {
   Search, 
   ChevronRight, 
   Building2, 
-  Calendar,
-  FileSpreadsheet,
-  Loader2,
-  LucideIcon
+  Calendar, 
+  FileSpreadsheet, 
+  Loader2, 
+  LucideIcon 
 } from 'lucide-react';
 
 const iconMap: Record<string, LucideIcon> = {
@@ -39,12 +39,12 @@ const iconMap: Record<string, LucideIcon> = {
 
 // Peta CSV Absensi
 const csvMonthMap: Record<string, string> = {
-  'januari': csvJan,
-  'februari': csvFeb,
-  'maret': csvMar,
-  'april': csvApr,
-  'mei': csvMei,
-  'juni': csvJun,
+  januari: csvJan,
+  februari: csvFeb,
+  maret: csvMar,
+  april: csvApr,
+  mei: csvMei,
+  juni: csvJun,
 };
 
 // Membaca semua file CSV/TXT di sub-folder src/ secara otomatis
@@ -57,7 +57,6 @@ const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', {
 interface ExcelRow {
   nip: string;
   nama: string;
-  plannedHour: number;
   effectiveHour: number;
   overtimeHour: number;
   idleHour: number;
@@ -150,8 +149,10 @@ export default function App() {
     Object.entries(allCsvFiles).forEach(([filePath, content]) => {
       const pathLower = filePath.toLowerCase();
 
+      // Lewati file absensi
       if (pathLower.includes('absensi_')) return;
 
+      // Cek apakah file berada di sub-folder bulan terkait
       const isTargetMonthFile = pathLower.includes(`/${monthLower}/`) || 
                                 pathLower.includes(`/${monthPrefix}/`) ||
                                 pathLower.includes(`\\${monthLower}\\`) ||
@@ -199,7 +200,7 @@ export default function App() {
     (dept.description || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // 2. Fungsi Hitung Seluruh Metrik
+  // 2. Fungsi Hitung Seluruh Metrik (Tanpa Planned Hour)
   const handleMonthClick = (biroName: string, month: string) => {
     if (!workbook) {
       alert("File Excel sedang dimuat atau belum terbaca.");
@@ -227,7 +228,6 @@ export default function App() {
     const personMap = new Map<string, {
       nip: string;
       nama: string;
-      groupsC: Map<string, number>;
       effectiveSum: number;
       overtimeSum: number;
       idleSum: number;
@@ -244,8 +244,6 @@ export default function App() {
 
       const colA_NIP   = String(row[0] || '').trim();  // Kolom A
       const colB_Nama  = String(row[1] || '').trim();  // Kolom B
-      const colC_Val   = String(row[2] || 'DEFAULT_C').trim(); // Kolom C
-      const colG_Val   = parseValToNumber(row[6]);     // Kolom G (Planned)
       const colH_Biro  = String(row[7] || '').trim();  // Kolom H (Biro)
       const colK_Eff   = parseValToNumber(row[10]);    // Kolom K (Effective)
       const colL_Ot    = parseValToNumber(row[11]);    // Kolom L (Overtime)
@@ -269,7 +267,6 @@ export default function App() {
           personMap.set(personKey, {
             nip: colA_NIP || '-',
             nama: colB_Nama || '-',
-            groupsC: new Map<string, number>(),
             effectiveSum: 0,
             overtimeSum: 0,
             idleSum: 0,
@@ -277,12 +274,6 @@ export default function App() {
         }
 
         const person = personMap.get(personKey)!;
-
-        // Planned Hour (Max Kolom G per Kolom C)
-        const currentMaxG = person.groupsC.get(colC_Val) ?? -Infinity;
-        if (colG_Val > currentMaxG) {
-          person.groupsC.set(colC_Val, colG_Val);
-        }
 
         person.effectiveSum += colK_Eff;
         person.overtimeSum += colL_Ot;
@@ -293,11 +284,6 @@ export default function App() {
     // Susun data akhir tabel
     const formattedData: ExcelRow[] = [];
     personMap.forEach((person) => {
-      let totalPlanned = 0;
-      person.groupsC.forEach((maxValG) => {
-        totalPlanned += maxValG;
-      });
-
       const cleanName = person.nama.toLowerCase().replace(/\s+/g, ' ').trim();
       const absensi = absensiDataMap.get(cleanName);
       const ts = timesheetDataMap.get(cleanName) || { reguler: 0, overtime: 0 };
@@ -305,7 +291,6 @@ export default function App() {
       formattedData.push({
         nip: person.nip,
         nama: person.nama,
-        plannedHour: Math.round(totalPlanned * 10) / 10,
         effectiveHour: Math.round(person.effectiveSum * 10) / 10,
         overtimeHour: Math.round(person.overtimeSum * 10) / 10,
         idleHour: Math.round(person.idleSum * 10) / 10,
@@ -515,7 +500,7 @@ export default function App() {
           </div>
         )}
 
-        {/* LEVEL 3: TABEL DENGAN NILAI ANGKA YANG LEBIH BESAR & JELAS */}
+        {/* LEVEL 3: TABEL LENGKAP TANPA PLANNED HOUR (11 KOLOM PRESISI) */}
         {selectedBiroPage && (
           <div className="space-y-6 animate-fadeIn">
             <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 sm:p-8">
@@ -564,7 +549,7 @@ export default function App() {
               </span>
             </div>
 
-            {/* TABEL DENGAN FONT ANGKA DIPERBESAR */}
+            {/* TABEL 11 KOLOM PRESISI */}
             <div className="bg-slate-800/60 border border-slate-700/80 rounded-2xl overflow-hidden shadow-xl">
               {filteredTableData.length > 0 ? (
                 <div className="overflow-x-auto">
@@ -574,7 +559,6 @@ export default function App() {
                         <th className="py-4 px-3 w-12 text-center">No</th>
                         <th className="py-4 px-3 w-40">NIP</th>
                         <th className="py-4 px-4 min-w-[200px]">Nama Pegawai</th>
-                        {/* <th className="py-4 px-4 text-right">Planned (Hour)</th> */}
                         <th className="py-4 px-4 text-right">Effective (Hour)</th>
                         <th className="py-4 px-4 text-right">Overtime (Hour)</th>
                         <th className="py-4 px-4 text-right">Idle (Hour)</th>
@@ -592,62 +576,57 @@ export default function App() {
                     <tbody className="divide-y divide-slate-700/60 text-slate-200">
                       {filteredTableData.map((row, idx) => (
                         <tr key={idx} className="hover:bg-slate-700/40 transition">
-                          {/* NO */}
+                          {/* 1. NO */}
                           <td className="py-4 px-3 text-center font-mono text-sm text-slate-400">
                             {idx + 1}
                           </td>
 
-                          {/* NIP */}
+                          {/* 2. NIP */}
                           <td className="py-4 px-3 font-mono text-sm font-semibold text-blue-400">
                             {row.nip}
                           </td>
 
-                          {/* NAMA PEGAWAI */}
+                          {/* 3. NAMA PEGAWAI */}
                           <td className="py-4 px-4 font-semibold text-white text-base">
                             {row.nama}
                           </td>
 
-                          {/* PLANNED HOUR (DIPERBESAR) */}
-                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-emerald-400">
-                            {row.plannedHour}
-                          </td>
-
-                          {/* EFFECTIVE HOUR (DIPERBESAR) */}
+                          {/* 4. EFFECTIVE HOUR */}
                           <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-cyan-400">
                             {row.effectiveHour}
                           </td>
 
-                          {/* OVERTIME HOUR (DIPERBESAR) */}
+                          {/* 5. OVERTIME HOUR */}
                           <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-amber-400">
                             {row.overtimeHour}
                           </td>
 
-                          {/* IDLE HOUR (DIPERBESAR) */}
+                          {/* 6. IDLE HOUR */}
                           <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-slate-200">
                             {row.idleHour}
                           </td>
 
-                          {/* TIMESHEET REGULER (DIPERBESAR) */}
+                          {/* 7. TIMESHEET REGULER */}
                           <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-indigo-300 bg-indigo-950/15 border-l border-slate-700/50">
                             {row.timesheetReguler}%
                           </td>
 
-                          {/* TIMESHEET OVERTIME (DIPERBESAR) */}
+                          {/* 8. TIMESHEET OVERTIME */}
                           <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-violet-300 bg-violet-950/15 border-r border-slate-700/50">
                             {row.timesheetOvertime}%
                           </td>
 
-                          {/* TERLAMBAT (DIPERBESAR) */}
+                          {/* 9. TERLAMBAT */}
                           <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-rose-400 bg-rose-950/15">
                             {row.terlambat}
                           </td>
 
-                          {/* SAKIT (DIPERBESAR) */}
+                          {/* 10. SAKIT */}
                           <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-amber-400 bg-amber-950/15">
                             {row.sakit}
                           </td>
 
-                          {/* IPM (DIPERBESAR) */}
+                          {/* 11. IPM */}
                           <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-purple-400 bg-purple-950/15">
                             {row.ipm}
                           </td>
