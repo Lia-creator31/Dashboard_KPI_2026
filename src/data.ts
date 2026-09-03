@@ -40,7 +40,7 @@ export const departmentsData: Department[] = [
     name: "Departemen Desain Dasar",
     icon: "CircleDollarSign",
     biros: [
-      { id: "b-201", name: "Biro Desain Pengembangan Desain" },
+      { id: "b-201", name: "Biro Desain Dasar Pengembangan Desain" },
       { id: "b-202", name: "Biro Desain Dasar Kapal Selam" },
       { id: "b-203", name: "Biro Desain Dasar Non Kapal" },
       { id: "b-204", name: "Biro Desain Dasar Kapal Permukaan" }
