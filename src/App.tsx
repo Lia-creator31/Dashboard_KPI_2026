@@ -575,8 +575,8 @@ export default function App() {
                         <th className="py-4 px-3 w-40">NIP</th>
                         <th className="py-4 px-4 min-w-[200px]">Nama Pegawai</th>
                         <th className="py-4 px-4 text-right">Planned (Hour)</th>
-                        <th className="py-4 px-4 text-right">Effective</th>
-                        <th className="py-4 px-4 text-right">Overtime</th>
+                        <th className="py-4 px-4 text-right">Effective (Hour)</th>
+                        <th className="py-4 px-4 text-right">Overtime (Hour)</th>
                         <th className="py-4 px-4 text-right">Idle</th>
                         <th className="py-4 px-4 text-right text-indigo-400 bg-indigo-950/30 border-l border-slate-700/70">
                           Timesheet Reguler
