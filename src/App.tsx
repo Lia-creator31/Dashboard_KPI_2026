@@ -37,7 +37,7 @@ const iconMap: Record<string, LucideIcon> = {
   Laptop,
 };
 
-// Peta CSV Absensi per bulan
+// Peta CSV Absensi
 const csvMonthMap: Record<string, string> = {
   'januari': csvJan,
   'februari': csvFeb,
@@ -47,8 +47,8 @@ const csvMonthMap: Record<string, string> = {
   'juni': csvJun,
 };
 
-// Pembacaan otomatis seluruh file di dalam folder src/timesheet/*/*
-const timesheetGlobFiles = import.meta.glob('./timesheet/*/*.{csv,txt}', { 
+// Membaca file CSV Timesheet di sub-folder src/ secara otomatis
+const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', { 
   query: '?raw', 
   import: 'default', 
   eager: true 
@@ -64,6 +64,7 @@ interface ExcelRow {
   timesheetHour: number;
   terlambat: number;
   sakit: number;
+  ipm: number; // Kolom IPM Baru
 }
 
 interface SelectedBiroPage {
@@ -81,7 +82,7 @@ export default function App() {
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [isLoadingExcel, setIsLoadingExcel] = useState<boolean>(true);
 
-  // 1. Baca file Excel KPI saat web pertama dibuka
+  // 1. Baca file Excel KPI saat pertama dibuka
   useEffect(() => {
     async function loadExcel() {
       try {
@@ -99,7 +100,7 @@ export default function App() {
     loadExcel();
   }, []);
 
-  // Helper konversi angka aman
+  // Helper konversi angka yang aman
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
     if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -108,9 +109,9 @@ export default function App() {
     return isNaN(num) ? 0 : num;
   };
 
-  // Helper Parser CSV Absensi
-  const parseAbsensiCSV = (csvContent: string): Map<string, { terlambat: number; sakit: number }> => {
-    const absensiMap = new Map<string, { terlambat: number; sakit: number }>();
+  // Helper Parser CSV Absensi (Terlambat, Sakit, dan IPM di nilai paling akhir)
+  const parseAbsensiCSV = (csvContent: string): Map<string, { terlambat: number; sakit: number; ipm: number }> => {
+    const absensiMap = new Map<string, { terlambat: number; sakit: number; ipm: number }>();
     if (!csvContent) return absensiMap;
 
     const lines = csvContent.split(/\r?\n/);
@@ -119,16 +120,20 @@ export default function App() {
 
       const parts = line.split(',');
       if (parts.length >= 6) {
+        // Nama berada di antara koma ke-1 dan ke-2 (Index 1)
         const rawNama = parts[1] ? parts[1].trim() : '';
         const cleanNameKey = rawNama.toLowerCase().replace(/\s+/g, ' ').trim();
 
+        // Terlambat, Sakit, dan IPM (Nilai Paling Akhir)
         const terlambatVal = parseValToNumber(parts[parts.length - 3] ?? parts[4]);
         const sakitVal = parseValToNumber(parts[parts.length - 2] ?? parts[5]);
+        const ipmVal = parseValToNumber(parts[parts.length - 1] ?? parts[6]); // Nilai paling akhir
 
         if (cleanNameKey) {
           absensiMap.set(cleanNameKey, {
             terlambat: terlambatVal,
-            sakit: sakitVal
+            sakit: sakitVal,
+            ipm: ipmVal
           });
         }
       }
@@ -137,27 +142,32 @@ export default function App() {
     return absensiMap;
   };
 
-  // Helper Parser 6 Folder Timesheet (Nama: setelah koma ke-2, Nilai: setelah koma terakhir)
+  // Helper Parser Folder Timesheet
   const parseTimesheetFolder = (targetMonth: string): Map<string, number> => {
     const timesheetMap = new Map<string, number>();
-    const cleanMonth = targetMonth.toLowerCase().trim();
+    const monthLower = targetMonth.toLowerCase().trim();
+    const monthPrefix = monthLower.slice(0, 3);
 
-    Object.entries(timesheetGlobFiles).forEach(([filePath, content]) => {
+    Object.entries(allCsvFiles).forEach(([filePath, content]) => {
       const pathLower = filePath.toLowerCase();
-      // Pastikan file berasal dari sub-folder bulan yang sedang dipilih
-      if (pathLower.includes(`/timesheet/${cleanMonth}/`) || pathLower.includes(`/${cleanMonth}/`)) {
+
+      if (pathLower.includes('absensi_')) return;
+
+      const isTargetMonthFile = pathLower.includes(`/${monthLower}/`) || 
+                                pathLower.includes(`/${monthPrefix}/`) ||
+                                pathLower.includes(`\\${monthLower}\\`) ||
+                                pathLower.includes(`\\${monthPrefix}\\`);
+
+      if (isTargetMonthFile && content) {
         const lines = content.split(/\r?\n/);
         lines.forEach((line, lineIdx) => {
-          if (lineIdx === 0 || !line.trim()) return; // Lewati header
+          if (lineIdx === 0 || !line.trim()) return;
 
           const parts = line.split(',');
-          // Minimal ada 3 kolom (0: Divisi, 1: Departemen, 2: Nama, ... terakhir: Nilai)
           if (parts.length >= 3) {
-            // Nama berada setelah koma ke-2 dan sebelum koma ke-3 (Index 2)
             const rawNama = parts[2] ? parts[2].replace(/"/g, '').trim() : '';
             const cleanNameKey = rawNama.toLowerCase().replace(/\s+/g, ' ').trim();
 
-            // Nilai berada setelah koma terakhir (Index terakhir)
             const rawLastVal = parts[parts.length - 1] ? parts[parts.length - 1].replace(/"/g, '').trim() : '0';
             const numVal = parseValToNumber(rawLastVal);
 
@@ -197,11 +207,11 @@ export default function App() {
       return;
     }
 
-    // 1. Data Absensi
+    // 1. Data Absensi & IPM
     const rawCsvData = csvMonthMap[month.toLowerCase()] || '';
     const absensiDataMap = parseAbsensiCSV(rawCsvData);
 
-    // 2. Data Timesheet dari Folder Bulan Terkait
+    // 2. Data Timesheet
     const timesheetDataMap = parseTimesheetFolder(month);
 
     const worksheet = workbook.Sheets[targetSheetName];
@@ -295,6 +305,7 @@ export default function App() {
         timesheetHour: Math.round(timesheetTotal * 10) / 10,
         terlambat: absensi ? absensi.terlambat : 0,
         sakit: absensi ? absensi.sakit : 0,
+        ipm: absensi ? absensi.ipm : 0, // Nilai IPM
       });
     });
 
@@ -496,7 +507,7 @@ export default function App() {
           </div>
         )}
 
-        {/* LEVEL 3: TABEL LENGKAP DENGAN KOLOM PENGISIAN TIMESHEET */}
+        {/* LEVEL 3: TABEL LENGKAP DENGAN KOLOM IPM SETELAH SAKIT */}
         {selectedBiroPage && (
           <div className="space-y-6 animate-fadeIn">
             <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 sm:p-8">
@@ -545,7 +556,7 @@ export default function App() {
               </span>
             </div>
 
-            {/* Tabel KPI + Pengisian Timesheet + Terlambat & Sakit */}
+            {/* Tabel Utama KPI + Timesheet + Terlambat + Sakit + IPM */}
             <div className="bg-slate-800/60 border border-slate-700/80 rounded-2xl overflow-hidden shadow-xl">
               {filteredTableData.length > 0 ? (
                 <div className="overflow-x-auto">
@@ -559,12 +570,13 @@ export default function App() {
                         <th className="py-4 px-3 text-right">Effective</th>
                         <th className="py-4 px-3 text-right">Overtime</th>
                         <th className="py-4 px-3 text-right">Idle</th>
-                        {/* KOLOM BARU: PENGISIAN TIMESHEET */}
                         <th className="py-4 px-3 text-right text-indigo-400 bg-indigo-950/20">
                           Pengisian Timesheet
                         </th>
                         <th className="py-4 px-3 text-center text-rose-400 bg-rose-950/20">Terlambat</th>
                         <th className="py-4 px-3 text-center text-amber-400 bg-amber-950/20">Sakit</th>
+                        {/* KOLOM BARU: IPM */}
+                        <th className="py-4 px-3 text-center text-purple-400 bg-purple-950/20">IPM</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-700/60 text-slate-200">
@@ -585,7 +597,6 @@ export default function App() {
                           <td className="py-3.5 px-3 text-right font-mono font-bold text-slate-300">
                             {row.idleHour}
                           </td>
-                          {/* NILAI PENGISIAN TIMESHEET */}
                           <td className="py-3.5 px-3 text-right font-mono font-bold text-indigo-300 bg-indigo-950/10">
                             {row.timesheetHour}%
                           </td>
@@ -594,6 +605,10 @@ export default function App() {
                           </td>
                           <td className="py-3.5 px-3 text-center font-mono font-bold text-amber-400 bg-amber-950/10">
                             {row.sakit}
+                          </td>
+                          {/* NILAI IPM */}
+                          <td className="py-3.5 px-3 text-center font-mono font-bold text-purple-400 bg-purple-950/10">
+                            {row.ipm}
                           </td>
                         </tr>
                       ))}
