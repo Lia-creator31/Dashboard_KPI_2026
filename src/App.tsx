@@ -24,6 +24,8 @@ import {
   Building2, 
   Calendar, 
   FileSpreadsheet, 
+  FileText,
+  Send,
   Loader2, 
   LucideIcon 
 } from 'lucide-react';
@@ -73,9 +75,15 @@ interface SelectedBiroPage {
   data: ExcelRow[];
 }
 
+interface SelectedFormPage {
+  biroName: string;
+  deptName: string;
+}
+
 export default function App() {
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedBiroPage, setSelectedBiroPage] = useState<SelectedBiroPage | null>(null);
+  const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [tableSearch, setTableSearch] = useState('');
   
@@ -149,10 +157,8 @@ export default function App() {
     Object.entries(allCsvFiles).forEach(([filePath, content]) => {
       const pathLower = filePath.toLowerCase();
 
-      // Lewati file absensi
       if (pathLower.includes('absensi_')) return;
 
-      // Cek apakah file berada di sub-folder bulan terkait
       const isTargetMonthFile = pathLower.includes(`/${monthLower}/`) || 
                                 pathLower.includes(`/${monthPrefix}/`) ||
                                 pathLower.includes(`\\${monthLower}\\`) ||
@@ -200,7 +206,7 @@ export default function App() {
     (dept.description || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // 2. Fungsi Hitung Seluruh Metrik (Tanpa Planned Hour)
+  // 2. Fungsi Hitung Seluruh Metrik
   const handleMonthClick = (biroName: string, month: string) => {
     if (!workbook) {
       alert("File Excel sedang dimuat atau belum terbaca.");
@@ -323,6 +329,7 @@ export default function App() {
           <div 
             className="flex items-center gap-3 cursor-pointer select-none" 
             onClick={() => {
+              setSelectedFormBiro(null);
               setSelectedBiroPage(null);
               setSelectedDept(null);
             }}
@@ -336,7 +343,16 @@ export default function App() {
             </div>
           </div>
 
-          {selectedBiroPage ? (
+          {/* Tombol Back Cerdas di Navbar */}
+          {selectedFormBiro ? (
+            <button
+              onClick={() => setSelectedFormBiro(null)}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Kembali ke Daftar Biro
+            </button>
+          ) : selectedBiroPage ? (
             <button
               onClick={() => setSelectedBiroPage(null)}
               className="flex items-center gap-2 px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition cursor-pointer"
@@ -360,7 +376,7 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
         {/* LEVEL 1: 6 DEPARTEMEN */}
-        {!selectedDept && !selectedBiroPage && (
+        {!selectedDept && !selectedBiroPage && !selectedFormBiro && (
           <div className="space-y-8 animate-fadeIn">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-800 pb-6">
               <div>
@@ -423,7 +439,7 @@ export default function App() {
         )}
 
         {/* LEVEL 2: DAFTAR BIRO */}
-        {selectedDept && !selectedBiroPage && (
+        {selectedDept && !selectedBiroPage && !selectedFormBiro && (
           <div className="space-y-8 animate-fadeIn">
             <div className="bg-gradient-to-r from-blue-900/40 to-slate-800 border border-blue-500/20 rounded-2xl p-6 sm:p-8">
               <button
@@ -458,44 +474,177 @@ export default function App() {
               </h3>
               
               <div className="space-y-4">
-                {selectedDept.biros.map((biro, index) => (
-                  <div
-                    key={biro.id}
-                    className="bg-slate-800/70 border border-slate-700/80 rounded-xl p-5 sm:p-6 hover:border-slate-600 transition shadow-sm"
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-700/60 mb-4">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-mono font-bold px-2.5 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded">
-                          Biro 0{index + 1}
-                        </span>
-                        <h4 className="text-base font-bold text-white">{biro.name}</h4>
-                      </div>
-                      <span className="text-xs text-slate-400 flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5 text-blue-400" /> Pilih Bulan (Jan - Jun 2026)
-                      </span>
-                    </div>
+                {selectedDept.biros.map((biro, index) => {
+                  // Cek apakah departemen saat ini adalah Departemen Desain Dasar
+                  const isDesainDasar = selectedDept.name.toLowerCase().includes('desain dasar');
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
-                      {monthList.map((month) => {
-                        return (
-                          <button
-                            key={month}
-                            onClick={() => handleMonthClick(biro.name, month)}
-                            disabled={isLoadingExcel}
-                            className="px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all duration-150 flex items-center justify-center cursor-pointer border bg-slate-800/90 hover:bg-blue-600 hover:text-white border-slate-700 text-slate-300 hover:border-blue-500 disabled:opacity-50"
-                          >
-                            {isLoadingExcel ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              month
-                            )}
-                          </button>
-                        );
-                      })}
+                  return (
+                    <div
+                      key={biro.id}
+                      className="bg-slate-800/70 border border-slate-700/80 rounded-xl p-5 sm:p-6 hover:border-slate-600 transition shadow-sm"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-700/60 mb-4">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="text-xs font-mono font-bold px-2.5 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded">
+                            Biro 0{index + 1}
+                          </span>
+                          <h4 className="text-base font-bold text-white">{biro.name}</h4>
+
+                          {/* TOMBOL "FORM" KHUSUS DEPARTEMEN DESAIN DASAR */}
+                          {isDesainDasar && (
+                            <button
+                              onClick={() => setSelectedFormBiro({
+                                biroName: biro.name,
+                                deptName: selectedDept.name
+                              })}
+                              className="px-3 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-lg border border-emerald-400/40 shadow-md shadow-emerald-900/30 transition-all duration-150 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              FORM
+                            </button>
+                          )}
+                        </div>
+                        <span className="text-xs text-slate-400 flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-blue-400" /> Pilih Bulan (Jan - Jun 2026)
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
+                        {monthList.map((month) => {
+                          return (
+                            <button
+                              key={month}
+                              onClick={() => handleMonthClick(biro.name, month)}
+                              disabled={isLoadingExcel}
+                              className="px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all duration-150 flex items-center justify-center cursor-pointer border bg-slate-800/90 hover:bg-blue-600 hover:text-white border-slate-700 text-slate-300 hover:border-blue-500 disabled:opacity-50"
+                            >
+                              {isLoadingExcel ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                month
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= HALAMAN BARU: FORMULIR BIRO ================= */}
+        {selectedFormBiro && (
+          <div className="space-y-6 animate-fadeIn">
+            {/* Header Halaman Form */}
+            <div className="bg-gradient-to-r from-teal-900/40 via-slate-800 to-slate-800 border border-emerald-500/20 rounded-2xl p-6 sm:p-8">
+              <button
+                onClick={() => setSelectedFormBiro(null)}
+                className="inline-flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 font-medium mb-3 transition cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" /> Kembali ke Daftar Biro
+              </button>
+
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-1">
+                    <FileText className="w-4 h-4" />
+                    <span>Formulir Biro — {selectedFormBiro.deptName}</span>
+                  </div>
+                  <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
+                    {selectedFormBiro.biroName}
+                  </h2>
+                  <p className="text-slate-400 text-sm mt-1">
+                    Pengisian Data, Evaluasi & Rencana Tindak Lanjut Biro Desain
+                  </p>
+                </div>
+
+                <span className="px-3.5 py-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-semibold self-start md:self-auto">
+                  STATUS: AKTIF
+                </span>
+              </div>
+            </div>
+
+            {/* Konten Formulir */}
+            <div className="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-xl max-w-4xl mx-auto space-y-6">
+              <div className="border-b border-slate-700/60 pb-4">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-emerald-400" />
+                  Formulir Kegiatan & Catatan Biro
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Silakan isi informasi catatan kemajuan, kendala pekerjaan, atau laporan teknis terkait biro ini.
+                </p>
+              </div>
+
+              <form onSubmit={(e) => { e.preventDefault(); alert("Data formulir berhasil disimpan!"); }} className="space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                      Nama Pengisi / Penanggung Jawab
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Masukkan nama Anda..."
+                      required
+                      className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                      Periode Bulan Pelaporan
+                    </label>
+                    <select className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                      {monthList.map((m) => (
+                        <option key={m} value={m}>{m} 2026</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                    Ringkasan Capaian & Pekerjaan Utama
+                  </label>
+                  <textarea
+                    rows={4}
+                    placeholder="Tuliskan progres pekerjaan desain, penyelesaian gambar, atau review teknis..."
+                    required
+                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  ></textarea>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                    Kendala / Hambatan Pekerjaan (Jika Ada)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Tuliskan kendala teknis atau kebutuhan dukungan koordinasi antar biro/departemen..."
+                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  ></textarea>
+                </div>
+
+                <div className="pt-4 border-t border-slate-700/60 flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFormBiro(null)}
+                    className="px-5 py-2.5 bg-slate-700/80 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-semibold transition cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-900/30 transition flex items-center gap-2 cursor-pointer"
+                  >
+                    <Send className="w-4 h-4" />
+                    Simpan Formulir
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -576,57 +725,36 @@ export default function App() {
                     <tbody className="divide-y divide-slate-700/60 text-slate-200">
                       {filteredTableData.map((row, idx) => (
                         <tr key={idx} className="hover:bg-slate-700/40 transition">
-                          {/* 1. NO */}
                           <td className="py-4 px-3 text-center font-mono text-sm text-slate-400">
                             {idx + 1}
                           </td>
-
-                          {/* 2. NIP */}
                           <td className="py-4 px-3 font-mono text-sm font-semibold text-blue-400">
                             {row.nip}
                           </td>
-
-                          {/* 3. NAMA PEGAWAI */}
                           <td className="py-4 px-4 font-semibold text-white text-base">
                             {row.nama}
                           </td>
-
-                          {/* 4. EFFECTIVE HOUR */}
                           <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-cyan-400">
                             {row.effectiveHour}
                           </td>
-
-                          {/* 5. OVERTIME HOUR */}
                           <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-amber-400">
                             {row.overtimeHour}
                           </td>
-
-                          {/* 6. IDLE HOUR */}
                           <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-slate-200">
                             {row.idleHour}
                           </td>
-
-                          {/* 7. TIMESHEET REGULER */}
                           <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-indigo-300 bg-indigo-950/15 border-l border-slate-700/50">
                             {row.timesheetReguler}%
                           </td>
-
-                          {/* 8. TIMESHEET OVERTIME */}
                           <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-violet-300 bg-violet-950/15 border-r border-slate-700/50">
                             {row.timesheetOvertime}%
                           </td>
-
-                          {/* 9. TERLAMBAT */}
                           <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-rose-400 bg-rose-950/15">
                             {row.terlambat}
                           </td>
-
-                          {/* 10. SAKIT */}
                           <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-amber-400 bg-amber-950/15">
                             {row.sakit}
                           </td>
-
-                          {/* 11. IPM */}
                           <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-purple-400 bg-purple-950/15">
                             {row.ipm}
                           </td>
