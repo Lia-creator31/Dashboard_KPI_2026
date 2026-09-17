@@ -32,6 +32,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Hash,
+  RotateCcw,
   Loader2, 
   LucideIcon 
 } from 'lucide-react';
@@ -83,14 +84,13 @@ interface ExcelRow {
 }
 
 interface TaskItem {
-  id?: string;
+  id: string;
   project: string;
   taskName: string;
   startDate: string;
   endDate: string;
-  pic?: string;
-  jo?: string;
-  isManual?: boolean;
+  pic: string;
+  jo: string;
 }
 
 interface PersonilCardGroup {
@@ -109,12 +109,10 @@ interface SelectedFormPage {
   deptName: string;
 }
 
-// Helper normalisasi teks
 function cleanText(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
 
-// Helper pencocokan nama biro yang fleksibel
 function isBiroMatch(biro1: string, biro2: string): boolean {
   const b1 = (biro1 || '').toLowerCase();
   const b2 = (biro2 || '').toLowerCase();
@@ -136,7 +134,6 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
   return false;
 }
 
-// Helper fetch Excel yang aman
 async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
   for (const p of paths) {
     if (!p) continue;
@@ -150,7 +147,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
         }
       }
     } catch {
-      // Coba path alternatif berikutnya
+      // Lanjut coba path berikutnya
     }
   }
   return null;
@@ -164,7 +161,7 @@ export default function App() {
   const [tableSearch, setTableSearch] = useState('');
   const [outputSearch, setOutputSearch] = useState('');
   
-  // State Input Formulir
+  // 7 Input Form State
   const [formData, setFormData] = useState({
     nama: '',
     kodeProyek: '',
@@ -175,26 +172,24 @@ export default function App() {
     jo: ''
   });
 
-  // State Task yang diinput manual lewat formulir
-  const [manualTasks, setManualTasks] = useState<{ [biroName: string]: TaskItem[] }>(() => {
+  // Murni Data Hasil Input Form (Mulai Bersih dari 0)
+  const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>(() => {
     try {
-      const saved = localStorage.getItem('kpi_manual_tasks');
+      const saved = localStorage.getItem('kpi_form_database');
       return saved ? JSON.parse(saved) : {};
     } catch {
       return {};
     }
   });
 
-  // State Accordion Buka/Tutup Card per Pegawai
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
-  // State Workbooks
+  // Workbooks
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [strukturWorkbook, setStrukturWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [isLoadingExcel, setIsLoadingExcel] = useState<boolean>(true);
 
-  // 1. Membaca ketiga file Excel secara aman dari folder src/
   useEffect(() => {
     async function loadAllExcelFiles() {
       try {
@@ -243,7 +238,6 @@ export default function App() {
     return isNaN(num) ? 0 : num;
   };
 
-  // Parser CSV Absensi
   const parseAbsensiCSV = (csvContent: string): Map<string, { terlambat: number; sakit: number; ipm: number }> => {
     const absensiMap = new Map<string, { terlambat: number; sakit: number; ipm: number }>();
     if (!csvContent) return absensiMap;
@@ -269,7 +263,6 @@ export default function App() {
     return absensiMap;
   };
 
-  // Parser Folder Timesheet
   const parseTimesheetFolder = (targetMonth: string): Map<string, { reguler: number; overtime: number }> => {
     const timesheetMap = new Map<string, { reguler: number; overtime: number }>();
     const monthLower = targetMonth.toLowerCase().trim();
@@ -316,9 +309,7 @@ export default function App() {
     return timesheetMap;
   };
 
-  // 2. HELPER SUMBER DATA DROPDOWN FORMULIR
-
-  // [1] Dropdown Nama: Personil di biro terkait dari file Struktur
+  // 1. Ambil Nama Personil Murni Sesuai Biro dari Sheet CalonPers
   const getBiroMembers = (biroName: string): string[] => {
     if (!strukturWorkbook) return [];
     const sheet = strukturWorkbook.Sheets['CalonPers'] || strukturWorkbook.Sheets[strukturWorkbook.SheetNames[0]];
@@ -366,7 +357,7 @@ export default function App() {
     return members;
   };
 
-  // [2] Dropdown Kode Proyek: Dari sheet BASIC JOBCARD DESAIN (Kolom C)
+  // 2. Dropdown Kode Proyek dari Sheet BASIC JOBCARD_DESAIN
   const getJobcardProjects = (): string[] => {
     if (!jobcardWorkbook) return [];
     const basicSheetName = jobcardWorkbook.SheetNames.find(s => s.trim().toUpperCase() === 'BASIC') || jobcardWorkbook.SheetNames[0];
@@ -385,7 +376,7 @@ export default function App() {
     return Array.from(projects).sort();
   };
 
-  // [3] Dropdown Task Name: Dari sheet BASIC JOBCARD DESAIN (Kolom D)
+  // 3. Dropdown Task Name dari Sheet BASIC JOBCARD_DESAIN
   const getJobcardTasks = (): string[] => {
     if (!jobcardWorkbook) return [];
     const basicSheetName = jobcardWorkbook.SheetNames.find(s => s.trim().toUpperCase() === 'BASIC') || jobcardWorkbook.SheetNames[0];
@@ -404,94 +395,25 @@ export default function App() {
     return Array.from(tasks).sort();
   };
 
-  // Helper pembersih glitch typo nama PIC di Job Card
-  const cleanJobcardPICName = (rawName: string): string => {
-    let s = (rawName || '').trim();
-    s = s.replace(/satri\s*handoyoawansyah/gi, 'Satriawansyah');
-    s = s.replace(/putri\s*handoyo/gi, 'Putri');
-    s = s.replace(/e?beatri\s*handoyoce/gi, 'Beatrice Morlyta I.');
-    s = s.replace(/beatice/gi, 'Beatrice Morlyta I.');
-    s = s.replace(/ary\s+tri\s+handoyo\s+ratnaningtyas/gi, 'Ary Tri Ratnaningtyas');
-    s = s.replace(/ahmad\s+muhtarif\s+billah\s+ihyail\s+haqiil?/gi, 'Ahmad Muhtarif Ihyail Haqi');
-    s = s.replace(/arif\s+billah\s+bil+ah/gi, 'Arif Billah');
-    return s.replace(/\.$/, '').trim();
-  };
-
-  // 3. PENGELOMPOKAN TUGAS JOBCARD PER PERSONIL (EXCEL + FORM INPUT REAL-TIME)
+  // 4. Output Accordion: Murni Menampilkan Personil Biro + Tugas yang Diisi via Form
   const getAccordionOutputForBiro = (targetBiroName: string): PersonilCardGroup[] => {
     const biroMembers = getBiroMembers(targetBiroName);
     const personMap = new Map<string, TaskItem[]>();
 
-    // Daftarkan semua anggota biro resmi terlebih dahulu
     biroMembers.forEach(m => {
       personMap.set(m, []);
     });
 
-    // 1. Ambil tugas dari file Excel JOBCARD_DESAIN.xlsx (sheet BASIC)
-    if (jobcardWorkbook) {
-      const basicSheetName = jobcardWorkbook.SheetNames.find(s => s.trim().toUpperCase() === 'BASIC') || jobcardWorkbook.SheetNames[0];
-      if (basicSheetName) {
-        const worksheet = jobcardWorkbook.Sheets[basicSheetName];
-        const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+    // Ambil HANYA tugas yang diinput melalui formulir
+    const biroKey = cleanText(targetBiroName);
+    const tasksForThisBiro = manualTasks[biroKey] || [];
 
-        rawRows.forEach((row, idx) => {
-          if (!row || row.length === 0 || idx < 3) return;
-
-          const projectCol    = String(row[2] || '-').trim();
-          const taskNameCol   = String(row[3] || '-').trim();
-          const workCenterCol = String(row[4] || '-').trim();
-          const startDateCol  = String(row[5] || '-').trim();
-          const endDateCol    = String(row[6] || '-').trim();
-          const rawPicCol     = String(row[8] || '').trim();
-          const joCol         = String(row[9] || '-').trim();
-
-          if (!rawPicCol || rawPicCol.toLowerCase().includes('(nama)')) return;
-
-          const individualPics = rawPicCol
-            .split(/,|\sdan\s/gi)
-            .map(p => cleanJobcardPICName(p))
-            .filter(p => p.length > 2);
-
-          individualPics.forEach((pic) => {
-            // Cocokkan apakah PIC ini adalah salah satu personil di biro ini
-            let matchedMember = biroMembers.find(m => {
-              const cM = cleanText(m);
-              const cP = cleanText(pic);
-              return cM === cP || cM.includes(cP) || cP.includes(cM);
-            });
-
-            // Jika tidak ada di master struktur tapi workCenter-nya memang biro ini
-            if (!matchedMember && isBiroMatch(workCenterCol, targetBiroName)) {
-              matchedMember = pic;
-              if (!personMap.has(matchedMember)) {
-                personMap.set(matchedMember, []);
-              }
-            }
-
-            if (matchedMember) {
-              personMap.get(matchedMember)!.push({
-                project: projectCol,
-                taskName: taskNameCol,
-                startDate: startDateCol,
-                endDate: endDateCol,
-                pic: pic,
-                jo: joCol,
-                isManual: false
-              });
-            }
-          });
-        });
+    tasksForThisBiro.forEach(t => {
+      let matchedName = biroMembers.find(m => cleanText(m) === cleanText(t.pic)) || t.pic;
+      if (!personMap.has(matchedName)) {
+        personMap.set(matchedName, []);
       }
-    }
-
-    // 2. Gabungkan dengan tugas yang baru diisi dari formulir
-    const manualList = manualTasks[targetBiroName] || [];
-    manualList.forEach(mTask => {
-      let matched = biroMembers.find(m => cleanText(m) === cleanText(mTask.pic || '')) || mTask.pic || 'Personil';
-      if (!personMap.has(matched)) {
-        personMap.set(matched, []);
-      }
-      personMap.get(matched)!.unshift(mTask);
+      personMap.get(matchedName)!.push(t);
     });
 
     const result: PersonilCardGroup[] = [];
@@ -499,41 +421,37 @@ export default function App() {
       result.push({ picName, tasks });
     });
 
-    // Urutkan personil berdasarkan nama
     return result.sort((a, b) => a.picName.localeCompare(b.picName));
   };
 
-  // Submit Formulir Job Card
+  // Simpan Job Card dari Form
   const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFormBiro) return;
 
+    const biroKey = cleanText(selectedFormBiro.biroName);
     const newTask: TaskItem = {
       id: Date.now().toString(),
       project: formData.kodeProyek,
       taskName: formData.taskName,
       startDate: formData.startDate,
       endDate: formData.endDate,
-      pic: formData.nama, // Dipetakan ke nama yang dipilih
-      jo: formData.jo,
-      isManual: true
+      pic: formData.nama,
+      jo: formData.jo
     };
 
-    const targetBiro = selectedFormBiro.biroName;
-    const currentList = manualTasks[targetBiro] || [];
-    const updated = { ...manualTasks, [targetBiro]: [newTask, ...currentList] };
+    const currentList = manualTasks[biroKey] || [];
+    const updated = { ...manualTasks, [biroKey]: [newTask, ...currentList] };
 
     setManualTasks(updated);
     try {
-      localStorage.setItem('kpi_manual_tasks', JSON.stringify(updated));
+      localStorage.setItem('kpi_form_database', JSON.stringify(updated));
     } catch {
       // Fallback
     }
 
-    // Otomatis buka kartu personil yang baru ditambahkan
     setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
 
-    // Reset input form
     setFormData({
       nama: '',
       kodeProyek: '',
@@ -544,21 +462,36 @@ export default function App() {
       jo: ''
     });
 
-    alert('Job Card berhasil disimpan dan langsung ditambahkan ke tabel personil di bawah!');
+    alert('Data Job Card baru berhasil disimpan ke tabel personil!');
   };
 
-  // Hapus task input manual
-  const handleDeleteManualTask = (taskId?: string) => {
-    if (!selectedFormBiro || !taskId) return;
-    if (window.confirm('Yakin ingin menghapus job card manual ini?')) {
-      const targetBiro = selectedFormBiro.biroName;
-      const currentList = manualTasks[targetBiro] || [];
+  // Hapus Satu Tugas
+  const handleDeleteTask = (taskId: string) => {
+    if (!selectedFormBiro) return;
+    if (window.confirm('Hapus penugasan ini?')) {
+      const biroKey = cleanText(selectedFormBiro.biroName);
+      const currentList = manualTasks[biroKey] || [];
       const updatedList = currentList.filter(t => t.id !== taskId);
-      const updated = { ...manualTasks, [targetBiro]: updatedList };
+      const updated = { ...manualTasks, [biroKey]: updatedList };
 
       setManualTasks(updated);
       try {
-        localStorage.setItem('kpi_manual_tasks', JSON.stringify(updated));
+        localStorage.setItem('kpi_form_database', JSON.stringify(updated));
+      } catch {
+        // Fallback
+      }
+    }
+  };
+
+  // Hapus Seluruh Database Form di Biro Ini
+  const handleClearAllBiroData = () => {
+    if (!selectedFormBiro) return;
+    if (window.confirm(`Hapus semua database Job Card yang telah diisi untuk ${selectedFormBiro.biroName}?`)) {
+      const biroKey = cleanText(selectedFormBiro.biroName);
+      const updated = { ...manualTasks, [biroKey]: [] };
+      setManualTasks(updated);
+      try {
+        localStorage.setItem('kpi_form_database', JSON.stringify(updated));
       } catch {
         // Fallback
       }
@@ -569,7 +502,7 @@ export default function App() {
     setExpandedCards(prev => ({ ...prev, [picName]: !prev[picName] }));
   };
 
-  // Filter KPI Data Bulanan
+  // Data Rekapitulasi KPI Bulanan
   const handleMonthClick = (biroName: string, month: string) => {
     if (!workbook) {
       alert("File data_kpi.xlsx belum terbaca.");
@@ -650,7 +583,6 @@ export default function App() {
     setSelectedBiroPage({ biroName, month, data: formattedData });
   };
 
-  // Filter Departemen Utama
   const filteredDepartments = (departmentsData || []).filter((dept) => 
     dept.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (dept.description || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -661,12 +593,12 @@ export default function App() {
     item.nama.toLowerCase().includes(tableSearch.toLowerCase())
   );
 
-  // Sumber Data untuk Halaman Form
+  // Sumber Data Form
   const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
   const projectOptions = getJobcardProjects();
   const taskOptions = getJobcardTasks();
   
-  // Data Accordion Output
+  // Output Accordion Murni
   const accordionData = selectedFormBiro ? getAccordionOutputForBiro(selectedFormBiro.biroName) : [];
   const filteredAccordionData = accordionData.filter(g => {
     const s = outputSearch.toLowerCase();
@@ -883,7 +815,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= LEVEL FORM: FORM INPUT + OUTPUT ACCORDION PER PEGAWAI ================= */}
+        {/* ================= LEVEL FORM: FORM INPUT + OUTPUT ACCORDION MURNI ================= */}
         {selectedFormBiro && (
           <div className="space-y-8 animate-fadeIn max-w-5xl mx-auto">
             {/* Header Form */}
@@ -899,21 +831,21 @@ export default function App() {
                 <div>
                   <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-1">
                     <FileText className="w-4 h-4" />
-                    <span>Formulir Job Card — {selectedFormBiro.deptName}</span>
+                    <span>Formulir Penugasan Job Card — {selectedFormBiro.deptName}</span>
                   </div>
                   <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
                     {selectedFormBiro.biroName}
                   </h2>
                   <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-400">
-                    <span>Master: <b>Struktur & Anggota Desain</b> + <b>JOBCARD DESAIN (BASIC)</b></span>
+                    <span>Database: <b>Murni Hasil Pengisian Form</b></span>
                     <span>•</span>
                     {strukturWorkbook && jobcardWorkbook ? (
                       <span className="text-emerald-400 font-medium flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> File Excel Terhubung
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Dropdown Pilihan Siap
                       </span>
                     ) : (
                       <span className="text-amber-400 font-medium flex items-center gap-1">
-                        <AlertCircle className="w-3.5 h-3.5" /> Memuat File Excel...
+                        <AlertCircle className="w-3.5 h-3.5" /> Membaca Master Excel...
                       </span>
                     )}
                   </div>
@@ -926,7 +858,7 @@ export default function App() {
                   </div>
                   <div className="px-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-center">
                     <div className="text-xl font-black text-cyan-400">{totalTasksCount}</div>
-                    <div className="text-[10px] text-slate-400 uppercase font-semibold">Total Tugas</div>
+                    <div className="text-[10px] text-slate-400 uppercase font-semibold">Total Job Card</div>
                   </div>
                 </div>
               </div>
@@ -1054,14 +986,14 @@ export default function App() {
                       rows={2}
                       value={formData.pic}
                       onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))}
-                      placeholder="Ketikkan nama PIC / personil yang mengerjakan..."
+                      placeholder="Ketikkan nama PIC atau keterangan penugasan..."
                       required
                       className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 leading-relaxed"
                     />
                   </div>
                 </div>
 
-                {/* Tombol Simpan */}
+                {/* Tombol Aksi */}
                 <div className="pt-4 border-t border-slate-700/70 flex items-center justify-end gap-3">
                   <button
                     type="button"
@@ -1089,7 +1021,7 @@ export default function App() {
               </form>
             </div>
 
-            {/* 2. OUTPUT HASIL: REKAPITULASI ACCORDION PER PEGAWAI */}
+            {/* 2. OUTPUT HASIL SESUAI CONTOH ANDA: CARD / ACCORDION PER PEGAWAI */}
             <div className="space-y-4">
               {/* Header Box Output */}
               <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 sm:p-6 shadow-md">
@@ -1103,7 +1035,7 @@ export default function App() {
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => {
                         const all: Record<string, boolean> = {};
@@ -1119,6 +1051,14 @@ export default function App() {
                       className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
                     >
                       Tutup Semua
+                    </button>
+                    <button
+                      onClick={handleClearAllBiroData}
+                      className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900 text-rose-300 text-xs font-semibold rounded-lg border border-rose-800/60 transition cursor-pointer flex items-center gap-1"
+                      title="Hapus seluruh tugas hasil form di biro ini"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Kosongkan Database Form
                     </button>
                   </div>
                 </div>
@@ -1201,12 +1141,12 @@ export default function App() {
                                       <th className="py-3 px-4">Task Name / Uraian Pekerjaan</th>
                                       <th className="py-3 px-4 w-36 text-center">Start Date</th>
                                       <th className="py-3 px-4 w-36 text-center">End Date</th>
-                                      <th className="py-3 px-4 w-28 text-center">Aksi / Tipe</th>
+                                      <th className="py-3 px-4 w-28 text-center">Aksi</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-700/50 text-slate-200">
                                     {person.tasks.map((task, tIdx) => (
-                                      <tr key={tIdx} className="hover:bg-slate-800/60 transition">
+                                      <tr key={task.id} className="hover:bg-slate-800/60 transition">
                                         <td className="py-3.5 px-4 text-center font-mono text-slate-400">
                                           {tIdx + 1}
                                         </td>
@@ -1215,7 +1155,7 @@ export default function App() {
                                         </td>
                                         <td className="py-3.5 px-4 leading-relaxed text-slate-100">
                                           {task.taskName}
-                                          {task.jo && task.jo !== '-' && (
+                                          {task.jo && (
                                             <span className="block mt-1 text-[11px] font-mono text-violet-400">
                                               JO: #{task.jo}
                                             </span>
@@ -1228,24 +1168,13 @@ export default function App() {
                                           {task.endDate}
                                         </td>
                                         <td className="py-3.5 px-4 text-center">
-                                          {task.isManual ? (
-                                            <div className="flex items-center justify-center gap-1.5">
-                                              <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-semibold rounded">
-                                                Form Input
-                                              </span>
-                                              <button
-                                                onClick={() => handleDeleteManualTask(task.id)}
-                                                className="p-1 text-rose-400 hover:text-white hover:bg-rose-600 rounded transition cursor-pointer"
-                                                title="Hapus task manual ini"
-                                              >
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                              </button>
-                                            </div>
-                                          ) : (
-                                            <span className="px-2 py-0.5 bg-slate-800 text-slate-400 text-[10px] rounded border border-slate-700">
-                                              Excel Basic
-                                            </span>
-                                          )}
+                                          <button
+                                            onClick={() => handleDeleteTask(task.id)}
+                                            className="p-1.5 text-rose-400 hover:text-white hover:bg-rose-600 rounded-lg transition cursor-pointer"
+                                            title="Hapus job card ini"
+                                          >
+                                            <Trash2 className="w-4 h-4" />
+                                          </button>
                                         </td>
                                       </tr>
                                     ))}
@@ -1254,7 +1183,7 @@ export default function App() {
                               </div>
                             ) : (
                               <div className="py-6 text-center text-slate-400 text-xs">
-                                Personil ini belum memiliki tugas aktif. Gunakan form di atas untuk menambahkan tugas.
+                                Personil ini belum memiliki tugas aktif. Gunakan form di atas untuk menambahkan tugas baru.
                               </div>
                             )}
                           </div>
