@@ -36,9 +36,11 @@ import {
   RotateCcw,
   Lock,
   KeyRound,
-  Plus,
   X,
   ShieldAlert,
+  Edit3,
+  Check,
+  Clock,
   Loader2, 
   LucideIcon 
 } from 'lucide-react';
@@ -62,14 +64,14 @@ const csvMonthMap: Record<string, string> = {
   juni: csvJun,
 };
 
-// Membaca semua file CSV/TXT di sub-folder src/ secara otomatis
+// Membaca file CSV/TXT secara otomatis
 const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', { 
   query: '?raw', 
   import: 'default', 
   eager: true 
 }) as Record<string, string>;
 
-// Membaca otomatis URL file Excel ber-underscore di folder src/
+// Membaca file Excel ber-underscore secara otomatis
 const excelGlobUrls = import.meta.glob('./*.xlsx', { 
   query: '?url', 
   import: 'default', 
@@ -91,18 +93,15 @@ interface ExcelRow {
 
 interface TaskItem {
   id: string;
+  biroName: string;
   project: string;
   taskName: string;
   startDate: string;
   endDate: string;
   pic: string;
   jo: string;
-  kodeJc: string; // Kode Job Card dari Planner
-}
-
-interface MasterKodeJC {
-  id: string;
-  kode: string;
+  kodeJc: string; // Diisi oleh Mas Hashfi (Planner)
+  status: 'pending' | 'approved';
   createdAt: string;
 }
 
@@ -160,7 +159,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
         }
       }
     } catch {
-      // Coba path berikutnya
+      // Coba path alternatif berikutnya
     }
   }
   return null;
@@ -171,14 +170,14 @@ export default function App() {
   const [selectedBiroPage, setSelectedBiroPage] = useState<SelectedBiroPage | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   
-  // Tab Mode Halaman ('form' | 'output')
+  // Tab Mode: 'form' (User Input) vs 'output' (Hasil Rekapitulasi)
   const [formPageMode, setFormPageMode] = useState<'form' | 'output'>('form');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [tableSearch, setTableSearch] = useState('');
   const [outputSearch, setOutputSearch] = useState('');
   
-  // 8 Input Form State (Termasuk Kode Job Card)
+  // 7 Input Form State (Murni User Biro)
   const [formData, setFormData] = useState({
     nama: '',
     kodeProyek: '',
@@ -186,35 +185,10 @@ export default function App() {
     startDate: '',
     endDate: '',
     pic: '',
-    jo: '',
-    kodeJc: ''
+    jo: ''
   });
 
-  // State Bank Kode Job Card dari Mas Hashfi (Tersimpan di Storage)
-  const [masterKodeJcList, setMasterKodeJcList] = useState<MasterKodeJC[]>(() => {
-    try {
-      const saved = localStorage.getItem('kpi_master_kode_jc');
-      return saved ? JSON.parse(saved) : [
-        { id: '1', kode: 'JC300426 0001', createdAt: 'Default' },
-        { id: '2', kode: 'JC300426 0002', createdAt: 'Default' },
-        { id: '3', kode: 'JC010624 0001', createdAt: 'Default' },
-        { id: '4', kode: 'JC080526 0001', createdAt: 'Default' }
-      ];
-    } catch {
-      return [];
-    }
-  });
-
-  // Modal Khusus Mas Hashfi (Planner)
-  const [isPlannerModalOpen, setIsPlannerModalOpen] = useState(false);
-  const [isPlannerUnlocked, setIsPlannerUnlocked] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState(false);
-  const [newKodeJcInput, setNewKodeJcInput] = useState('');
-
-  const PLANNER_PIN = '2026'; // PIN Rahasia Mas Hashfi
-
-  // Data Hasil Input Form Murni
+  // Database Job Card Terisi
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>(() => {
     try {
       const saved = localStorage.getItem('kpi_form_database');
@@ -223,6 +197,17 @@ export default function App() {
       return {};
     }
   });
+
+  // Panel Planner (Mas Hashfi)
+  const [isPlannerModalOpen, setIsPlannerModalOpen] = useState(false);
+  const [isPlannerUnlocked, setIsPlannerUnlocked] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
+
+  // Input Kode JC per Task oleh Planner
+  const [editingTaskKode, setEditingTaskKode] = useState<{ [taskId: string]: string }>({});
+
+  const PLANNER_PIN = '2026'; // PIN Rahasia Mas Hashfi
 
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
@@ -437,7 +422,7 @@ export default function App() {
     return Array.from(tasks).sort();
   };
 
-  // 4. Output Accordion: Murni Menampilkan Personil Biro + Tugas Hasil Form
+  // 4. Output Accordion: Personil Biro + Tugas Hasil Submit Form
   const getAccordionOutputForBiro = (targetBiroName: string): PersonilCardGroup[] => {
     const biroMembers = getBiroMembers(targetBiroName);
     const personMap = new Map<string, TaskItem[]>();
@@ -465,7 +450,7 @@ export default function App() {
     return result.sort((a, b) => a.picName.localeCompare(b.picName));
   };
 
-  // Submit Formulir Job Card
+  // User Submit Form: Otomatis Menyimpan Task Name & Kode Proyek (Kode JC Kosong Dulu)
   const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFormBiro) return;
@@ -473,13 +458,16 @@ export default function App() {
     const biroKey = cleanText(selectedFormBiro.biroName);
     const newTask: TaskItem = {
       id: Date.now().toString(),
+      biroName: selectedFormBiro.biroName,
       project: formData.kodeProyek,
       taskName: formData.taskName,
       startDate: formData.startDate,
       endDate: formData.endDate,
       pic: formData.nama,
       jo: formData.jo,
-      kodeJc: formData.kodeJc
+      kodeJc: '', // Menunggu diisi Mas Hashfi (Planner)
+      status: 'pending',
+      createdAt: new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     };
 
     const currentList = manualTasks[biroKey] || [];
@@ -494,6 +482,7 @@ export default function App() {
 
     setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
 
+    // Reset Form
     setFormData({
       nama: '',
       kodeProyek: '',
@@ -501,11 +490,10 @@ export default function App() {
       startDate: '',
       endDate: '',
       pic: '',
-      jo: '',
-      kodeJc: ''
+      jo: ''
     });
 
-    alert('Job Card berhasil disimpan! Kode JC tercatat ke data tugas.');
+    alert(`Job Card berhasil disubmit!\nData Proyek (${newTask.project}) & Task Name telah masuk ke antrean Planner (Mas Hashfi) untuk diberikan Kode Job Card.`);
   };
 
   // Handler Mas Hashfi: Verifikasi PIN Planner
@@ -520,52 +508,50 @@ export default function App() {
     }
   };
 
-  // Handler Mas Hashfi: Tambah Kode Job Card Baru
-  const handleAddKodeJc = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanKode = newKodeJcInput.trim().toUpperCase();
-    if (!cleanKode) return;
-
-    if (masterKodeJcList.some(k => k.kode === cleanKode)) {
-      alert('Kode Job Card ini sudah ada di daftar!');
+  // Handler Mas Hashfi: Menyimpan Kode JC untuk suatu Job Card (Hanya 1 Kali Input!)
+  const handleSaveKodeJcForTask = (taskId: string, biroName: string) => {
+    const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase();
+    if (!inputVal) {
+      alert('Harap masukkan Kode Job Card terlebih dahulu!');
       return;
     }
 
-    const newItem: MasterKodeJC = {
-      id: Date.now().toString(),
-      kode: cleanKode,
-      createdAt: new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })
-    };
+    const biroKey = cleanText(biroName);
+    const currentList = manualTasks[biroKey] || [];
+    
+    const updatedList = currentList.map(task => {
+      if (task.id === taskId) {
+        return {
+          ...task,
+          kodeJc: inputVal,
+          status: 'approved' as const
+        };
+      }
+      return task;
+    });
 
-    const updated = [newItem, ...masterKodeJcList];
-    setMasterKodeJcList(updated);
+    const updated = { ...manualTasks, [biroKey]: updatedList };
+    setManualTasks(updated);
     try {
-      localStorage.setItem('kpi_master_kode_jc', JSON.stringify(updated));
+      localStorage.setItem('kpi_form_database', JSON.stringify(updated));
     } catch {
       // Fallback
     }
 
-    setNewKodeJcInput('');
+    // Bersihkan field temporary
+    setEditingTaskKode(prev => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+
+    alert(`Kode Job Card "${inputVal}" berhasil disimpan untuk tugas tersebut!`);
   };
 
-  // Handler Mas Hashfi: Hapus Kode Job Card
-  const handleDeleteKodeJc = (id: string) => {
-    if (window.confirm('Hapus Kode Job Card ini dari pilihan user?')) {
-      const updated = masterKodeJcList.filter(k => k.id !== id);
-      setMasterKodeJcList(updated);
-      try {
-        localStorage.setItem('kpi_master_kode_jc', JSON.stringify(updated));
-      } catch {
-        // Fallback
-      }
-    }
-  };
-
-  // Hapus Satu Tugas di Output
-  const handleDeleteTask = (taskId: string) => {
-    if (!selectedFormBiro) return;
+  // Hapus Satu Tugas
+  const handleDeleteTask = (taskId: string, biroName: string) => {
     if (window.confirm('Hapus penugasan ini?')) {
-      const biroKey = cleanText(selectedFormBiro.biroName);
+      const biroKey = cleanText(biroName);
       const currentList = manualTasks[biroKey] || [];
       const updatedList = currentList.filter(t => t.id !== taskId);
       const updated = { ...manualTasks, [biroKey]: updatedList };
@@ -703,6 +689,11 @@ export default function App() {
 
   const totalPersonilCount = accordionData.length;
   const totalTasksCount = accordionData.reduce((acc, g) => acc + g.tasks.length, 0);
+
+  // Daftar tugas yang diajukan di biro ini untuk dikelola Planner
+  const currentBiroKey = selectedFormBiro ? cleanText(selectedFormBiro.biroName) : '';
+  const currentBiroSubmittedTasks = manualTasks[currentBiroKey] || [];
+  const pendingTasksCount = currentBiroSubmittedTasks.filter(t => !t.kodeJc).length;
 
   return (
     <div className="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased">
@@ -982,59 +973,64 @@ export default function App() {
               </div>
 
               {/* TAB SWITCHER: PINDAH ANTARA HALAMAN FORM & HALAMAN OUTPUT */}
-              <div className="mt-6 pt-5 border-t border-slate-700/60 flex items-center gap-3">
-                <button
-                  onClick={() => setFormPageMode('form')}
-                  className={`px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
-                    formPageMode === 'form'
-                      ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40 border border-emerald-500/50'
-                      : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700'
-                  }`}
-                >
-                  <FileText className="w-4 h-4" />
-                  Halaman Form Pengisian
-                </button>
+              <div className="mt-6 pt-5 border-t border-slate-700/60 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setFormPageMode('form')}
+                    className={`px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
+                      formPageMode === 'form'
+                        ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40 border border-emerald-500/50'
+                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700'
+                    }`}
+                  >
+                    <FileText className="w-4 h-4" />
+                    Halaman Form Pengisian
+                  </button>
 
+                  <button
+                    onClick={() => setFormPageMode('output')}
+                    className={`px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
+                      formPageMode === 'output'
+                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40 border border-blue-500/50'
+                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700'
+                    }`}
+                  >
+                    <Layers className="w-4 h-4" />
+                    Halaman Output Rekapitulasi ({totalTasksCount})
+                  </button>
+                </div>
+
+                {/* Tombol Kelola Kode JC (Planner Mas Hashfi) */}
                 <button
-                  onClick={() => setFormPageMode('output')}
-                  className={`px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
-                    formPageMode === 'output'
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40 border border-blue-500/50'
-                      : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700'
-                  }`}
+                  type="button"
+                  onClick={() => {
+                    setIsPlannerModalOpen(true);
+                    setPinError(false);
+                  }}
+                  className="px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl text-xs font-bold border border-amber-400/40 shadow-md shadow-amber-950/40 transition flex items-center gap-2 cursor-pointer"
                 >
-                  <Layers className="w-4 h-4" />
-                  Halaman Output Rekapitulasi ({totalTasksCount})
+                  <Lock className="w-4 h-4" />
+                  Kelola Kode JC (Planner)
+                  {pendingTasksCount > 0 && (
+                    <span className="px-2 py-0.2 bg-rose-600 text-white text-[10px] font-bold rounded-full animate-pulse">
+                      {pendingTasksCount}
+                    </span>
+                  )}
                 </button>
               </div>
             </div>
 
-            {/* ================= PILIHAN 1: HALAMAN FORM PENGISIAN SENDIRI ================= */}
+            {/* ================= PILIHAN 1: HALAMAN FORM PENGISIAN ================= */}
             {formPageMode === 'form' && (
               <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-xl animate-fadeIn">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-700/70">
-                  <div>
-                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                      <FileText className="w-5 h-5 text-emerald-400" />
-                      Formulir Input Job Card
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-1">
-                      User tinggal memilih Kode Job Card yang sudah didaftarkan oleh Planner.
-                    </p>
-                  </div>
-
-                  {/* Tombol Khusus Mas Hashfi (Planner) */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsPlannerModalOpen(true);
-                      setPinError(false);
-                    }}
-                    className="px-3.5 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-xl text-xs font-bold border border-amber-400/40 shadow-md shadow-amber-950/40 transition flex items-center gap-2 cursor-pointer self-start sm:self-auto"
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                    Kelola Kode JC (Planner)
-                  </button>
+                <div className="mb-6 pb-4 border-b border-slate-700/70">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-emerald-400" />
+                    Formulir Input Job Card Personil
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Isi 7 data di bawah ini. Setelah Anda submit, tugas akan langsung tercatat dan masuk ke antrean Planner (Mas Hashfi) untuk penerbitan Kode Job Card.
+                  </p>
                 </div>
 
                 <form onSubmit={handleSubmitForm} className="space-y-6">
@@ -1075,23 +1071,26 @@ export default function App() {
                       </select>
                     </div>
 
-                    {/* FITUR BARU: KODE JOB CARD (DROPDOWN DARI MAS HASHFI) */}
+                    {/* 7. JO (ESAI KHUSUS ANGKA) */}
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2 flex items-center justify-between">
-                        <span>Kode Job Card (Diisi Planner) <span className="text-rose-400">*</span></span>
-                        <span className="text-[10px] text-amber-400 font-normal">Pilihan dari Planner</span>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                        7. JO (Khusus Angka) <span className="text-rose-400">*</span>
                       </label>
-                      <select
-                        value={formData.kodeJc}
-                        onChange={(e) => setFormData(prev => ({ ...prev, kodeJc: e.target.value }))}
-                        required
-                        className="w-full px-4 py-3 bg-slate-800 border border-amber-500/50 rounded-xl text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
-                      >
-                        <option value="">-- Pilih Kode Job Card --</option>
-                        {masterKodeJcList.map((item) => (
-                          <option key={item.id} value={item.kode}>{item.kode}</option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <Hash className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={formData.jo}
+                          onChange={(e) => {
+                            const digitsOnly = e.target.value.replace(/[^0-9]/g, '');
+                            setFormData(prev => ({ ...prev, jo: digitsOnly }));
+                          }}
+                          placeholder="Contoh: 300426"
+                          required
+                          className="w-full pl-10 pr-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
                     </div>
 
                     {/* 3. TASK NAME (DROPDOWN JOBCARD DESAIN SHEET BASIC) */}
@@ -1141,41 +1140,25 @@ export default function App() {
                     </div>
 
                     {/* 6. PIC (ESAI / TEKS BEBAS) */}
-                    <div>
+                    <div className="md:col-span-2">
                       <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
                         6. PIC (Ketik Bebas / Esai) <span className="text-rose-400">*</span>
                       </label>
-                      <input
-                        type="text"
+                      <textarea
+                        rows={2}
                         value={formData.pic}
                         onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))}
-                        placeholder="Ketikkan nama PIC penanggung jawab..."
+                        placeholder="Ketikkan nama PIC / personil yang mengerjakan..."
                         required
-                        className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 leading-relaxed"
                       />
                     </div>
+                  </div>
 
-                    {/* 7. JO (ESAI KHUSUS ANGKA) */}
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                        7. JO (Khusus Angka) <span className="text-rose-400">*</span>
-                      </label>
-                      <div className="relative">
-                        <Hash className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={formData.jo}
-                          onChange={(e) => {
-                            const digitsOnly = e.target.value.replace(/[^0-9]/g, '');
-                            setFormData(prev => ({ ...prev, jo: digitsOnly }));
-                          }}
-                          placeholder="Contoh: 300426"
-                          required
-                          className="w-full pl-10 pr-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        />
-                      </div>
-                    </div>
+                  {/* Keterangan Status Kode JC */}
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center gap-2.5 text-xs text-amber-300">
+                    <Clock className="w-4 h-4 shrink-0 text-amber-400" />
+                    <span><b>Catatan:</b> Kode Job Card akan diverifikasi dan diisi oleh Planner (Mas Hashfi) setelah formulir ini Anda simpan.</span>
                   </div>
 
                   {/* Tombol Simpan */}
@@ -1189,8 +1172,7 @@ export default function App() {
                         startDate: '',
                         endDate: '',
                         pic: '',
-                        jo: '',
-                        kodeJc: ''
+                        jo: ''
                       })}
                       className="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-semibold rounded-xl transition cursor-pointer"
                     >
@@ -1201,14 +1183,14 @@ export default function App() {
                       className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-emerald-900/30 transition flex items-center gap-2 cursor-pointer hover:scale-105 active:scale-95"
                     >
                       <Send className="w-4 h-4" />
-                      Simpan Job Card
+                      Simpan & Kirim ke Planner
                     </button>
                   </div>
                 </form>
               </div>
             )}
 
-            {/* ================= PILIHAN 2: HALAMAN OUTPUT REKAPITULASI SENDIRI ================= */}
+            {/* ================= PILIHAN 2: HALAMAN OUTPUT REKAPITULASI ================= */}
             {formPageMode === 'output' && (
               <div className="space-y-5 animate-fadeIn">
                 <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 sm:p-6 shadow-md">
@@ -1218,7 +1200,10 @@ export default function App() {
                         [ FORMULIR BIRO: {selectedFormBiro.biroName.toUpperCase()} ]
                       </h3>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        Total Personil: <b className="text-emerald-400">{totalPersonilCount} Pegawai</b> | Total Job Card Aktif: <b className="text-cyan-400">{totalTasksCount} Tugas</b>
+                        Total Personil: <b className="text-emerald-400">{totalPersonilCount} Pegawai</b> | Total Job Card: <b className="text-cyan-400">{totalTasksCount} Tugas</b>
+                        {pendingTasksCount > 0 && (
+                          <span className="ml-2 text-rose-400 font-semibold">({pendingTasksCount} Menunggu Kode JC)</span>
+                        )}
                       </p>
                     </div>
 
@@ -1324,7 +1309,7 @@ export default function App() {
                                     <thead>
                                       <tr className="bg-slate-800/95 text-slate-300 font-bold uppercase tracking-wider border-b border-slate-700">
                                         <th className="py-3 px-3 w-10 text-center">No</th>
-                                        <th className="py-3 px-3 w-36 font-mono text-amber-400">Kode JC</th>
+                                        <th className="py-3 px-3 w-40 font-mono text-amber-400">Kode Job Card</th>
                                         <th className="py-3 px-4 w-48">Project</th>
                                         <th className="py-3 px-4">Task Name / Uraian Pekerjaan</th>
                                         <th className="py-3 px-3 text-center">Start Date</th>
@@ -1339,9 +1324,20 @@ export default function App() {
                                           <td className="py-3.5 px-3 text-center font-mono text-slate-400">
                                             {tIdx + 1}
                                           </td>
-                                          <td className="py-3.5 px-3 font-mono font-bold text-amber-300">
-                                            {task.kodeJc || '-'}
+
+                                          {/* Kolom Kode JC */}
+                                          <td className="py-3.5 px-3 font-mono">
+                                            {task.kodeJc ? (
+                                              <span className="px-2 py-1 bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded font-bold text-xs">
+                                                {task.kodeJc}
+                                              </span>
+                                            ) : (
+                                              <span className="px-2 py-0.5 bg-rose-500/10 text-rose-300 border border-rose-500/30 rounded text-[11px] font-semibold flex items-center gap-1">
+                                                <Clock className="w-3 h-3" /> Menunggu Planner
+                                              </span>
+                                            )}
                                           </td>
+
                                           <td className="py-3.5 px-4 font-semibold text-emerald-400">
                                             {task.project}
                                           </td>
@@ -1359,7 +1355,7 @@ export default function App() {
                                           </td>
                                           <td className="py-3.5 px-2 text-center">
                                             <button
-                                              onClick={() => handleDeleteTask(task.id)}
+                                              onClick={() => handleDeleteTask(task.id, selectedFormBiro.biroName)}
                                               className="p-1.5 text-rose-400 hover:text-white hover:bg-rose-600 rounded-lg transition cursor-pointer"
                                               title="Hapus job card ini"
                                             >
@@ -1394,8 +1390,8 @@ export default function App() {
 
         {/* ================= MODAL KHUSUS PLANNER (MAS HASHFI) ================= */}
         {isPlannerModalOpen && (
-          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
-            <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
               {/* Header Modal */}
               <div className="p-5 bg-slate-900 border-b border-slate-700 flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
@@ -1403,28 +1399,28 @@ export default function App() {
                     <Lock className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-white text-sm">Panel Khusus Planner (Mas Hashfi)</h3>
-                    <span className="text-[11px] text-slate-400">Pengelolaan Bank Kode Job Card</span>
+                    <h3 className="font-bold text-white text-sm">Panel Verifikasi Kode JC (Mas Hashfi - Planner)</h3>
+                    <span className="text-[11px] text-slate-400">Pemberian Kode Job Card untuk Form yang Sudah Disubmit User</span>
                   </div>
                 </div>
                 <button
                   onClick={() => setIsPlannerModalOpen(false)}
-                  className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+                  className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               {/* Konten Modal */}
-              <div className="p-6">
+              <div className="p-6 overflow-y-auto flex-1">
                 {!isPlannerUnlocked ? (
                   /* Form Input PIN */
-                  <form onSubmit={handleVerifyPin} className="space-y-4">
-                    <div className="text-center py-2">
-                      <KeyRound className="w-10 h-10 mx-auto text-amber-400 mb-2" />
-                      <h4 className="text-sm font-bold text-white">Masukkan PIN Akses Planner</h4>
+                  <form onSubmit={handleVerifyPin} className="max-w-sm mx-auto space-y-4 py-6">
+                    <div className="text-center">
+                      <KeyRound className="w-12 h-12 mx-auto text-amber-400 mb-2" />
+                      <h4 className="text-base font-bold text-white">Masukkan PIN Akses Planner</h4>
                       <p className="text-xs text-slate-400 mt-1">
-                        Hanya Planner (Mas Hashfi) yang dapat mendaftarkan Kode Job Card.
+                        Hanya Mas Hashfi yang berwenang mengisi dan merilis Kode Job Card.
                       </p>
                     </div>
 
@@ -1436,12 +1432,12 @@ export default function App() {
                         placeholder="Ketik PIN (Default: 2026)..."
                         autoFocus
                         required
-                        className={`w-full px-4 py-2.5 bg-slate-900 border rounded-xl text-center text-sm font-mono tracking-widest text-white focus:outline-none focus:ring-2 ${
+                        className={`w-full px-4 py-3 bg-slate-900 border rounded-xl text-center text-base font-mono tracking-widest text-white focus:outline-none focus:ring-2 ${
                           pinError ? 'border-rose-500 focus:ring-rose-500' : 'border-slate-700 focus:ring-amber-500'
                         }`}
                       />
                       {pinError && (
-                        <span className="text-xs text-rose-400 mt-1.5 flex items-center justify-center gap-1">
+                        <span className="text-xs text-rose-400 mt-2 flex items-center justify-center gap-1">
                           <ShieldAlert className="w-3.5 h-3.5" /> PIN salah! Silakan coba lagi (PIN default: 2026).
                         </span>
                       )}
@@ -1449,65 +1445,98 @@ export default function App() {
 
                     <button
                       type="submit"
-                      className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+                      className="w-full py-3 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-lg shadow-amber-950/50"
                     >
                       Buka Akses Planner
                     </button>
                   </form>
                 ) : (
-                  /* Panel Manajemen Kode JC Setelah PIN Benar */
+                  /* Antrean Job Card User yang Sudah Disubmit */
                   <div className="space-y-5 animate-fadeIn">
                     <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl flex items-center justify-between text-xs text-emerald-300">
                       <span className="flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4" /> Akses Planner Aktif: Mas Hashfi
+                        <CheckCircle2 className="w-4 h-4" /> Mas Hashfi Terhubung — {selectedFormBiro?.biroName}
                       </span>
                       <button
                         onClick={() => setIsPlannerUnlocked(false)}
-                        className="text-[11px] underline hover:text-white"
+                        className="text-[11px] underline hover:text-white cursor-pointer"
                       >
                         Kunci Kembali
                       </button>
                     </div>
 
-                    {/* Input Tambah Kode Baru */}
-                    <form onSubmit={handleAddKodeJc} className="flex gap-2">
-                      <input
-                        type="text"
-                        value={newKodeJcInput}
-                        onChange={(e) => setNewKodeJcInput(e.target.value)}
-                        placeholder="Ketik Kode JC baru (contoh: JC300426 0005)..."
-                        required
-                        className="flex-1 px-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 uppercase"
-                      />
-                      <button
-                        type="submit"
-                        className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl transition flex items-center gap-1 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Tambah
-                      </button>
-                    </form>
-
-                    {/* Tabel Daftar Kode Aktif */}
                     <div>
                       <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                        <span>Daftar Kode JC Aktif ({masterKodeJcList.length})</span>
-                        <span className="text-[10px]">Akan muncul di dropdown user</span>
+                        <span>Daftar Pengajuan Job Card Masuk ({currentBiroSubmittedTasks.length})</span>
+                        <span className="text-[11px] text-amber-400">*Cukup ketik Kode JC satu kali pada baris terkait</span>
                       </div>
 
-                      <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-700 bg-slate-900/60 divide-y divide-slate-800">
-                        {masterKodeJcList.map((item, idx) => (
-                          <div key={item.id} className="p-2.5 px-3 flex items-center justify-between text-xs">
-                            <span className="font-mono font-bold text-amber-300">{idx + 1}. {item.kode}</span>
-                            <button
-                              onClick={() => handleDeleteKodeJc(item.id)}
-                              className="p-1 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded transition"
-                              title="Hapus kode ini"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                      {currentBiroSubmittedTasks.length > 0 ? (
+                        <div className="space-y-3">
+                          {currentBiroSubmittedTasks.map((task, idx) => {
+                            const isTaskApproved = Boolean(task.kodeJc);
+                            const currentInputVal = editingTaskKode[task.id] ?? task.kodeJc ?? '';
+
+                            return (
+                              <div 
+                                key={task.id}
+                                className={`p-4 rounded-xl border transition ${
+                                  isTaskApproved 
+                                    ? 'bg-slate-900/60 border-slate-700' 
+                                    : 'bg-amber-950/20 border-amber-500/40 shadow-sm'
+                                }`}
+                              >
+                                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-mono font-bold text-slate-400">#{idx + 1}</span>
+                                      <span className="font-bold text-white text-sm">{task.pic}</span>
+                                      <span className="px-2 py-0.5 bg-blue-500/10 text-blue-300 text-[10px] font-semibold rounded border border-blue-500/20">
+                                        Proyek: {task.project}
+                                      </span>
+                                      <span className="px-2 py-0.5 bg-purple-500/10 text-purple-300 text-[10px] font-semibold rounded border border-purple-500/20 font-mono">
+                                        JO: #{task.jo}
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-slate-200 leading-relaxed font-medium">
+                                      {task.taskName}
+                                    </p>
+                                    <span className="text-[10px] text-slate-400 font-mono block">
+                                      Jadwal: {task.startDate} s/d {task.endDate}
+                                    </span>
+                                  </div>
+
+                                  {/* Input Kode JC oleh Mas Hashfi */}
+                                  <div className="shrink-0 flex items-center gap-2 self-end sm:self-center">
+                                    <input
+                                      type="text"
+                                      value={currentInputVal}
+                                      onChange={(e) => setEditingTaskKode(prev => ({
+                                        ...prev,
+                                        [task.id]: e.target.value.toUpperCase()
+                                      }))}
+                                      placeholder="Contoh: JC300426 0001"
+                                      className="w-40 px-3 py-1.5 bg-slate-900 border border-slate-600 rounded-lg text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 uppercase"
+                                    />
+                                    <button
+                                      onClick={() => handleSaveKodeJcForTask(task.id, selectedFormBiro!.biroName)}
+                                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                                      title="Simpan Kode JC"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                      Simpan
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="py-12 text-center text-slate-400 text-xs bg-slate-900/40 border border-slate-700/60 rounded-xl">
+                          Belum ada form yang disubmit oleh user pada biro ini.
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
