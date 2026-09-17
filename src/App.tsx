@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import { departmentsData, monthList, Department } from './data';
 import * as XLSX from 'xlsx';
-import excelFileUrl from './data_kpi.xlsx?url';
-import jobcardFileUrl from './JOBCARD_DESAIN.xlsx?url';
 
 // Import 6 File CSV Absensi
 import csvJan from './absensi_januari.csv?raw';
@@ -68,8 +66,8 @@ interface ExcelRow {
   effectiveHour: number;
   overtimeHour: number;
   idleHour: number;
-  timesheetReguler: number;   // Kolom 1: Timesheet Reguler
-  timesheetOvertime: number;  // Kolom 2: Timesheet Overtime
+  timesheetReguler: number;
+  timesheetOvertime: number;
   terlambat: number;
   sakit: number;
   ipm: number;
@@ -81,10 +79,14 @@ interface JobcardTask {
   startDate: string;
   endDate: string;
   totalPersonil: string;
+  originalWorkCenter: string;
+  finalBiro: string;
 }
 
 interface PersonilJobcardGroup {
   picName: string;
+  officialBiro: string;
+  isFromMaster: boolean;
   tasks: JobcardTask[];
 }
 
@@ -99,6 +101,11 @@ interface SelectedFormPage {
   deptName: string;
 }
 
+// Helper normalisasi teks nama untuk pencocokan akurat
+function cleanText(str: string): string {
+  return str.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+}
+
 export default function App() {
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedBiroPage, setSelectedBiroPage] = useState<SelectedBiroPage | null>(null);
@@ -107,32 +114,41 @@ export default function App() {
   const [tableSearch, setTableSearch] = useState('');
   const [formSearch, setFormSearch] = useState('');
   
-  // State Accordion (Buka/Tutup Card Personil)
+  // State Accordion
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   // State Workbooks
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [strukturWorkbook, setStrukturWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [isLoadingExcel, setIsLoadingExcel] = useState<boolean>(true);
 
-  // 1. Membaca file data_kpi.xlsx dan JOBCARD DESAIN.xlsx saat web pertama dibuka
+  // 1. Membaca 3 File Excel langsung di browser
   useEffect(() => {
     async function loadAllExcelFiles() {
       try {
         setIsLoadingExcel(true);
-        // Baca data_kpi.xlsx
-        const resKpi = await fetch(excelFileUrl);
-        const bufferKpi = await resKpi.arrayBuffer();
-        const wbKpi = XLSX.read(bufferKpi, { type: 'array' });
-        setWorkbook(wbKpi);
 
-        // Baca JOBCARD DESAIN.xlsx
-        const resJc = await fetch(jobcardFileUrl);
-        const bufferJc = await resJc.arrayBuffer();
-        const wbJc = XLSX.read(bufferJc, { type: 'array' });
-        setJobcardWorkbook(wbJc);
+        const [resKpi, resJc, resStruktur] = await Promise.all([
+          fetch('/data_kpi.xlsx'),
+          fetch('/JOBCARD%20DESAIN.xlsx'),
+          fetch('/struktur_desain.xlsx') // File: Struktur dan Anggota Desain Upd 0826 (1).xlsx
+        ]);
+
+        if (resKpi.ok) {
+          const buf = await resKpi.arrayBuffer();
+          setWorkbook(XLSX.read(buf, { type: 'array' }));
+        }
+        if (resJc.ok) {
+          const buf = await resJc.arrayBuffer();
+          setJobcardWorkbook(XLSX.read(buf, { type: 'array' }));
+        }
+        if (resStruktur.ok) {
+          const buf = await resStruktur.arrayBuffer();
+          setStrukturWorkbook(XLSX.read(buf, { type: 'array' }));
+        }
       } catch (error) {
-        console.error("Gagal membaca file Excel:", error);
+        console.error("Gagal membaca file Excel di browser:", error);
       } finally {
         setIsLoadingExcel(false);
       }
@@ -140,7 +156,6 @@ export default function App() {
     loadAllExcelFiles();
   }, []);
 
-  // Helper konversi angka aman
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
     if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -149,7 +164,7 @@ export default function App() {
     return isNaN(num) ? 0 : num;
   };
 
-  // Helper Parser CSV Absensi
+  // Parser CSV Absensi
   const parseAbsensiCSV = (csvContent: string): Map<string, { terlambat: number; sakit: number; ipm: number }> => {
     const absensiMap = new Map<string, { terlambat: number; sakit: number; ipm: number }>();
     if (!csvContent) return absensiMap;
@@ -157,22 +172,17 @@ export default function App() {
     const lines = csvContent.split(/\r?\n/);
     lines.forEach((line, index) => {
       if (index === 0 || !line.trim()) return;
-
       const parts = line.split(',');
       if (parts.length >= 6) {
         const rawNama = parts[1] ? parts[1].trim() : '';
-        const cleanNameKey = rawNama.toLowerCase().replace(/\s+/g, ' ').trim();
+        const cleanNameKey = cleanText(rawNama);
 
         const terlambatVal = parseValToNumber(parts[parts.length - 3] ?? parts[4]);
         const sakitVal = parseValToNumber(parts[parts.length - 2] ?? parts[5]);
         const ipmVal = parseValToNumber(parts[parts.length - 1] ?? parts[6]);
 
         if (cleanNameKey) {
-          absensiMap.set(cleanNameKey, {
-            terlambat: terlambatVal,
-            sakit: sakitVal,
-            ipm: ipmVal
-          });
+          absensiMap.set(cleanNameKey, { terlambat: terlambatVal, sakit: sakitVal, ipm: ipmVal });
         }
       }
     });
@@ -180,7 +190,7 @@ export default function App() {
     return absensiMap;
   };
 
-  // Helper Parser Folder Timesheet
+  // Parser Timesheet
   const parseTimesheetFolder = (targetMonth: string): Map<string, { reguler: number; overtime: number }> => {
     const timesheetMap = new Map<string, { reguler: number; overtime: number }>();
     const monthLower = targetMonth.toLowerCase().trim();
@@ -188,7 +198,6 @@ export default function App() {
 
     Object.entries(allCsvFiles).forEach(([filePath, content]) => {
       const pathLower = filePath.toLowerCase();
-
       if (pathLower.includes('absensi_')) return;
 
       const isTargetMonthFile = pathLower.includes(`/${monthLower}/`) || 
@@ -204,24 +213,20 @@ export default function App() {
         const lines = content.split(/\r?\n/);
         lines.forEach((line, lineIdx) => {
           if (lineIdx === 0 || !line.trim()) return;
-
           const parts = line.split(',');
           if (parts.length >= 3) {
             const rawNama = parts[2] ? parts[2].replace(/"/g, '').trim() : '';
-            const cleanNameKey = rawNama.toLowerCase().replace(/\s+/g, ' ').trim();
-
+            const cleanNameKey = cleanText(rawNama);
             const rawLastVal = parts[parts.length - 1] ? parts[parts.length - 1].replace(/"/g, '').trim() : '0';
             const numVal = parseValToNumber(rawLastVal);
 
             if (cleanNameKey) {
               const current = timesheetMap.get(cleanNameKey) || { reguler: 0, overtime: 0 };
-              
               if (isOvertimeFile) {
                 current.overtime += numVal;
               } else {
                 current.reguler += numVal;
               }
-
               timesheetMap.set(cleanNameKey, current);
             }
           }
@@ -232,16 +237,173 @@ export default function App() {
     return timesheetMap;
   };
 
-  // Filter departemen utama
-  const filteredDepartments = departmentsData.filter((dept) => 
-    dept.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (dept.description || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // 2. PARSER MASTER ROSTER DARI FILE STRUKTUR (Sheet: CalonPers)
+  const getMasterStructureMap = (): Map<string, { officialBiro: string; officialName: string }> => {
+    const masterMap = new Map<string, { officialBiro: string; officialName: string }>();
+    if (!strukturWorkbook) return masterMap;
 
-  // 2. Fungsi Hitung Metrik KPI Bulanan
+    const sheet = strukturWorkbook.Sheets['CalonPers'] || strukturWorkbook.Sheets[strukturWorkbook.SheetNames[0]];
+    if (!sheet) return masterMap;
+
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+    // Kolom-kolom biro di sheet CalonPers
+    const colBlocks = [
+      { dCol: 2, nCol: 3, maxR: 50 },  // Perencanaan Desain
+      { dCol: 8, nCol: 9, maxR: 55 },  // Desain Dasar
+      { dCol: 14, nCol: 15, maxR: 83 }, // Struktur & Lambung
+      { dCol: 22, nCol: 23, maxR: 67 }, // Permesinan
+      { dCol: 29, nCol: 30, maxR: 66 }, // Listrik & Elektronika
+      { dCol: 36, nCol: 37, maxR: 30 }, // HPS
+    ];
+
+    colBlocks.forEach(({ dCol, nCol, maxR }) => {
+      let currentBiro = '';
+      for (let r = 17; r < Math.min(rows.length, maxR); r++) {
+        const row = rows[r];
+        if (!row) continue;
+        const valD = String(row[dCol] || '').trim();
+        const valN = String(row[nCol] || '').trim();
+
+        if (valD.toLowerCase().includes('biro')) {
+          currentBiro = valD;
+        } else if (currentBiro) {
+          // Kepala Biro (ada di valD, valN kosong)
+          if (valD && !/^\d+$/.test(valD) && !valN && !valD.toLowerCase().includes('departemen') && !valD.toLowerCase().includes('personil')) {
+            masterMap.set(cleanText(valD), { officialBiro: currentBiro, officialName: valD });
+          } 
+          // Anggota Biro (nama ada di valN)
+          else if (valN && valN.toUpperCase() !== 'PERSONIL' && !valN.toLowerCase().includes('departemen')) {
+            masterMap.set(cleanText(valN), { officialBiro: currentBiro, officialName: valN });
+          }
+        }
+      }
+    });
+
+    return masterMap;
+  };
+
+  // Helper Pembersih Glitch Typo Nama di Job Card
+  const cleanJobcardPICName = (rawName: string): string => {
+    let s = rawName.trim();
+    s = s.replace(/satri\s*handoyoawansyah/gi, 'Satriawansyah');
+    s = s.replace(/putri\s*handoyo/gi, 'Putri');
+    s = s.replace(/e?beatri\s*handoyoce/gi, 'Beatrice Morlyta I.');
+    s = s.replace(/beatice/gi, 'Beatrice Morlyta I.');
+    s = s.replace(/ary\s+tri\s+handoyo\s+ratnaningtyas/gi, 'Ary Tri Ratnaningtyas');
+    s = s.replace(/ahmad\s+muhtarif\s+billah\s+ihyail\s+haqiil?/gi, 'Ahmad Muhtarif Ihyail Haqi');
+    s = s.replace(/arif\s+billah\s+bil+ah/gi, 'Arif Billah');
+    return s.replace(/\.$/, '').trim();
+  };
+
+  // 3. PENGELOMPOKAN JOBCARD: MENCOCOKKAN KE STRUKTUR DULU, JIKA TIDAK ADA PAKAI BIRO ASAL
+  const getJobcardGroupsForBiro = (targetBiroName: string): PersonilJobcardGroup[] => {
+    if (!jobcardWorkbook) return [];
+
+    const basicSheetName = jobcardWorkbook.SheetNames.find(s => s.trim().toUpperCase() === 'BASIC');
+    if (!basicSheetName) return [];
+
+    const worksheet = jobcardWorkbook.Sheets[basicSheetName];
+    const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+    // Ambil Kamus Master Struktur
+    const masterMap = getMasterStructureMap();
+
+    const picTaskMap = new Map<string, { officialBiro: string; isFromMaster: boolean; tasks: JobcardTask[] }>();
+    const cleanTarget = cleanText(targetBiroName.replace(/biro/gi, ''));
+
+    rawRows.forEach((row, idx) => {
+      if (!row || row.length === 0 || idx < 3) return;
+
+      const projectCol    = String(row[2] || '-').trim();
+      const taskNameCol   = String(row[3] || '-').trim();
+      const workCenterCol = String(row[4] || '-').trim(); // Biro asal dari Job Card
+      const startDateCol  = String(row[5] || '-').trim();
+      const endDateCol    = String(row[6] || '-').trim();
+      const personilCount = String(row[7] || '1').trim();
+      const rawPicCol     = String(row[8] || '').trim();
+
+      if (!rawPicCol || rawPicCol.toLowerCase().includes('(nama)')) return;
+
+      // Pecah jika ada koma atau kata "dan"
+      const individualPics = rawPicCol
+        .split(/,|\sdan\s/gi)
+        .map(p => cleanJobcardPICName(p))
+        .filter(p => p.length > 2);
+
+      individualPics.forEach((pic) => {
+        const cleanPic = cleanText(pic);
+
+        // LOGIKA PENCOCOKAN:
+        let assignedBiro = workCenterCol;
+        let isFromMaster = false;
+        let displayName = pic;
+
+        // 1. Cek apakah ada di file master Struktur
+        if (masterMap.has(cleanPic)) {
+          const master = masterMap.get(cleanPic)!;
+          assignedBiro = master.officialBiro; // Gunakan biro dari Struktur
+          displayName = master.officialName;  // Gunakan nama resmi
+          isFromMaster = true;
+        } else {
+          // Cari dengan kecocokan substring
+          for (const [mKey, mVal] of masterMap.entries()) {
+            if (cleanPic.includes(mKey) || mKey.includes(cleanPic)) {
+              assignedBiro = mVal.officialBiro;
+              displayName = mVal.officialName;
+              isFromMaster = true;
+              break;
+            }
+          }
+        }
+
+        // 2. Filter: Hanya masukkan jika biro akhir cocok dengan halaman biro saat ini
+        const cleanAssigned = cleanText(assignedBiro.replace(/biro/gi, ''));
+        const isMatch = cleanAssigned.includes(cleanTarget) || cleanTarget.includes(cleanAssigned);
+
+        if (isMatch) {
+          if (!picTaskMap.has(displayName)) {
+            picTaskMap.set(displayName, {
+              officialBiro: assignedBiro,
+              isFromMaster,
+              tasks: []
+            });
+          }
+
+          picTaskMap.get(displayName)!.tasks.push({
+            project: projectCol,
+            taskName: taskNameCol,
+            startDate: startDateCol,
+            endDate: endDateCol,
+            totalPersonil: personilCount,
+            originalWorkCenter: workCenterCol,
+            finalBiro: assignedBiro
+          });
+        }
+      });
+    });
+
+    const result: PersonilJobcardGroup[] = [];
+    picTaskMap.forEach((val, picName) => {
+      result.push({
+        picName,
+        officialBiro: val.officialBiro,
+        isFromMaster: val.isFromMaster,
+        tasks: val.tasks
+      });
+    });
+
+    return result.sort((a, b) => a.picName.localeCompare(b.picName));
+  };
+
+  const toggleAccordion = (picName: string) => {
+    setExpandedCards(prev => ({ ...prev, [picName]: !prev[picName] }));
+  };
+
+  // Filter KPI data
   const handleMonthClick = (biroName: string, month: string) => {
     if (!workbook) {
-      alert("File Excel data_kpi.xlsx sedang dimuat atau belum terbaca.");
+      alert("File data_kpi.xlsx belum terbaca.");
       return;
     }
 
@@ -263,43 +425,24 @@ export default function App() {
     const worksheet = workbook.Sheets[targetSheetName];
     const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
-    const personMap = new Map<string, {
-      nip: string;
-      nama: string;
-      effectiveSum: number;
-      overtimeSum: number;
-      idleSum: number;
-    }>();
-
-    const cleanTargetBiro = biroName
-      .toLowerCase()
-      .replace(/biro/g, '')
-      .replace(/[^a-z0-9]/g, '')
-      .trim();
+    const personMap = new Map<string, { nip: string; nama: string; effectiveSum: number; overtimeSum: number; idleSum: number }>();
+    const cleanTargetBiro = cleanText(biroName.replace(/biro/gi, ''));
 
     rawRows.forEach((row, rowIndex) => {
       if (!row || row.length === 0 || rowIndex === 0) return;
 
-      const colA_NIP   = String(row[0] || '').trim();  // Kolom A
-      const colB_Nama  = String(row[1] || '').trim();  // Kolom B
-      const colH_Biro  = String(row[7] || '').trim();  // Kolom H (Biro)
-      const colK_Eff   = parseValToNumber(row[10]);    // Kolom K (Effective)
-      const colL_Ot    = parseValToNumber(row[11]);    // Kolom L (Overtime)
-      const colM_Idle  = parseValToNumber(row[12]);    // Kolom M (Idle)
+      const colA_NIP   = String(row[0] || '').trim();
+      const colB_Nama  = String(row[1] || '').trim();
+      const colH_Biro  = String(row[7] || '').trim();
+      const colK_Eff   = parseValToNumber(row[10]);
+      const colL_Ot    = parseValToNumber(row[11]);
+      const colM_Idle  = parseValToNumber(row[12]);
 
-      const cleanRowBiro = colH_Biro
-        .toLowerCase()
-        .replace(/biro/g, '')
-        .replace(/[^a-z0-9]/g, '')
-        .trim();
-
-      const isMatchingBiro = cleanRowBiro && (
-        cleanRowBiro.includes(cleanTargetBiro) ||
-        cleanTargetBiro.includes(cleanRowBiro)
-      );
+      const cleanRowBiro = cleanText(colH_Biro.replace(/biro/gi, ''));
+      const isMatchingBiro = cleanRowBiro && (cleanRowBiro.includes(cleanTargetBiro) || cleanTargetBiro.includes(cleanRowBiro));
 
       if (isMatchingBiro && (colB_Nama || colA_NIP)) {
-        const personKey = (colB_Nama || colA_NIP).toLowerCase().replace(/\s+/g, ' ').trim();
+        const personKey = cleanText(colB_Nama || colA_NIP);
 
         if (!personMap.has(personKey)) {
           personMap.set(personKey, {
@@ -320,7 +463,7 @@ export default function App() {
 
     const formattedData: ExcelRow[] = [];
     personMap.forEach((person) => {
-      const cleanName = person.nama.toLowerCase().replace(/\s+/g, ' ').trim();
+      const cleanName = cleanText(person.nama);
       const absensi = absensiDataMap.get(cleanName);
       const ts = timesheetDataMap.get(cleanName) || { reguler: 0, overtime: 0 };
 
@@ -339,101 +482,7 @@ export default function App() {
     });
 
     setTableSearch('');
-    setSelectedBiroPage({
-      biroName,
-      month,
-      data: formattedData
-    });
-  };
-
-  // 3. Helper Pengolahan Data Job Card (Rekomendasi 1: Card per Pegawai)
-  const getJobcardGroupsForBiro = (biroName: string): PersonilJobcardGroup[] => {
-    if (!jobcardWorkbook) return [];
-
-    // Cari sheet 'BASIC'
-    const basicSheetName = jobcardWorkbook.SheetNames.find(s => s.trim().toUpperCase() === 'BASIC');
-    if (!basicSheetName) return [];
-
-    const worksheet = jobcardWorkbook.Sheets[basicSheetName];
-    const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-
-    // Peta Personil -> Daftar Tugas
-    const picTaskMap = new Map<string, JobcardTask[]>();
-
-    const bNorm = biroName.toLowerCase();
-
-    // Fungsi pencocokan biro yang cerdas
-    const isMatchingWorkCenter = (wcRaw: string): boolean => {
-      const wNorm = wcRaw.toLowerCase();
-      if (!wNorm) return false;
-
-      if (bNorm.includes('kapal selam') && (wNorm.includes('kapal selam') || wNorm.includes('scorpne') || wNorm.includes('submarine'))) return true;
-      if (bNorm.includes('kapal permukaan') && (wNorm.includes('kapal permukaan') || wNorm.includes('surface'))) return true;
-      if (bNorm.includes('non kapal') && wNorm.includes('non kapal')) return true;
-      if (bNorm.includes('pengembangan') && wNorm.includes('pengembangan')) return true;
-
-      const cleanB = bNorm.replace(/biro/g, '').replace(/[^a-z0-9]/g, '');
-      const cleanW = wNorm.replace(/biro/g, '').replace(/[^a-z0-9]/g, '');
-      return cleanW.includes(cleanB) || cleanB.includes(cleanW);
-    };
-
-    rawRows.forEach((row, idx) => {
-      if (!row || row.length === 0 || idx < 3) return; // Lewati baris header awal
-
-      const projectCol    = String(row[2] || '').trim(); // Kolom C: Project
-      const taskNameCol   = String(row[3] || '').trim(); // Kolom D: Task Name
-      const workCenterCol = String(row[4] || '').trim(); // Kolom E: Work Center (Biro)
-      const startDateCol  = String(row[5] || '-').trim(); // Kolom F: Start Date
-      const endDateCol    = String(row[6] || '-').trim(); // Kolom G: End Date
-      const personilCount = String(row[7] || '1').trim(); // Kolom H: Total Personil
-      const rawPicCol     = String(row[8] || '').trim(); // Kolom I: PIC (Bisa berisi banyak nama dipisah koma)
-
-      // Hanya proses baris yang work center-nya cocok dan memiliki PIC
-      if (isMatchingWorkCenter(workCenterCol) && rawPicCol && !rawPicCol.toLowerCase().includes('(nama)')) {
-        // Pecah nama PIC jika ada tanda koma (contoh: baris 313 berisi 10 nama)
-        const individualPics = rawPicCol.split(',').map(p => p.trim()).filter(p => p.length > 1);
-
-        individualPics.forEach((cleanPic) => {
-          if (!picTaskMap.has(cleanPic)) {
-            picTaskMap.set(cleanPic, []);
-          }
-
-          picTaskMap.get(cleanPic)!.push({
-            project: projectCol || '-',
-            taskName: taskNameCol || '-',
-            startDate: startDateCol || '-',
-            endDate: endDateCol || '-',
-            totalPersonil: personilCount || '1'
-          });
-        });
-      }
-    });
-
-    // Konversi Map ke Array dan urutkan abjad
-    const result: PersonilJobcardGroup[] = [];
-    picTaskMap.forEach((tasks, picName) => {
-      result.push({ picName, tasks });
-    });
-
-    return result.sort((a, b) => a.picName.localeCompare(b.picName));
-  };
-
-  // Toggle Accordion Card
-  const toggleAccordion = (picName: string) => {
-    setExpandedCards(prev => ({
-      ...prev,
-      [picName]: !prev[picName]
-    }));
-  };
-
-  const handleExpandAll = (groups: PersonilJobcardGroup[]) => {
-    const allExpanded: Record<string, boolean> = {};
-    groups.forEach(g => { allExpanded[g.picName] = true; });
-    setExpandedCards(allExpanded);
-  };
-
-  const handleCollapseAll = () => {
-    setExpandedCards({});
+    setSelectedBiroPage({ biroName, month, data: formattedData });
   };
 
   const filteredTableData = (selectedBiroPage?.data || []).filter(item => 
@@ -441,16 +490,10 @@ export default function App() {
     item.nama.toLowerCase().includes(tableSearch.toLowerCase())
   );
 
-  // Ambil dan filter data Job Card untuk halaman FORM
   const currentJobcardGroups = selectedFormBiro ? getJobcardGroupsForBiro(selectedFormBiro.biroName) : [];
   const filteredJobcardGroups = currentJobcardGroups.filter(group => {
-    const searchLower = formSearch.toLowerCase();
-    const matchesName = group.picName.toLowerCase().includes(searchLower);
-    const matchesTask = group.tasks.some(t => 
-      t.project.toLowerCase().includes(searchLower) || 
-      t.taskName.toLowerCase().includes(searchLower)
-    );
-    return matchesName || matchesTask;
+    const s = formSearch.toLowerCase();
+    return group.picName.toLowerCase().includes(s) || group.tasks.some(t => t.project.toLowerCase().includes(s) || t.taskName.toLowerCase().includes(s));
   });
 
   const totalAllTasks = currentJobcardGroups.reduce((acc, g) => acc + g.tasks.length, 0);
@@ -477,7 +520,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Tombol Back Cerdas di Navbar */}
           {selectedFormBiro ? (
             <button
               onClick={() => setSelectedFormBiro(null)}
@@ -509,7 +551,7 @@ export default function App() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
-        {/* ================= LEVEL 1: 6 DEPARTEMEN ================= */}
+        {/* LEVEL 1: 6 DEPARTEMEN */}
         {!selectedDept && !selectedBiroPage && !selectedFormBiro && (
           <div className="space-y-8 animate-fadeIn">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-800 pb-6">
@@ -572,7 +614,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= LEVEL 2: DAFTAR BIRO ================= */}
+        {/* LEVEL 2: DAFTAR BIRO */}
         {selectedDept && !selectedBiroPage && !selectedFormBiro && (
           <div className="space-y-8 animate-fadeIn">
             <div className="bg-gradient-to-r from-blue-900/40 to-slate-800 border border-blue-500/20 rounded-2xl p-6 sm:p-8">
@@ -623,7 +665,6 @@ export default function App() {
                           </span>
                           <h4 className="text-base font-bold text-white">{biro.name}</h4>
 
-                          {/* TOMBOL "FORM" KHUSUS DEPARTEMEN DESAIN DASAR */}
                           {isDesainDasar && (
                             <button
                               onClick={() => setSelectedFormBiro({
@@ -651,11 +692,7 @@ export default function App() {
                               disabled={isLoadingExcel}
                               className="px-4 py-2.5 rounded-lg text-xs font-semibold tracking-wide transition-all duration-150 flex items-center justify-center cursor-pointer border bg-slate-800/90 hover:bg-blue-600 hover:text-white border-slate-700 text-slate-300 hover:border-blue-500 disabled:opacity-50"
                             >
-                              {isLoadingExcel ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                month
-                              )}
+                              {isLoadingExcel ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : month}
                             </button>
                           );
                         })}
@@ -668,10 +705,10 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= HALAMAN FORMULIR: REKOMENDASI 1 (ACCORDION PER PEGAWAI) ================= */}
+        {/* ================= HALAMAN FORMULIR DENGAN MASTER LOOKUP OVERRIDE ================= */}
         {selectedFormBiro && (
           <div className="space-y-6 animate-fadeIn">
-            {/* Header Halaman Form */}
+            {/* Header Form */}
             <div className="bg-gradient-to-r from-teal-900/40 via-slate-800 to-slate-800 border border-emerald-500/20 rounded-2xl p-6 sm:p-8">
               <button
                 onClick={() => setSelectedFormBiro(null)}
@@ -684,37 +721,36 @@ export default function App() {
                 <div>
                   <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-1">
                     <FolderKanban className="w-4 h-4" />
-                    <span>Monitoring Penugasan Personil — {selectedFormBiro.deptName}</span>
+                    <span>Monitoring Job Card Personil — {selectedFormBiro.deptName}</span>
                   </div>
                   <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
                     {selectedFormBiro.biroName}
                   </h2>
                   <p className="text-slate-400 text-sm mt-1">
-                    Sumber Data: <b>JOBCARD DESAIN.xlsx</b> (Sheet: <b>BASIC</b>)
+                    Validasi Master: <b>Struktur dan Anggota Desain Upd 0826</b> ➔ Data Tugas: <b>JOBCARD DESAIN (Sheet BASIC)</b>
                   </p>
                 </div>
 
-                {/* Indikator Statistik Ringkas */}
                 <div className="flex items-center gap-3">
                   <div className="px-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-center">
-                    <div className="text-xl font-black text-emerald-400">{currentJobcardGroups.length}</div>
-                    <div className="text-[10px] text-slate-400 uppercase font-semibold">Total Personil</div>
+                    <div className="text-xl font-black text-emerald-400">{filteredJobcardGroups.length}</div>
+                    <div className="text-[10px] text-slate-400 uppercase font-semibold">Personil Terdaftar</div>
                   </div>
                   <div className="px-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-center">
                     <div className="text-xl font-black text-cyan-400">{totalAllTasks}</div>
-                    <div className="text-[10px] text-slate-400 uppercase font-semibold">Total Tugas</div>
+                    <div className="text-[10px] text-slate-400 uppercase font-semibold">Total Job Card</div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Filter Search & Tombol Buka/Tutup Semua Card */}
+            {/* Kotak Filter & Pencarian */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="relative w-full sm:w-80">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Cari nama personil atau proyek..."
+                  placeholder="Cari personil atau nama proyek..."
                   value={formSearch}
                   onChange={(e) => setFormSearch(e.target.value)}
                   className="w-full pl-9 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
@@ -723,13 +759,17 @@ export default function App() {
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => handleExpandAll(filteredJobcardGroups)}
+                  onClick={() => {
+                    const all: Record<string, boolean> = {};
+                    filteredJobcardGroups.forEach(g => { all[g.picName] = true; });
+                    setExpandedCards(all);
+                  }}
                   className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
                 >
                   Buka Semua
                 </button>
                 <button
-                  onClick={handleCollapseAll}
+                  onClick={() => setExpandedCards({})}
                   className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
                 >
                   Tutup Semua
@@ -737,7 +777,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* DAFTAR CARD ACCORDION PER PEGAWAI (REKOMENDASI 1) */}
+            {/* CARD ACCORDION PER PEGAWAI */}
             {filteredJobcardGroups.length > 0 ? (
               <div className="space-y-4">
                 {filteredJobcardGroups.map((person, idx) => {
@@ -748,7 +788,6 @@ export default function App() {
                       key={idx}
                       className="bg-slate-800/70 border border-slate-700/80 rounded-2xl overflow-hidden shadow-md transition-all duration-200 hover:border-slate-600"
                     >
-                      {/* HEADER CARD: KLIK UNTUK BUKA/TUTUP ACCORDION */}
                       <div
                         onClick={() => toggleAccordion(person.picName)}
                         className="p-5 flex items-center justify-between cursor-pointer select-none bg-slate-800/90 hover:bg-slate-800 transition"
@@ -758,11 +797,22 @@ export default function App() {
                             <User className="w-5 h-5" />
                           </div>
                           <div>
-                            <h4 className="text-base font-bold text-white tracking-wide">
-                              {person.picName}
-                            </h4>
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-base font-bold text-white tracking-wide">
+                                {person.picName}
+                              </h4>
+                              {person.isFromMaster ? (
+                                <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] rounded font-semibold flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3" /> Terdaftar di Struktur
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] rounded font-semibold">
+                                  Biro Asal Job Card
+                                </span>
+                              )}
+                            </div>
                             <span className="text-xs text-slate-400">
-                              Personil Biro Desain Dasar
+                              {person.officialBiro}
                             </span>
                           </div>
                         </div>
@@ -777,7 +827,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* BODY ACCORDION: TABEL TUGAS DARI EXCEL */}
+                      {/* Detail Tugas Personil */}
                       {isExpanded && (
                         <div className="p-5 border-t border-slate-700/70 bg-slate-900/40 animate-fadeIn">
                           <div className="overflow-x-auto rounded-xl border border-slate-700/60">
@@ -789,7 +839,7 @@ export default function App() {
                                   <th className="py-3 px-4">Task Name / Uraian Pekerjaan</th>
                                   <th className="py-3 px-4 w-36 text-center">Start Date</th>
                                   <th className="py-3 px-4 w-36 text-center">End Date</th>
-                                  <th className="py-3 px-4 w-24 text-center">Tim</th>
+                                  <th className="py-3 px-4 w-28 text-center">Tim Kerja</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-700/50 text-slate-200">
@@ -829,16 +879,16 @@ export default function App() {
             ) : (
               <div className="py-16 text-center text-slate-400 bg-slate-800/40 border border-slate-700/60 rounded-2xl space-y-2">
                 <Briefcase className="w-10 h-10 mx-auto text-slate-500 opacity-60" />
-                <p className="text-base font-semibold text-slate-300">Belum Ada Data Job Card</p>
+                <p className="text-base font-semibold text-slate-300">Belum Ada Personil / Job Card Terdaftar</p>
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  Pastikan file <b>src/JOBCARD DESAIN.xlsx</b> memiliki sheet <b>BASIC</b> dan kolom Work Center (Kolom E) sesuai dengan <b>{selectedFormBiro.biroName}</b>.
+                  Tidak ditemukan personil untuk <b>{selectedFormBiro.biroName}</b> berdasarkan data pencocokan file Struktur & Job Card.
                 </p>
               </div>
             )}
           </div>
         )}
 
-        {/* ================= LEVEL 3: TABEL LENGKAP REKAPITULASI KPI (11 KOLOM PRESISI) ================= */}
+        {/* LEVEL 3: TABEL KPI 11 KOLOM */}
         {selectedBiroPage && (
           <div className="space-y-6 animate-fadeIn">
             <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 sm:p-8">
@@ -870,7 +920,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Pencarian */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="relative w-full sm:w-80">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -887,7 +936,6 @@ export default function App() {
               </span>
             </div>
 
-            {/* TABEL 11 KOLOM PRESISI */}
             <div className="bg-slate-800/60 border border-slate-700/80 rounded-2xl overflow-hidden shadow-xl">
               {filteredTableData.length > 0 ? (
                 <div className="overflow-x-auto">
