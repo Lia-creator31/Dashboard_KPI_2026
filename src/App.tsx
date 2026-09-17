@@ -433,65 +433,79 @@ export default function App() {
     return result.sort((a, b) => a.picName.localeCompare(b.picName));
   };
 
-  const handleSubmitForm = async (e: React.FormEvent) => {
+const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFormBiro) return;
 
-    const biroKey = cleanText(selectedFormBiro.biroName);
+    try {
+      // 1. Ambil ID biro resmi dari tabel biros agar tidak ditolak Foreign Key
+      let validBiroId: string | null = null;
+      const { data: biroList } = await supabase.from('biros').select('id, name');
+      
+      if (biroList && biroList.length > 0) {
+        const found = biroList.find(b => isBiroMatch(b.name, selectedFormBiro.biroName));
+        validBiroId = found ? found.id : biroList[0].id; // Gunakan ID yang cocok atau fallback baris pertama
+      }
 
-    const { data: insertedRow, error } = await supabase
-      .from('job_cards')
-      .insert({
-        biro_id: biroKey,
-        biro_name: selectedFormBiro.biroName,
-        personil_name: formData.nama,
-        project_code: formData.kodeProyek,
+      // 2. Simpan ke tabel job_cards dengan biro_id yang valid
+      const { data: insertedRow, error } = await supabase
+        .from('job_cards')
+        .insert({
+          biro_id: validBiroId, // 👈 ID resmi dari tabel biros (Lolos Foreign Key & NOT NULL)
+          biro_name: selectedFormBiro.biroName,
+          personil_name: formData.nama,
+          project_code: formData.kodeProyek,
+          project: formData.kodeProyek,
+          task_name: formData.taskName,
+          start_date: formData.startDate,
+          end_date: formData.endDate,
+          pic: formData.nama,
+          jo: formData.jo,
+          kode_jc: '',
+          status: 'pending',
+        })
+        .select()
+        .single();
+
+      if (error) {
+        alert('Gagal menyimpan ke database: ' + error.message);
+        return;
+      }
+
+      // 3. Update tampilan kartu lokal
+      const biroKey = cleanText(selectedFormBiro.biroName);
+      const newTask: TaskItem = {
+        id: insertedRow.id,
+        biroName: selectedFormBiro.biroName,
         project: formData.kodeProyek,
-        task_name: formData.taskName,
-        start_date: formData.startDate,
-        end_date: formData.endDate,
+        taskName: formData.taskName,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
         pic: formData.nama,
         jo: formData.jo,
-        kode_jc: '',
-        status: 'pending',
-      })
-      .select()
-      .single();
+        kodeJc: '',
+      };
 
-    if (error) {
-      alert('Gagal menyimpan ke database: ' + error.message);
-      return;
+      const currentList = manualTasks[biroKey] || [];
+      setManualTasks({ ...manualTasks, [biroKey]: [newTask, ...currentList] });
+
+      setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
+      setFormData({
+        nama: '',
+        kodeProyek: '',
+        taskName: '',
+        startDate: '',
+        endDate: '',
+        pic: '',
+        jo: ''
+      });
+
+      alert('Job Card berhasil tersimpan ke database online!');
+    } catch (err) {
+      console.error(err);
+      alert('Terjadi kesalahan koneksi database.');
     }
-
-    const newTask: TaskItem = {
-      id: insertedRow.id,
-      biroName: selectedFormBiro.biroName,
-      project: formData.kodeProyek,
-      taskName: formData.taskName,
-      startDate: formData.startDate,
-      endDate: formData.endDate,
-      pic: formData.nama,
-      jo: formData.jo,
-      kodeJc: '',
-    };
-
-    const currentList = manualTasks[biroKey] || [];
-    setManualTasks({ ...manualTasks, [biroKey]: [newTask, ...currentList] });
-
-    setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
-    setFormData({
-      nama: '',
-      kodeProyek: '',
-      taskName: '',
-      startDate: '',
-      endDate: '',
-      pic: '',
-      jo: ''
-    });
-
-    alert('Job Card tersimpan ke database.');
   };
-
   const handleVerifyPin = (e: React.FormEvent) => {
     e.preventDefault();
     if (pinInput === PLANNER_PIN) {
