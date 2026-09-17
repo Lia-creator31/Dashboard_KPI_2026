@@ -60,6 +60,13 @@ const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', {
   eager: true 
 }) as Record<string, string>;
 
+// Membaca otomatis URL file Excel ber-underscore di folder src/
+const excelGlobUrls = import.meta.glob('./*.xlsx', { 
+  query: '?url', 
+  import: 'default', 
+  eager: true 
+}) as Record<string, string>;
+
 interface ExcelRow {
   nip: string;
   nama: string;
@@ -107,8 +114,9 @@ function cleanText(str: string): string {
 }
 
 // Helper fetch Excel yang aman (memvalidasi biner XLSX dan bukan halaman 404 HTML)
-async function fetchSafeWorkbook(paths: string[]): Promise<XLSX.WorkBook | null> {
+async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
   for (const p of paths) {
+    if (!p) continue;
     try {
       const res = await fetch(p);
       if (res.ok) {
@@ -143,27 +151,32 @@ export default function App() {
   const [strukturWorkbook, setStrukturWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [isLoadingExcel, setIsLoadingExcel] = useState<boolean>(true);
 
-  // 1. Membaca ketiga file Excel secara aman
+  // 1. Membaca ketiga file Excel secara aman dengan nama underscore (_)
   useEffect(() => {
     async function loadAllExcelFiles() {
       try {
         setIsLoadingExcel(true);
 
+        let kpiUrl = '';
+        let jcUrl = '';
+        let strukturUrl = '';
+
+        // Deteksi file dari folder src secara otomatis
+        Object.entries(excelGlobUrls).forEach(([path, url]) => {
+          const pLower = path.toLowerCase();
+          if (pLower.includes('kpi')) kpiUrl = url;
+          else if (pLower.includes('jobcard')) jcUrl = url;
+          else if (pLower.includes('struktur')) strukturUrl = url;
+        });
+
         const [wbKpi, wbJc, wbStruktur] = await Promise.all([
-          fetchSafeWorkbook(['/data_kpi.xlsx', './data_kpi.xlsx', 'data_kpi.xlsx']),
+          fetchSafeWorkbook([kpiUrl, '/data_kpi.xlsx', './data_kpi.xlsx']),
+          fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx']),
           fetchSafeWorkbook([
-            '/JOBCARD%20DESAIN.xlsx', 
-            '/JOBCARD DESAIN.xlsx', 
-            './JOBCARD%20DESAIN.xlsx', 
-            './JOBCARD DESAIN.xlsx',
-            '/jobcard_desain.xlsx',
-            './jobcard_desain.xlsx'
-          ]),
-          fetchSafeWorkbook([
-            '/struktur_desain.xlsx',
-            './struktur_desain.xlsx',
-            '/Struktur%20dan%20Anggota%20Desain%20Upd%200826%20(1).xlsx',
-            './Struktur%20dan%20Anggota%20Desain%20Upd%200826%20(1).xlsx'
+            strukturUrl, 
+            '/Struktur_dan_Anggota_Desain_Upd_0826_(1).xlsx',
+            './Struktur_dan_Anggota_Desain_Upd_0826_(1).xlsx',
+            '/Struktur_dan_Anggota_Desain_Upd_0826.xlsx'
           ])
         ]);
 
@@ -493,7 +506,7 @@ export default function App() {
     setSelectedBiroPage({ biroName, month, data: formattedData });
   };
 
-  // FILTER DEPARTEMEN UTAMA (KINI AMAN DAN TERDEFINISI)
+  // Filter Departemen Utama
   const filteredDepartments = (departmentsData || []).filter((dept) => 
     dept.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (dept.description || '').toLowerCase().includes(searchQuery.toLowerCase())
