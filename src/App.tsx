@@ -28,8 +28,8 @@ import {
   Briefcase,
   ChevronDown,
   ChevronUp,
-  FolderKanban,
-  CheckCircle2,
+  Folder,
+  CheckCircle,
   Loader2, 
   LucideIcon 
 } from 'lucide-react';
@@ -101,9 +101,29 @@ interface SelectedFormPage {
   deptName: string;
 }
 
-// Helper normalisasi teks nama untuk pencocokan akurat
+// Helper normalisasi teks untuk pencocokan nama
 function cleanText(str: string): string {
-  return str.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+  return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+}
+
+// Helper fetch Excel yang aman (memvalidasi biner XLSX dan bukan halaman 404 HTML)
+async function fetchSafeWorkbook(paths: string[]): Promise<XLSX.WorkBook | null> {
+  for (const p of paths) {
+    try {
+      const res = await fetch(p);
+      if (res.ok) {
+        const buf = await res.arrayBuffer();
+        const bytes = new Uint8Array(buf.slice(0, 4));
+        // Validasi magic byte file XLSX / ZIP: [80, 75, 3, 4] -> 'PK\x03\x04'
+        if (bytes[0] === 80 && bytes[1] === 75 && bytes[2] === 3 && bytes[3] === 4) {
+          return XLSX.read(buf, { type: 'array' });
+        }
+      }
+    } catch {
+      // Coba path alternatif berikutnya
+    }
+  }
+  return null;
 }
 
 export default function App() {
@@ -114,7 +134,7 @@ export default function App() {
   const [tableSearch, setTableSearch] = useState('');
   const [formSearch, setFormSearch] = useState('');
   
-  // State Accordion
+  // State Accordion Buka/Tutup Card
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   // State Workbooks
@@ -123,32 +143,35 @@ export default function App() {
   const [strukturWorkbook, setStrukturWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [isLoadingExcel, setIsLoadingExcel] = useState<boolean>(true);
 
-  // 1. Membaca 3 File Excel langsung di browser
+  // 1. Membaca ketiga file Excel secara aman
   useEffect(() => {
     async function loadAllExcelFiles() {
       try {
         setIsLoadingExcel(true);
 
-        const [resKpi, resJc, resStruktur] = await Promise.all([
-          fetch('/data_kpi.xlsx'),
-          fetch('/JOBCARD%20DESAIN.xlsx'),
-          fetch('/struktur_desain.xlsx') // File: Struktur dan Anggota Desain Upd 0826 (1).xlsx
+        const [wbKpi, wbJc, wbStruktur] = await Promise.all([
+          fetchSafeWorkbook(['/data_kpi.xlsx', './data_kpi.xlsx', 'data_kpi.xlsx']),
+          fetchSafeWorkbook([
+            '/JOBCARD%20DESAIN.xlsx', 
+            '/JOBCARD DESAIN.xlsx', 
+            './JOBCARD%20DESAIN.xlsx', 
+            './JOBCARD DESAIN.xlsx',
+            '/jobcard_desain.xlsx',
+            './jobcard_desain.xlsx'
+          ]),
+          fetchSafeWorkbook([
+            '/struktur_desain.xlsx',
+            './struktur_desain.xlsx',
+            '/Struktur%20dan%20Anggota%20Desain%20Upd%200826%20(1).xlsx',
+            './Struktur%20dan%20Anggota%20Desain%20Upd%200826%20(1).xlsx'
+          ])
         ]);
 
-        if (resKpi.ok) {
-          const buf = await resKpi.arrayBuffer();
-          setWorkbook(XLSX.read(buf, { type: 'array' }));
-        }
-        if (resJc.ok) {
-          const buf = await resJc.arrayBuffer();
-          setJobcardWorkbook(XLSX.read(buf, { type: 'array' }));
-        }
-        if (resStruktur.ok) {
-          const buf = await resStruktur.arrayBuffer();
-          setStrukturWorkbook(XLSX.read(buf, { type: 'array' }));
-        }
+        if (wbKpi) setWorkbook(wbKpi);
+        if (wbJc) setJobcardWorkbook(wbJc);
+        if (wbStruktur) setStrukturWorkbook(wbStruktur);
       } catch (error) {
-        console.error("Gagal membaca file Excel di browser:", error);
+        console.error("Gagal membaca file Excel:", error);
       } finally {
         setIsLoadingExcel(false);
       }
@@ -190,7 +213,7 @@ export default function App() {
     return absensiMap;
   };
 
-  // Parser Timesheet
+  // Parser Folder Timesheet
   const parseTimesheetFolder = (targetMonth: string): Map<string, { reguler: number; overtime: number }> => {
     const timesheetMap = new Map<string, { reguler: number; overtime: number }>();
     const monthLower = targetMonth.toLowerCase().trim();
@@ -237,7 +260,7 @@ export default function App() {
     return timesheetMap;
   };
 
-  // 2. PARSER MASTER ROSTER DARI FILE STRUKTUR (Sheet: CalonPers)
+  // 2. PARSER MASTER STRUKTUR ORGANISASI (Sheet: CalonPers)
   const getMasterStructureMap = (): Map<string, { officialBiro: string; officialName: string }> => {
     const masterMap = new Map<string, { officialBiro: string; officialName: string }>();
     if (!strukturWorkbook) return masterMap;
@@ -247,14 +270,13 @@ export default function App() {
 
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-    // Kolom-kolom biro di sheet CalonPers
     const colBlocks = [
-      { dCol: 2, nCol: 3, maxR: 50 },  // Perencanaan Desain
-      { dCol: 8, nCol: 9, maxR: 55 },  // Desain Dasar
-      { dCol: 14, nCol: 15, maxR: 83 }, // Struktur & Lambung
-      { dCol: 22, nCol: 23, maxR: 67 }, // Permesinan
-      { dCol: 29, nCol: 30, maxR: 66 }, // Listrik & Elektronika
-      { dCol: 36, nCol: 37, maxR: 30 }, // HPS
+      { dCol: 2, nCol: 3, maxR: 50 },
+      { dCol: 8, nCol: 9, maxR: 55 },
+      { dCol: 14, nCol: 15, maxR: 83 },
+      { dCol: 22, nCol: 23, maxR: 67 },
+      { dCol: 29, nCol: 30, maxR: 66 },
+      { dCol: 36, nCol: 37, maxR: 30 },
     ];
 
     colBlocks.forEach(({ dCol, nCol, maxR }) => {
@@ -268,12 +290,9 @@ export default function App() {
         if (valD.toLowerCase().includes('biro')) {
           currentBiro = valD;
         } else if (currentBiro) {
-          // Kepala Biro (ada di valD, valN kosong)
           if (valD && !/^\d+$/.test(valD) && !valN && !valD.toLowerCase().includes('departemen') && !valD.toLowerCase().includes('personil')) {
             masterMap.set(cleanText(valD), { officialBiro: currentBiro, officialName: valD });
-          } 
-          // Anggota Biro (nama ada di valN)
-          else if (valN && valN.toUpperCase() !== 'PERSONIL' && !valN.toLowerCase().includes('departemen')) {
+          } else if (valN && valN.toUpperCase() !== 'PERSONIL' && !valN.toLowerCase().includes('departemen')) {
             masterMap.set(cleanText(valN), { officialBiro: currentBiro, officialName: valN });
           }
         }
@@ -283,9 +302,8 @@ export default function App() {
     return masterMap;
   };
 
-  // Helper Pembersih Glitch Typo Nama di Job Card
   const cleanJobcardPICName = (rawName: string): string => {
-    let s = rawName.trim();
+    let s = (rawName || '').trim();
     s = s.replace(/satri\s*handoyoawansyah/gi, 'Satriawansyah');
     s = s.replace(/putri\s*handoyo/gi, 'Putri');
     s = s.replace(/e?beatri\s*handoyoce/gi, 'Beatrice Morlyta I.');
@@ -296,7 +314,7 @@ export default function App() {
     return s.replace(/\.$/, '').trim();
   };
 
-  // 3. PENGELOMPOKAN JOBCARD: MENCOCOKKAN KE STRUKTUR DULU, JIKA TIDAK ADA PAKAI BIRO ASAL
+  // 3. PARSER JOBCARD BERDASARKAN MASTER STRUKTUR
   const getJobcardGroupsForBiro = (targetBiroName: string): PersonilJobcardGroup[] => {
     if (!jobcardWorkbook) return [];
 
@@ -305,8 +323,6 @@ export default function App() {
 
     const worksheet = jobcardWorkbook.Sheets[basicSheetName];
     const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-
-    // Ambil Kamus Master Struktur
     const masterMap = getMasterStructureMap();
 
     const picTaskMap = new Map<string, { officialBiro: string; isFromMaster: boolean; tasks: JobcardTask[] }>();
@@ -317,7 +333,7 @@ export default function App() {
 
       const projectCol    = String(row[2] || '-').trim();
       const taskNameCol   = String(row[3] || '-').trim();
-      const workCenterCol = String(row[4] || '-').trim(); // Biro asal dari Job Card
+      const workCenterCol = String(row[4] || '-').trim();
       const startDateCol  = String(row[5] || '-').trim();
       const endDateCol    = String(row[6] || '-').trim();
       const personilCount = String(row[7] || '1').trim();
@@ -325,7 +341,6 @@ export default function App() {
 
       if (!rawPicCol || rawPicCol.toLowerCase().includes('(nama)')) return;
 
-      // Pecah jika ada koma atau kata "dan"
       const individualPics = rawPicCol
         .split(/,|\sdan\s/gi)
         .map(p => cleanJobcardPICName(p))
@@ -334,19 +349,17 @@ export default function App() {
       individualPics.forEach((pic) => {
         const cleanPic = cleanText(pic);
 
-        // LOGIKA PENCOCOKAN:
         let assignedBiro = workCenterCol;
         let isFromMaster = false;
         let displayName = pic;
 
-        // 1. Cek apakah ada di file master Struktur
+        // Cek master struktur
         if (masterMap.has(cleanPic)) {
           const master = masterMap.get(cleanPic)!;
-          assignedBiro = master.officialBiro; // Gunakan biro dari Struktur
-          displayName = master.officialName;  // Gunakan nama resmi
+          assignedBiro = master.officialBiro;
+          displayName = master.officialName;
           isFromMaster = true;
         } else {
-          // Cari dengan kecocokan substring
           for (const [mKey, mVal] of masterMap.entries()) {
             if (cleanPic.includes(mKey) || mKey.includes(cleanPic)) {
               assignedBiro = mVal.officialBiro;
@@ -357,17 +370,12 @@ export default function App() {
           }
         }
 
-        // 2. Filter: Hanya masukkan jika biro akhir cocok dengan halaman biro saat ini
         const cleanAssigned = cleanText(assignedBiro.replace(/biro/gi, ''));
         const isMatch = cleanAssigned.includes(cleanTarget) || cleanTarget.includes(cleanAssigned);
 
         if (isMatch) {
           if (!picTaskMap.has(displayName)) {
-            picTaskMap.set(displayName, {
-              officialBiro: assignedBiro,
-              isFromMaster,
-              tasks: []
-            });
+            picTaskMap.set(displayName, { officialBiro: assignedBiro, isFromMaster, tasks: [] });
           }
 
           picTaskMap.get(displayName)!.tasks.push({
@@ -400,7 +408,7 @@ export default function App() {
     setExpandedCards(prev => ({ ...prev, [picName]: !prev[picName] }));
   };
 
-  // Filter KPI data
+  // Filter KPI Data Bulanan
   const handleMonthClick = (biroName: string, month: string) => {
     if (!workbook) {
       alert("File data_kpi.xlsx belum terbaca.");
@@ -485,6 +493,12 @@ export default function App() {
     setSelectedBiroPage({ biroName, month, data: formattedData });
   };
 
+  // FILTER DEPARTEMEN UTAMA (KINI AMAN DAN TERDEFINISI)
+  const filteredDepartments = (departmentsData || []).filter((dept) => 
+    dept.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (dept.description || '').toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   const filteredTableData = (selectedBiroPage?.data || []).filter(item => 
     item.nip.toLowerCase().includes(tableSearch.toLowerCase()) ||
     item.nama.toLowerCase().includes(tableSearch.toLowerCase())
@@ -493,7 +507,8 @@ export default function App() {
   const currentJobcardGroups = selectedFormBiro ? getJobcardGroupsForBiro(selectedFormBiro.biroName) : [];
   const filteredJobcardGroups = currentJobcardGroups.filter(group => {
     const s = formSearch.toLowerCase();
-    return group.picName.toLowerCase().includes(s) || group.tasks.some(t => t.project.toLowerCase().includes(s) || t.taskName.toLowerCase().includes(s));
+    return (group.picName || '').toLowerCase().includes(s) || 
+           group.tasks.some(t => (t.project || '').toLowerCase().includes(s) || (t.taskName || '').toLowerCase().includes(s));
   });
 
   const totalAllTasks = currentJobcardGroups.reduce((acc, g) => acc + g.tasks.length, 0);
@@ -705,7 +720,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= HALAMAN FORMULIR DENGAN MASTER LOOKUP OVERRIDE ================= */}
+        {/* ================= HALAMAN FORMULIR: ACCORDION PER PEGAWAI BERDASARKAN STRUKTUR ================= */}
         {selectedFormBiro && (
           <div className="space-y-6 animate-fadeIn">
             {/* Header Form */}
@@ -720,7 +735,7 @@ export default function App() {
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-1">
-                    <FolderKanban className="w-4 h-4" />
+                    <Folder className="w-4 h-4" />
                     <span>Monitoring Job Card Personil — {selectedFormBiro.deptName}</span>
                   </div>
                   <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
@@ -744,7 +759,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Kotak Filter & Pencarian */}
+            {/* Filter & Pencarian */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="relative w-full sm:w-80">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -803,7 +818,7 @@ export default function App() {
                               </h4>
                               {person.isFromMaster ? (
                                 <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] rounded font-semibold flex items-center gap-1">
-                                  <CheckCircle2 className="w-3 h-3" /> Terdaftar di Struktur
+                                  <CheckCircle className="w-3 h-3" /> Terdaftar di Struktur
                                 </span>
                               ) : (
                                 <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] rounded font-semibold">
@@ -827,7 +842,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Detail Tugas Personil */}
+                      {/* Detail Tabel Tugas */}
                       {isExpanded && (
                         <div className="p-5 border-t border-slate-700/70 bg-slate-900/40 animate-fadeIn">
                           <div className="overflow-x-auto rounded-xl border border-slate-700/60">
@@ -888,7 +903,7 @@ export default function App() {
           </div>
         )}
 
-        {/* LEVEL 3: TABEL KPI 11 KOLOM */}
+        {/* LEVEL 3: TABEL KPI 11 KOLOM PRESISI */}
         {selectedBiroPage && (
           <div className="space-y-6 animate-fadeIn">
             <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 sm:p-8">
