@@ -442,8 +442,10 @@ export default function App() {
     const { data: insertedRow, error } = await supabase
       .from('job_cards')
       .insert({
+        biro_id: biroKey,
         biro_name: selectedFormBiro.biroName,
         personil_name: formData.nama,
+        project_code: formData.kodeProyek,
         project: formData.kodeProyek,
         task_name: formData.taskName,
         start_date: formData.startDate,
