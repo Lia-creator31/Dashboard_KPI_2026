@@ -30,6 +30,7 @@ import {
   ChevronUp,
   Folder,
   CheckCircle,
+  AlertCircle,
   Loader2, 
   LucideIcon 
 } from 'lucide-react';
@@ -113,6 +114,38 @@ function cleanText(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
 
+// Helper pencocokan nama biro yang fleksibel & toleran kata "Dasar" / "Basic"
+function isBiroMatch(biro1: string, biro2: string): boolean {
+  const b1 = (biro1 || '').toLowerCase();
+  const b2 = (biro2 || '').toLowerCase();
+
+  // 1. Biro Pengembangan Desain (dengan / tanpa kata "Dasar")
+  if (b1.includes('pengembangan') && b2.includes('pengembangan')) return true;
+
+  // 2. Biro Kapal Selam
+  if (
+    (b1.includes('kapal selam') || b1.includes('submarine') || b1.includes('scorpne')) &&
+    (b2.includes('kapal selam') || b2.includes('submarine') || b2.includes('scorpne'))
+  ) return true;
+
+  // 3. Biro Non Kapal
+  if (b1.includes('non kapal') && b2.includes('non kapal')) return true;
+
+  // 4. Biro Kapal Permukaan
+  if (
+    (b1.includes('kapal permukaan') || b1.includes('surface')) &&
+    (b2.includes('kapal permukaan') || b2.includes('surface'))
+  ) return true;
+
+  // Fallback umum
+  const c1 = cleanText(b1.replace(/biro|departemen|desain|dasar/gi, ''));
+  const c2 = cleanText(b2.replace(/biro|departemen|desain|dasar/gi, ''));
+  if (c1 && c2) {
+    return c1.includes(c2) || c2.includes(c1);
+  }
+  return false;
+}
+
 // Helper fetch Excel yang aman (memvalidasi biner XLSX dan bukan halaman 404 HTML)
 async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
   for (const p of paths) {
@@ -161,7 +194,7 @@ export default function App() {
         let jcUrl = '';
         let strukturUrl = '';
 
-        // Deteksi file dari folder src secara otomatis
+        // Deteksi URL file dari folder src secara otomatis
         Object.entries(excelGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
           if (pLower.includes('kpi')) kpiUrl = url;
@@ -171,12 +204,14 @@ export default function App() {
 
         const [wbKpi, wbJc, wbStruktur] = await Promise.all([
           fetchSafeWorkbook([kpiUrl, '/data_kpi.xlsx', './data_kpi.xlsx']),
-          fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx']),
+          fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx', '/JOBCARD DESAIN.xlsx']),
           fetchSafeWorkbook([
             strukturUrl, 
             '/Struktur_dan_Anggota_Desain_Upd_0826_(1).xlsx',
             './Struktur_dan_Anggota_Desain_Upd_0826_(1).xlsx',
-            '/Struktur_dan_Anggota_Desain_Upd_0826.xlsx'
+            '/Struktur_dan_Anggota_Desain_Upd_0826.xlsx',
+            './Struktur_dan_Anggota_Desain_Upd_0826.xlsx',
+            '/struktur_desain.xlsx'
           ])
         ]);
 
@@ -327,7 +362,7 @@ export default function App() {
     return s.replace(/\.$/, '').trim();
   };
 
-  // 3. PARSER JOBCARD BERDASARKAN MASTER STRUKTUR
+  // 3. PARSER JOBCARD DENGAN PENCOCOKAN FLEKSIBEL ISBIROMATCH
   const getJobcardGroupsForBiro = (targetBiroName: string): PersonilJobcardGroup[] => {
     if (!jobcardWorkbook) return [];
 
@@ -339,7 +374,6 @@ export default function App() {
     const masterMap = getMasterStructureMap();
 
     const picTaskMap = new Map<string, { officialBiro: string; isFromMaster: boolean; tasks: JobcardTask[] }>();
-    const cleanTarget = cleanText(targetBiroName.replace(/biro/gi, ''));
 
     rawRows.forEach((row, idx) => {
       if (!row || row.length === 0 || idx < 3) return;
@@ -374,7 +408,7 @@ export default function App() {
           isFromMaster = true;
         } else {
           for (const [mKey, mVal] of masterMap.entries()) {
-            if (cleanPic.includes(mKey) || mKey.includes(cleanPic)) {
+            if (mKey !== 'nan' && (cleanPic.includes(mKey) || mKey.includes(cleanPic))) {
               assignedBiro = mVal.officialBiro;
               displayName = mVal.officialName;
               isFromMaster = true;
@@ -383,10 +417,8 @@ export default function App() {
           }
         }
 
-        const cleanAssigned = cleanText(assignedBiro.replace(/biro/gi, ''));
-        const isMatch = cleanAssigned.includes(cleanTarget) || cleanTarget.includes(cleanAssigned);
-
-        if (isMatch) {
+        // Cek kecocokan biro dengan fungsi toleran isBiroMatch
+        if (isBiroMatch(assignedBiro, targetBiroName)) {
           if (!picTaskMap.has(displayName)) {
             picTaskMap.set(displayName, { officialBiro: assignedBiro, isFromMaster, tasks: [] });
           }
@@ -447,7 +479,6 @@ export default function App() {
     const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
     const personMap = new Map<string, { nip: string; nama: string; effectiveSum: number; overtimeSum: number; idleSum: number }>();
-    const cleanTargetBiro = cleanText(biroName.replace(/biro/gi, ''));
 
     rawRows.forEach((row, rowIndex) => {
       if (!row || row.length === 0 || rowIndex === 0) return;
@@ -459,10 +490,7 @@ export default function App() {
       const colL_Ot    = parseValToNumber(row[11]);
       const colM_Idle  = parseValToNumber(row[12]);
 
-      const cleanRowBiro = cleanText(colH_Biro.replace(/biro/gi, ''));
-      const isMatchingBiro = cleanRowBiro && (cleanRowBiro.includes(cleanTargetBiro) || cleanTargetBiro.includes(cleanRowBiro));
-
-      if (isMatchingBiro && (colB_Nama || colA_NIP)) {
+      if (isBiroMatch(colH_Biro, biroName) && (colB_Nama || colA_NIP)) {
         const personKey = cleanText(colB_Nama || colA_NIP);
 
         if (!personMap.has(personKey)) {
@@ -754,9 +782,19 @@ export default function App() {
                   <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
                     {selectedFormBiro.biroName}
                   </h2>
-                  <p className="text-slate-400 text-sm mt-1">
-                    Validasi Master: <b>Struktur dan Anggota Desain Upd 0826</b> ➔ Data Tugas: <b>JOBCARD DESAIN (Sheet BASIC)</b>
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-400">
+                    <span>Validasi Master: <b>Struktur dan Anggota Desain Upd 0826</b></span>
+                    <span>•</span>
+                    {jobcardWorkbook && strukturWorkbook ? (
+                      <span className="text-emerald-400 font-medium flex items-center gap-1">
+                        <CheckCircle className="w-3.5 h-3.5" /> File Excel Terhubung
+                      </span>
+                    ) : (
+                      <span className="text-amber-400 font-medium flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5" /> Memuat File Excel...
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-3">
