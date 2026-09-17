@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { departmentsData, monthList, Department } from './data';
 import * as XLSX from 'xlsx';
 import excelFileUrl from './data_kpi.xlsx?url';
-import jobcardFileUrl from './JOBCARD DESAIN.xlsx?url';
+import jobcardFileUrl from './JOBCARD_DESAIN.xlsx?url';
 
 // Import 6 File CSV Absensi
 import csvJan from './absensi_januari.csv?raw';
