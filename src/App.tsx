@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { departmentsData, monthList, Department } from './data';
 import * as XLSX from 'xlsx';
+import { supabase } from './lib/supabase';
 
 // Import 6 File CSV Absensi
 import csvJan from './absensi_januari.csv?raw';
@@ -173,14 +174,48 @@ export default function App() {
     jo: ''
   });
 
-  const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>(() => {
+  const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>({});
+  const [isLoadingTasks, setIsLoadingTasks] = useState<boolean>(true);
+
+  const loadAllJobCards = useCallback(async () => {
+    setIsLoadingTasks(true);
     try {
-      const saved = localStorage.getItem('kpi_form_database');
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
+      const { data, error } = await supabase
+        .from('job_cards')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Gagal memuat job cards dari database:', error.message);
+        return;
+      }
+
+      if (data) {
+        const grouped: { [biroKey: string]: TaskItem[] } = {};
+        data.forEach((row: any) => {
+          const biroKey = cleanText(row.biro_name || '');
+          if (!biroKey) return;
+          if (!grouped[biroKey]) grouped[biroKey] = [];
+          grouped[biroKey].push({
+            id: row.id,
+            biroName: row.biro_name || '',
+            project: row.project || '',
+            taskName: row.task_name || '',
+            startDate: row.start_date || '',
+            endDate: row.end_date || '',
+            pic: row.pic || '',
+            jo: row.jo || '',
+            kodeJc: row.kode_jc || '',
+          });
+        });
+        setManualTasks(grouped);
+      }
+    } catch (err) {
+      console.error('Error memuat job cards:', err);
+    } finally {
+      setIsLoadingTasks(false);
     }
-  });
+  }, []);
 
   const [isPlannerModalOpen, setIsPlannerModalOpen] = useState(false);
   const [isPlannerUnlocked, setIsPlannerUnlocked] = useState(false);
@@ -232,7 +267,8 @@ export default function App() {
       }
     }
     loadAllExcelFiles();
-  }, []);
+    loadAllJobCards();
+  }, [loadAllJobCards]);
 
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
@@ -397,13 +433,36 @@ export default function App() {
     return result.sort((a, b) => a.picName.localeCompare(b.picName));
   };
 
-  const handleSubmitForm = (e: React.FormEvent) => {
+  const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFormBiro) return;
 
     const biroKey = cleanText(selectedFormBiro.biroName);
+
+    const { data: insertedRow, error } = await supabase
+      .from('job_cards')
+      .insert({
+        biro_name: selectedFormBiro.biroName,
+        personil_name: formData.nama,
+        project: formData.kodeProyek,
+        task_name: formData.taskName,
+        start_date: formData.startDate,
+        end_date: formData.endDate,
+        pic: formData.nama,
+        jo: formData.jo,
+        kode_jc: '',
+        status: 'pending',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      alert('Gagal menyimpan ke database: ' + error.message);
+      return;
+    }
+
     const newTask: TaskItem = {
-      id: Date.now().toString(),
+      id: insertedRow.id,
       biroName: selectedFormBiro.biroName,
       project: formData.kodeProyek,
       taskName: formData.taskName,
@@ -411,18 +470,11 @@ export default function App() {
       endDate: formData.endDate,
       pic: formData.nama,
       jo: formData.jo,
-      kodeJc: ''
+      kodeJc: '',
     };
 
     const currentList = manualTasks[biroKey] || [];
-    const updated = { ...manualTasks, [biroKey]: [newTask, ...currentList] };
-
-    setManualTasks(updated);
-    try {
-      localStorage.setItem('kpi_form_database', JSON.stringify(updated));
-    } catch {
-      // fallback
-    }
+    setManualTasks({ ...manualTasks, [biroKey]: [newTask, ...currentList] });
 
     setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
     setFormData({
@@ -435,7 +487,7 @@ export default function App() {
       jo: ''
     });
 
-    alert('Job Card tersimpan.');
+    alert('Job Card tersimpan ke database.');
   };
 
   const handleVerifyPin = (e: React.FormEvent) => {
@@ -449,21 +501,25 @@ export default function App() {
     }
   };
 
-  const handleSaveKodeJcForTask = (taskId: string, biroName: string) => {
+  const handleSaveKodeJcForTask = async (taskId: string, biroName: string) => {
     const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase();
     if (!inputVal) return;
+
+    const { error } = await supabase
+      .from('job_cards')
+      .update({ kode_jc: inputVal })
+      .eq('id', taskId);
+
+    if (error) {
+      alert('Gagal update kode JC: ' + error.message);
+      return;
+    }
 
     const biroKey = cleanText(biroName);
     const currentList = manualTasks[biroKey] || [];
     const updatedList = currentList.map(task => task.id === taskId ? { ...task, kodeJc: inputVal } : task);
 
-    const updated = { ...manualTasks, [biroKey]: updatedList };
-    setManualTasks(updated);
-    try {
-      localStorage.setItem('kpi_form_database', JSON.stringify(updated));
-    } catch {
-      // fallback
-    }
+    setManualTasks({ ...manualTasks, [biroKey]: updatedList });
 
     setEditingTaskKode(prev => {
       const next = { ...prev };
@@ -472,33 +528,40 @@ export default function App() {
     });
   };
 
-  const handleDeleteTask = (taskId: string, biroName: string) => {
+  const handleDeleteTask = async (taskId: string, biroName: string) => {
     if (window.confirm('Hapus tugas ini?')) {
+      const { error } = await supabase
+        .from('job_cards')
+        .delete()
+        .eq('id', taskId);
+
+      if (error) {
+        alert('Gagal menghapus: ' + error.message);
+        return;
+      }
+
       const biroKey = cleanText(biroName);
       const currentList = manualTasks[biroKey] || [];
       const updatedList = currentList.filter(t => t.id !== taskId);
-      const updated = { ...manualTasks, [biroKey]: updatedList };
-
-      setManualTasks(updated);
-      try {
-        localStorage.setItem('kpi_form_database', JSON.stringify(updated));
-      } catch {
-        // fallback
-      }
+      setManualTasks({ ...manualTasks, [biroKey]: updatedList });
     }
   };
 
-  const handleClearAllBiroData = () => {
+  const handleClearAllBiroData = async () => {
     if (!selectedFormBiro) return;
     if (window.confirm('Kosongkan semua data tugas di biro ini?')) {
-      const biroKey = cleanText(selectedFormBiro.biroName);
-      const updated = { ...manualTasks, [biroKey]: [] };
-      setManualTasks(updated);
-      try {
-        localStorage.setItem('kpi_form_database', JSON.stringify(updated));
-      } catch {
-        // fallback
+      const { error } = await supabase
+        .from('job_cards')
+        .delete()
+        .eq('biro_name', selectedFormBiro.biroName);
+
+      if (error) {
+        alert('Gagal mengosongkan data: ' + error.message);
+        return;
       }
+
+      const biroKey = cleanText(selectedFormBiro.biroName);
+      setManualTasks({ ...manualTasks, [biroKey]: [] });
     }
   };
 
