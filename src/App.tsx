@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { departmentsData, monthList, Department } from './data';
 import * as XLSX from 'xlsx';
 import excelFileUrl from './data_kpi.xlsx?url';
+import jobcardFileUrl from './JOBCARD DESAIN.xlsx?url';
 
 // Import 6 File CSV Absensi
 import csvJan from './absensi_januari.csv?raw';
@@ -25,7 +26,12 @@ import {
   Calendar, 
   FileSpreadsheet, 
   FileText,
-  Send,
+  User,
+  Briefcase,
+  ChevronDown,
+  ChevronUp,
+  FolderKanban,
+  CheckCircle2,
   Loader2, 
   LucideIcon 
 } from 'lucide-react';
@@ -69,6 +75,19 @@ interface ExcelRow {
   ipm: number;
 }
 
+interface JobcardTask {
+  project: string;
+  taskName: string;
+  startDate: string;
+  endDate: string;
+  totalPersonil: string;
+}
+
+interface PersonilJobcardGroup {
+  picName: string;
+  tasks: JobcardTask[];
+}
+
 interface SelectedBiroPage {
   biroName: string;
   month: string;
@@ -86,29 +105,42 @@ export default function App() {
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [tableSearch, setTableSearch] = useState('');
+  const [formSearch, setFormSearch] = useState('');
   
+  // State Accordion (Buka/Tutup Card Personil)
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
+
+  // State Workbooks
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [isLoadingExcel, setIsLoadingExcel] = useState<boolean>(true);
 
-  // 1. Baca file Excel KPI saat pertama dibuka
+  // 1. Membaca file data_kpi.xlsx dan JOBCARD DESAIN.xlsx saat web pertama dibuka
   useEffect(() => {
-    async function loadExcel() {
+    async function loadAllExcelFiles() {
       try {
         setIsLoadingExcel(true);
-        const response = await fetch(excelFileUrl);
-        const arrayBuffer = await response.arrayBuffer();
-        const wb = XLSX.read(arrayBuffer, { type: 'array' });
-        setWorkbook(wb);
+        // Baca data_kpi.xlsx
+        const resKpi = await fetch(excelFileUrl);
+        const bufferKpi = await resKpi.arrayBuffer();
+        const wbKpi = XLSX.read(bufferKpi, { type: 'array' });
+        setWorkbook(wbKpi);
+
+        // Baca JOBCARD DESAIN.xlsx
+        const resJc = await fetch(jobcardFileUrl);
+        const bufferJc = await resJc.arrayBuffer();
+        const wbJc = XLSX.read(bufferJc, { type: 'array' });
+        setJobcardWorkbook(wbJc);
       } catch (error) {
         console.error("Gagal membaca file Excel:", error);
       } finally {
         setIsLoadingExcel(false);
       }
     }
-    loadExcel();
+    loadAllExcelFiles();
   }, []);
 
-  // Helper konversi angka yang aman
+  // Helper konversi angka aman
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
     if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -117,7 +149,7 @@ export default function App() {
     return isNaN(num) ? 0 : num;
   };
 
-  // Helper Parser CSV Absensi (Terlambat, Sakit, IPM)
+  // Helper Parser CSV Absensi
   const parseAbsensiCSV = (csvContent: string): Map<string, { terlambat: number; sakit: number; ipm: number }> => {
     const absensiMap = new Map<string, { terlambat: number; sakit: number; ipm: number }>();
     if (!csvContent) return absensiMap;
@@ -148,7 +180,7 @@ export default function App() {
     return absensiMap;
   };
 
-  // Helper Parser Folder Timesheet (Memisahkan Reguler & Overtime)
+  // Helper Parser Folder Timesheet
   const parseTimesheetFolder = (targetMonth: string): Map<string, { reguler: number; overtime: number }> => {
     const timesheetMap = new Map<string, { reguler: number; overtime: number }>();
     const monthLower = targetMonth.toLowerCase().trim();
@@ -200,16 +232,16 @@ export default function App() {
     return timesheetMap;
   };
 
-  // Filter departemen di menu utama
+  // Filter departemen utama
   const filteredDepartments = departmentsData.filter((dept) => 
     dept.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (dept.description || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // 2. Fungsi Hitung Seluruh Metrik
+  // 2. Fungsi Hitung Metrik KPI Bulanan
   const handleMonthClick = (biroName: string, month: string) => {
     if (!workbook) {
-      alert("File Excel sedang dimuat atau belum terbaca.");
+      alert("File Excel data_kpi.xlsx sedang dimuat atau belum terbaca.");
       return;
     }
 
@@ -280,14 +312,12 @@ export default function App() {
         }
 
         const person = personMap.get(personKey)!;
-
         person.effectiveSum += colK_Eff;
         person.overtimeSum += colL_Ot;
         person.idleSum += colM_Idle;
       }
     });
 
-    // Susun data akhir tabel
     const formattedData: ExcelRow[] = [];
     personMap.forEach((person) => {
       const cleanName = person.nama.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -316,10 +346,114 @@ export default function App() {
     });
   };
 
+  // 3. Helper Pengolahan Data Job Card (Rekomendasi 1: Card per Pegawai)
+  const getJobcardGroupsForBiro = (biroName: string): PersonilJobcardGroup[] => {
+    if (!jobcardWorkbook) return [];
+
+    // Cari sheet 'BASIC'
+    const basicSheetName = jobcardWorkbook.SheetNames.find(s => s.trim().toUpperCase() === 'BASIC');
+    if (!basicSheetName) return [];
+
+    const worksheet = jobcardWorkbook.Sheets[basicSheetName];
+    const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+    // Peta Personil -> Daftar Tugas
+    const picTaskMap = new Map<string, JobcardTask[]>();
+
+    const bNorm = biroName.toLowerCase();
+
+    // Fungsi pencocokan biro yang cerdas
+    const isMatchingWorkCenter = (wcRaw: string): boolean => {
+      const wNorm = wcRaw.toLowerCase();
+      if (!wNorm) return false;
+
+      if (bNorm.includes('kapal selam') && (wNorm.includes('kapal selam') || wNorm.includes('scorpne') || wNorm.includes('submarine'))) return true;
+      if (bNorm.includes('kapal permukaan') && (wNorm.includes('kapal permukaan') || wNorm.includes('surface'))) return true;
+      if (bNorm.includes('non kapal') && wNorm.includes('non kapal')) return true;
+      if (bNorm.includes('pengembangan') && wNorm.includes('pengembangan')) return true;
+
+      const cleanB = bNorm.replace(/biro/g, '').replace(/[^a-z0-9]/g, '');
+      const cleanW = wNorm.replace(/biro/g, '').replace(/[^a-z0-9]/g, '');
+      return cleanW.includes(cleanB) || cleanB.includes(cleanW);
+    };
+
+    rawRows.forEach((row, idx) => {
+      if (!row || row.length === 0 || idx < 3) return; // Lewati baris header awal
+
+      const projectCol    = String(row[2] || '').trim(); // Kolom C: Project
+      const taskNameCol   = String(row[3] || '').trim(); // Kolom D: Task Name
+      const workCenterCol = String(row[4] || '').trim(); // Kolom E: Work Center (Biro)
+      const startDateCol  = String(row[5] || '-').trim(); // Kolom F: Start Date
+      const endDateCol    = String(row[6] || '-').trim(); // Kolom G: End Date
+      const personilCount = String(row[7] || '1').trim(); // Kolom H: Total Personil
+      const rawPicCol     = String(row[8] || '').trim(); // Kolom I: PIC (Bisa berisi banyak nama dipisah koma)
+
+      // Hanya proses baris yang work center-nya cocok dan memiliki PIC
+      if (isMatchingWorkCenter(workCenterCol) && rawPicCol && !rawPicCol.toLowerCase().includes('(nama)')) {
+        // Pecah nama PIC jika ada tanda koma (contoh: baris 313 berisi 10 nama)
+        const individualPics = rawPicCol.split(',').map(p => p.trim()).filter(p => p.length > 1);
+
+        individualPics.forEach((cleanPic) => {
+          if (!picTaskMap.has(cleanPic)) {
+            picTaskMap.set(cleanPic, []);
+          }
+
+          picTaskMap.get(cleanPic)!.push({
+            project: projectCol || '-',
+            taskName: taskNameCol || '-',
+            startDate: startDateCol || '-',
+            endDate: endDateCol || '-',
+            totalPersonil: personilCount || '1'
+          });
+        });
+      }
+    });
+
+    // Konversi Map ke Array dan urutkan abjad
+    const result: PersonilJobcardGroup[] = [];
+    picTaskMap.forEach((tasks, picName) => {
+      result.push({ picName, tasks });
+    });
+
+    return result.sort((a, b) => a.picName.localeCompare(b.picName));
+  };
+
+  // Toggle Accordion Card
+  const toggleAccordion = (picName: string) => {
+    setExpandedCards(prev => ({
+      ...prev,
+      [picName]: !prev[picName]
+    }));
+  };
+
+  const handleExpandAll = (groups: PersonilJobcardGroup[]) => {
+    const allExpanded: Record<string, boolean> = {};
+    groups.forEach(g => { allExpanded[g.picName] = true; });
+    setExpandedCards(allExpanded);
+  };
+
+  const handleCollapseAll = () => {
+    setExpandedCards({});
+  };
+
   const filteredTableData = (selectedBiroPage?.data || []).filter(item => 
     item.nip.toLowerCase().includes(tableSearch.toLowerCase()) ||
     item.nama.toLowerCase().includes(tableSearch.toLowerCase())
   );
+
+  // Ambil dan filter data Job Card untuk halaman FORM
+  const currentJobcardGroups = selectedFormBiro ? getJobcardGroupsForBiro(selectedFormBiro.biroName) : [];
+  const filteredJobcardGroups = currentJobcardGroups.filter(group => {
+    const searchLower = formSearch.toLowerCase();
+    const matchesName = group.picName.toLowerCase().includes(searchLower);
+    const matchesTask = group.tasks.some(t => 
+      t.project.toLowerCase().includes(searchLower) || 
+      t.taskName.toLowerCase().includes(searchLower)
+    );
+    return matchesName || matchesTask;
+  });
+
+  const totalAllTasks = currentJobcardGroups.reduce((acc, g) => acc + g.tasks.length, 0);
 
   return (
     <div className="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased">
@@ -375,7 +509,7 @@ export default function App() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
-        {/* LEVEL 1: 6 DEPARTEMEN */}
+        {/* ================= LEVEL 1: 6 DEPARTEMEN ================= */}
         {!selectedDept && !selectedBiroPage && !selectedFormBiro && (
           <div className="space-y-8 animate-fadeIn">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-slate-800 pb-6">
@@ -438,7 +572,7 @@ export default function App() {
           </div>
         )}
 
-        {/* LEVEL 2: DAFTAR BIRO */}
+        {/* ================= LEVEL 2: DAFTAR BIRO ================= */}
         {selectedDept && !selectedBiroPage && !selectedFormBiro && (
           <div className="space-y-8 animate-fadeIn">
             <div className="bg-gradient-to-r from-blue-900/40 to-slate-800 border border-blue-500/20 rounded-2xl p-6 sm:p-8">
@@ -475,7 +609,6 @@ export default function App() {
               
               <div className="space-y-4">
                 {selectedDept.biros.map((biro, index) => {
-                  // Cek apakah departemen saat ini adalah Departemen Desain Dasar
                   const isDesainDasar = selectedDept.name.toLowerCase().includes('desain dasar');
 
                   return (
@@ -535,7 +668,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= HALAMAN BARU: FORMULIR BIRO ================= */}
+        {/* ================= HALAMAN FORMULIR: REKOMENDASI 1 (ACCORDION PER PEGAWAI) ================= */}
         {selectedFormBiro && (
           <div className="space-y-6 animate-fadeIn">
             {/* Header Halaman Form */}
@@ -550,106 +683,162 @@ export default function App() {
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-1">
-                    <FileText className="w-4 h-4" />
-                    <span>Formulir Biro — {selectedFormBiro.deptName}</span>
+                    <FolderKanban className="w-4 h-4" />
+                    <span>Monitoring Penugasan Personil — {selectedFormBiro.deptName}</span>
                   </div>
                   <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
                     {selectedFormBiro.biroName}
                   </h2>
                   <p className="text-slate-400 text-sm mt-1">
-                    Pengisian Data, Evaluasi & Rencana Tindak Lanjut Biro Desain
+                    Sumber Data: <b>JOBCARD DESAIN.xlsx</b> (Sheet: <b>BASIC</b>)
                   </p>
                 </div>
 
-                <span className="px-3.5 py-1.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-semibold self-start md:self-auto">
-                  STATUS: AKTIF
-                </span>
+                {/* Indikator Statistik Ringkas */}
+                <div className="flex items-center gap-3">
+                  <div className="px-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-center">
+                    <div className="text-xl font-black text-emerald-400">{currentJobcardGroups.length}</div>
+                    <div className="text-[10px] text-slate-400 uppercase font-semibold">Total Personil</div>
+                  </div>
+                  <div className="px-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-center">
+                    <div className="text-xl font-black text-cyan-400">{totalAllTasks}</div>
+                    <div className="text-[10px] text-slate-400 uppercase font-semibold">Total Tugas</div>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Konten Formulir */}
-            <div className="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-xl max-w-4xl mx-auto space-y-6">
-              <div className="border-b border-slate-700/60 pb-4">
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-emerald-400" />
-                  Formulir Kegiatan & Catatan Biro
-                </h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Silakan isi informasi catatan kemajuan, kendala pekerjaan, atau laporan teknis terkait biro ini.
+            {/* Filter Search & Tombol Buka/Tutup Semua Card */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="relative w-full sm:w-80">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Cari nama personil atau proyek..."
+                  value={formSearch}
+                  onChange={(e) => setFormSearch(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleExpandAll(filteredJobcardGroups)}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
+                >
+                  Buka Semua
+                </button>
+                <button
+                  onClick={handleCollapseAll}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
+                >
+                  Tutup Semua
+                </button>
+              </div>
+            </div>
+
+            {/* DAFTAR CARD ACCORDION PER PEGAWAI (REKOMENDASI 1) */}
+            {filteredJobcardGroups.length > 0 ? (
+              <div className="space-y-4">
+                {filteredJobcardGroups.map((person, idx) => {
+                  const isExpanded = expandedCards[person.picName] ?? false;
+
+                  return (
+                    <div
+                      key={idx}
+                      className="bg-slate-800/70 border border-slate-700/80 rounded-2xl overflow-hidden shadow-md transition-all duration-200 hover:border-slate-600"
+                    >
+                      {/* HEADER CARD: KLIK UNTUK BUKA/TUTUP ACCORDION */}
+                      <div
+                        onClick={() => toggleAccordion(person.picName)}
+                        className="p-5 flex items-center justify-between cursor-pointer select-none bg-slate-800/90 hover:bg-slate-800 transition"
+                      >
+                        <div className="flex items-center gap-3.5">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 flex items-center justify-center text-white font-bold shadow-md shadow-emerald-900/30">
+                            <User className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="text-base font-bold text-white tracking-wide">
+                              {person.picName}
+                            </h4>
+                            <span className="text-xs text-slate-400">
+                              Personil Biro Desain Dasar
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <span className="px-3 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 rounded-full text-xs font-bold font-mono">
+                            {person.tasks.length} Job Card
+                          </span>
+                          <div className="p-1.5 rounded-lg bg-slate-700 text-slate-300">
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* BODY ACCORDION: TABEL TUGAS DARI EXCEL */}
+                      {isExpanded && (
+                        <div className="p-5 border-t border-slate-700/70 bg-slate-900/40 animate-fadeIn">
+                          <div className="overflow-x-auto rounded-xl border border-slate-700/60">
+                            <table className="w-full text-left border-collapse text-sm">
+                              <thead>
+                                <tr className="bg-slate-800/90 text-slate-300 text-xs font-bold uppercase tracking-wider border-b border-slate-700">
+                                  <th className="py-3 px-4 w-12 text-center">No</th>
+                                  <th className="py-3 px-4 w-52">Project</th>
+                                  <th className="py-3 px-4">Task Name / Uraian Pekerjaan</th>
+                                  <th className="py-3 px-4 w-36 text-center">Start Date</th>
+                                  <th className="py-3 px-4 w-36 text-center">End Date</th>
+                                  <th className="py-3 px-4 w-24 text-center">Tim</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-700/50 text-slate-200">
+                                {person.tasks.map((task, tIdx) => (
+                                  <tr key={tIdx} className="hover:bg-slate-800/60 transition">
+                                    <td className="py-3.5 px-4 text-center font-mono text-xs text-slate-400">
+                                      {tIdx + 1}
+                                    </td>
+                                    <td className="py-3.5 px-4 font-semibold text-emerald-400 text-xs sm:text-sm">
+                                      {task.project}
+                                    </td>
+                                    <td className="py-3.5 px-4 text-xs sm:text-sm leading-relaxed text-slate-100">
+                                      {task.taskName}
+                                    </td>
+                                    <td className="py-3.5 px-4 text-center font-mono text-xs text-cyan-300">
+                                      {task.startDate}
+                                    </td>
+                                    <td className="py-3.5 px-4 text-center font-mono text-xs text-amber-300">
+                                      {task.endDate}
+                                    </td>
+                                    <td className="py-3.5 px-4 text-center font-mono text-xs text-slate-300">
+                                      <span className="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded">
+                                        {task.totalPersonil} Orang
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-16 text-center text-slate-400 bg-slate-800/40 border border-slate-700/60 rounded-2xl space-y-2">
+                <Briefcase className="w-10 h-10 mx-auto text-slate-500 opacity-60" />
+                <p className="text-base font-semibold text-slate-300">Belum Ada Data Job Card</p>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Pastikan file <b>src/JOBCARD DESAIN.xlsx</b> memiliki sheet <b>BASIC</b> dan kolom Work Center (Kolom E) sesuai dengan <b>{selectedFormBiro.biroName}</b>.
                 </p>
               </div>
-
-              <form onSubmit={(e) => { e.preventDefault(); alert("Data formulir berhasil disimpan!"); }} className="space-y-5">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                      Nama Pengisi / Penanggung Jawab
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Masukkan nama Anda..."
-                      required
-                      className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                      Periode Bulan Pelaporan
-                    </label>
-                    <select className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                      {monthList.map((m) => (
-                        <option key={m} value={m}>{m} 2026</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                    Ringkasan Capaian & Pekerjaan Utama
-                  </label>
-                  <textarea
-                    rows={4}
-                    placeholder="Tuliskan progres pekerjaan desain, penyelesaian gambar, atau review teknis..."
-                    required
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  ></textarea>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                    Kendala / Hambatan Pekerjaan (Jika Ada)
-                  </label>
-                  <textarea
-                    rows={3}
-                    placeholder="Tuliskan kendala teknis atau kebutuhan dukungan koordinasi antar biro/departemen..."
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  ></textarea>
-                </div>
-
-                <div className="pt-4 border-t border-slate-700/60 flex items-center justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedFormBiro(null)}
-                    className="px-5 py-2.5 bg-slate-700/80 hover:bg-slate-700 text-slate-200 rounded-xl text-sm font-semibold transition cursor-pointer"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-900/30 transition flex items-center gap-2 cursor-pointer"
-                  >
-                    <Send className="w-4 h-4" />
-                    Simpan Formulir
-                  </button>
-                </div>
-              </form>
-            </div>
+            )}
           </div>
         )}
 
-        {/* LEVEL 3: TABEL LENGKAP TANPA PLANNED HOUR (11 KOLOM PRESISI) */}
+        {/* ================= LEVEL 3: TABEL LENGKAP REKAPITULASI KPI (11 KOLOM PRESISI) ================= */}
         {selectedBiroPage && (
           <div className="space-y-6 animate-fadeIn">
             <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 sm:p-8">
@@ -725,39 +914,17 @@ export default function App() {
                     <tbody className="divide-y divide-slate-700/60 text-slate-200">
                       {filteredTableData.map((row, idx) => (
                         <tr key={idx} className="hover:bg-slate-700/40 transition">
-                          <td className="py-4 px-3 text-center font-mono text-sm text-slate-400">
-                            {idx + 1}
-                          </td>
-                          <td className="py-4 px-3 font-mono text-sm font-semibold text-blue-400">
-                            {row.nip}
-                          </td>
-                          <td className="py-4 px-4 font-semibold text-white text-base">
-                            {row.nama}
-                          </td>
-                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-cyan-400">
-                            {row.effectiveHour}
-                          </td>
-                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-amber-400">
-                            {row.overtimeHour}
-                          </td>
-                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-slate-200">
-                            {row.idleHour}
-                          </td>
-                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-indigo-300 bg-indigo-950/15 border-l border-slate-700/50">
-                            {row.timesheetReguler}%
-                          </td>
-                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-violet-300 bg-violet-950/15 border-r border-slate-700/50">
-                            {row.timesheetOvertime}%
-                          </td>
-                          <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-rose-400 bg-rose-950/15">
-                            {row.terlambat}
-                          </td>
-                          <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-amber-400 bg-amber-950/15">
-                            {row.sakit}
-                          </td>
-                          <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-purple-400 bg-purple-950/15">
-                            {row.ipm}
-                          </td>
+                          <td className="py-4 px-3 text-center font-mono text-sm text-slate-400">{idx + 1}</td>
+                          <td className="py-4 px-3 font-mono text-sm font-semibold text-blue-400">{row.nip}</td>
+                          <td className="py-4 px-4 font-semibold text-white text-base">{row.nama}</td>
+                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-cyan-400">{row.effectiveHour}</td>
+                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-amber-400">{row.overtimeHour}</td>
+                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-slate-200">{row.idleHour}</td>
+                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-indigo-300 bg-indigo-950/15 border-l border-slate-700/50">{row.timesheetReguler}%</td>
+                          <td className="py-4 px-4 text-right font-mono text-base sm:text-lg font-extrabold text-violet-300 bg-violet-950/15 border-r border-slate-700/50">{row.timesheetOvertime}%</td>
+                          <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-rose-400 bg-rose-950/15">{row.terlambat}</td>
+                          <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-amber-400 bg-amber-950/15">{row.sakit}</td>
+                          <td className="py-4 px-4 text-center font-mono text-base sm:text-lg font-extrabold text-purple-400 bg-purple-950/15">{row.ipm}</td>
                         </tr>
                       ))}
                     </tbody>
