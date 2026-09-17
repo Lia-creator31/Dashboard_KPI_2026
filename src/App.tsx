@@ -24,6 +24,7 @@ import {
   Calendar, 
   FileSpreadsheet, 
   FileText,
+  Layers,
   User,
   ChevronDown,
   ChevronUp,
@@ -147,7 +148,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
         }
       }
     } catch {
-      // Lanjut coba path berikutnya
+      // Coba path alternatif berikutnya
     }
   }
   return null;
@@ -157,6 +158,10 @@ export default function App() {
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedBiroPage, setSelectedBiroPage] = useState<SelectedBiroPage | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
+  
+  // Mode Halaman Form vs Halaman Output ('form' | 'output')
+  const [formPageMode, setFormPageMode] = useState<'form' | 'output'>('form');
+
   const [searchQuery, setSearchQuery] = useState('');
   const [tableSearch, setTableSearch] = useState('');
   const [outputSearch, setOutputSearch] = useState('');
@@ -172,7 +177,7 @@ export default function App() {
     jo: ''
   });
 
-  // Murni Data Hasil Input Form (Mulai Bersih dari 0)
+  // Murni Data Hasil Input Form
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>(() => {
     try {
       const saved = localStorage.getItem('kpi_form_database');
@@ -395,7 +400,7 @@ export default function App() {
     return Array.from(tasks).sort();
   };
 
-  // 4. Output Accordion: Murni Menampilkan Personil Biro + Tugas yang Diisi via Form
+  // 4. Output Accordion: Murni Menampilkan Personil Biro + Tugas Hasil Form
   const getAccordionOutputForBiro = (targetBiroName: string): PersonilCardGroup[] => {
     const biroMembers = getBiroMembers(targetBiroName);
     const personMap = new Map<string, TaskItem[]>();
@@ -404,7 +409,6 @@ export default function App() {
       personMap.set(m, []);
     });
 
-    // Ambil HANYA tugas yang diinput melalui formulir
     const biroKey = cleanText(targetBiroName);
     const tasksForThisBiro = manualTasks[biroKey] || [];
 
@@ -462,7 +466,7 @@ export default function App() {
       jo: ''
     });
 
-    alert('Data Job Card baru berhasil disimpan ke tabel personil!');
+    alert('Job Card berhasil disimpan! Anda dapat melihat hasilnya di Halaman Output.');
   };
 
   // Hapus Satu Tugas
@@ -486,7 +490,7 @@ export default function App() {
   // Hapus Seluruh Database Form di Biro Ini
   const handleClearAllBiroData = () => {
     if (!selectedFormBiro) return;
-    if (window.confirm(`Hapus semua database Job Card yang telah diisi untuk ${selectedFormBiro.biroName}?`)) {
+    if (window.confirm(`Hapus semua database Job Card di ${selectedFormBiro.biroName}?`)) {
       const biroKey = cleanText(selectedFormBiro.biroName);
       const updated = { ...manualTasks, [biroKey]: [] };
       setManualTasks(updated);
@@ -775,17 +779,41 @@ export default function App() {
                           </span>
                           <h4 className="text-base font-bold text-white">{biro.name}</h4>
 
+                          {/* 2 TOMBOL TERPISAH: FORM & OUTPUT */}
                           {isDesainDasar && (
-                            <button
-                              onClick={() => setSelectedFormBiro({
-                                biroName: biro.name,
-                                deptName: selectedDept.name
-                              })}
-                              className="px-3 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-lg border border-emerald-400/40 shadow-md shadow-emerald-900/30 transition-all duration-150 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95"
-                            >
-                              <FileText className="w-3.5 h-3.5" />
-                              FORM
-                            </button>
+                            <div className="flex items-center gap-2">
+                              {/* 1. Tombol Halaman Form Input */}
+                              <button
+                                onClick={() => {
+                                  setSelectedFormBiro({
+                                    biroName: biro.name,
+                                    deptName: selectedDept.name
+                                  });
+                                  setFormPageMode('form');
+                                }}
+                                className="px-3 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-lg border border-emerald-400/40 shadow-md shadow-emerald-900/30 transition-all duration-150 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95"
+                                title="Buka Form Pengisian Job Card"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                FORM
+                              </button>
+
+                              {/* 2. Tombol Halaman Output Rekapitulasi */}
+                              <button
+                                onClick={() => {
+                                  setSelectedFormBiro({
+                                    biroName: biro.name,
+                                    deptName: selectedDept.name
+                                  });
+                                  setFormPageMode('output');
+                                }}
+                                className="px-3 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold rounded-lg border border-blue-400/40 shadow-md shadow-blue-900/30 transition-all duration-150 flex items-center gap-1.5 cursor-pointer hover:scale-105 active:scale-95"
+                                title="Buka Output Hasil Rekapitulasi Personil"
+                              >
+                                <Layers className="w-3.5 h-3.5" />
+                                OUTPUT
+                              </button>
+                            </div>
                           )}
                         </div>
                         <span className="text-xs text-slate-400 flex items-center gap-1.5">
@@ -815,37 +843,37 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= LEVEL FORM: FORM INPUT + OUTPUT ACCORDION MURNI ================= */}
+        {/* ================= LEVEL TERPISAH: FORM vs OUTPUT ================= */}
         {selectedFormBiro && (
-          <div className="space-y-8 animate-fadeIn max-w-5xl mx-auto">
-            {/* Header Form */}
-            <div className="bg-gradient-to-r from-teal-900/40 via-slate-800 to-slate-800 border border-emerald-500/20 rounded-2xl p-6 sm:p-8">
+          <div className="space-y-6 animate-fadeIn max-w-5xl mx-auto">
+            {/* Header Bersama & Tab Navigasi Pemisah Halaman */}
+            <div className="bg-gradient-to-r from-teal-900/40 via-slate-800 to-slate-800 border border-slate-700/80 rounded-2xl p-6 sm:p-8">
               <button
                 onClick={() => setSelectedFormBiro(null)}
-                className="inline-flex items-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 font-medium mb-3 transition cursor-pointer"
+                className="inline-flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 font-medium mb-3 transition cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" /> Kembali ke Daftar Biro
               </button>
 
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-1">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-blue-400 uppercase tracking-wider mb-1">
                     <FileText className="w-4 h-4" />
-                    <span>Formulir Penugasan Job Card — {selectedFormBiro.deptName}</span>
+                    <span>Manajemen Job Card — {selectedFormBiro.deptName}</span>
                   </div>
                   <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
                     {selectedFormBiro.biroName}
                   </h2>
                   <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-400">
-                    <span>Database: <b>Murni Hasil Pengisian Form</b></span>
+                    <span>File Master: <b>Struktur</b> & <b>JOBCARD_DESAIN</b></span>
                     <span>•</span>
                     {strukturWorkbook && jobcardWorkbook ? (
                       <span className="text-emerald-400 font-medium flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Dropdown Pilihan Siap
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Data Excel Terhubung
                       </span>
                     ) : (
                       <span className="text-amber-400 font-medium flex items-center gap-1">
-                        <AlertCircle className="w-3.5 h-3.5" /> Membaca Master Excel...
+                        <AlertCircle className="w-3.5 h-3.5" /> Membaca Excel...
                       </span>
                     )}
                   </div>
@@ -862,342 +890,386 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* TAB SWITCHER: PINDAH ANTARA HALAMAN FORM & HALAMAN OUTPUT */}
+              <div className="mt-6 pt-5 border-t border-slate-700/60 flex items-center gap-3">
+                <button
+                  onClick={() => setFormPageMode('form')}
+                  className={`px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
+                    formPageMode === 'form'
+                      ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40 border border-emerald-500/50'
+                      : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700'
+                  }`}
+                >
+                  <FileText className="w-4 h-4" />
+                  Halaman Form Pengisian
+                </button>
+
+                <button
+                  onClick={() => setFormPageMode('output')}
+                  className={`px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer ${
+                    formPageMode === 'output'
+                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40 border border-blue-500/50'
+                      : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700'
+                  }`}
+                >
+                  <Layers className="w-4 h-4" />
+                  Halaman Output Rekapitulasi ({totalTasksCount})
+                </button>
+              </div>
             </div>
 
-            {/* 1. KARTU FORMULIR PENGISIAN 7 INPUT */}
-            <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-xl">
-              <h3 className="text-lg font-bold text-white mb-6 pb-3 border-b border-slate-700/70 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-emerald-400" />
-                Form Pengisian Job Card
-              </h3>
-
-              <form onSubmit={handleSubmitForm} className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                  {/* 1. NAMA (DROPDOWN STRUKTUR BIRO) */}
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                      1. Nama Personil (Sesuai Struktur Biro) <span className="text-rose-400">*</span>
-                    </label>
-                    <select
-                      value={formData.nama}
-                      onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
-                      required
-                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                    >
-                      <option value="">-- Pilih Nama Personil di {selectedFormBiro.biroName} --</option>
-                      {currentBiroMembers.map((nama, idx) => (
-                        <option key={idx} value={nama}>{nama}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* 2. KODE PROYEK (DROPDOWN JOBCARD DESAIN SHEET BASIC) */}
+            {/* ================= PILIHAN 1: HALAMAN FORM PENGISIAN SENDIRI ================= */}
+            {formPageMode === 'form' && (
+              <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-xl animate-fadeIn">
+                <div className="flex items-center justify-between mb-6 pb-3 border-b border-slate-700/70">
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                      2. Kode Proyek <span className="text-rose-400">*</span>
-                    </label>
-                    <select
-                      value={formData.kodeProyek}
-                      onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
-                      required
-                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                    >
-                      <option value="">-- Pilih Kode Proyek --</option>
-                      {projectOptions.map((proj, idx) => (
-                        <option key={idx} value={proj}>{proj}</option>
-                      ))}
-                    </select>
+                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                      <FileText className="w-5 h-5 text-emerald-400" />
+                      Formulir Input Job Card
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Silakan isi form di bawah ini. Tugas yang disimpan akan otomatis masuk ke <b>Halaman Output</b>.
+                    </p>
                   </div>
+                  <button
+                    onClick={() => setFormPageMode('output')}
+                    className="text-xs text-blue-400 hover:text-blue-300 font-semibold flex items-center gap-1 transition"
+                  >
+                    Buka Halaman Output <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
 
-                  {/* 7. JO (ESAI KHUSUS ANGKA) */}
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                      7. JO (Khusus Angka) <span className="text-rose-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <Hash className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={formData.jo}
-                        onChange={(e) => {
-                          const digitsOnly = e.target.value.replace(/[^0-9]/g, '');
-                          setFormData(prev => ({ ...prev, jo: digitsOnly }));
-                        }}
-                        placeholder="Contoh: 300426"
+                <form onSubmit={handleSubmitForm} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    {/* 1. NAMA (DROPDOWN STRUKTUR BIRO) */}
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                        1. Nama Personil (Sesuai Struktur Biro) <span className="text-rose-400">*</span>
+                      </label>
+                      <select
+                        value={formData.nama}
+                        onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
                         required
-                        className="w-full pl-10 pr-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                      >
+                        <option value="">-- Pilih Nama Personil di {selectedFormBiro.biroName} --</option>
+                        {currentBiroMembers.map((nama, idx) => (
+                          <option key={idx} value={nama}>{nama}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* 2. KODE PROYEK (DROPDOWN JOBCARD DESAIN SHEET BASIC) */}
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                        2. Kode Proyek <span className="text-rose-400">*</span>
+                      </label>
+                      <select
+                        value={formData.kodeProyek}
+                        onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
+                        required
+                        className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                      >
+                        <option value="">-- Pilih Kode Proyek --</option>
+                        {projectOptions.map((proj, idx) => (
+                          <option key={idx} value={proj}>{proj}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* 7. JO (ESAI KHUSUS ANGKA) */}
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                        7. JO (Khusus Angka) <span className="text-rose-400">*</span>
+                      </label>
+                      <div className="relative">
+                        <Hash className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={formData.jo}
+                          onChange={(e) => {
+                            const digitsOnly = e.target.value.replace(/[^0-9]/g, '');
+                            setFormData(prev => ({ ...prev, jo: digitsOnly }));
+                          }}
+                          placeholder="Contoh: 300426"
+                          required
+                          className="w-full pl-10 pr-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* 3. TASK NAME (DROPDOWN JOBCARD DESAIN SHEET BASIC) */}
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                        3. Task Name / Uraian Pekerjaan <span className="text-rose-400">*</span>
+                      </label>
+                      <select
+                        value={formData.taskName}
+                        onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                        required
+                        className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                      >
+                        <option value="">-- Pilih Task Name / Deskripsi Pekerjaan --</option>
+                        {taskOptions.map((task, idx) => (
+                          <option key={idx} value={task}>{task}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* 4. SCHEDULE START DATE (KALENDER) */}
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                        4. Schedule Start Date <span className="text-rose-400">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.startDate}
+                        onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                        required
+                        className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* 5. SCHEDULE END DATE (KALENDER) */}
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                        5. Schedule End Date <span className="text-rose-400">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.endDate}
+                        onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                        required
+                        className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* 6. PIC (ESAI / TEKS BEBAS) */}
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                        6. PIC (Ketik Bebas / Esai) <span className="text-rose-400">*</span>
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={formData.pic}
+                        onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))}
+                        placeholder="Ketikkan nama PIC atau catatan tugas..."
+                        required
+                        className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 leading-relaxed"
                       />
                     </div>
                   </div>
 
-                  {/* 3. TASK NAME (DROPDOWN JOBCARD DESAIN SHEET BASIC) */}
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                      3. Task Name / Uraian Pekerjaan <span className="text-rose-400">*</span>
-                    </label>
-                    <select
-                      value={formData.taskName}
-                      onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                      required
-                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                    >
-                      <option value="">-- Pilih Task Name / Deskripsi Pekerjaan --</option>
-                      {taskOptions.map((task, idx) => (
-                        <option key={idx} value={task}>{task}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* 4. SCHEDULE START DATE (KALENDER) */}
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                      4. Schedule Start Date <span className="text-rose-400">*</span>
-                    </label>
-                    <input
-                      type="date"
-                      value={formData.startDate}
-                      onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                      required
-                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                    />
-                  </div>
-
-                  {/* 5. SCHEDULE END DATE (KALENDER) */}
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                      5. Schedule End Date <span className="text-rose-400">*</span>
-                    </label>
-                    <input
-                      type="date"
-                      value={formData.endDate}
-                      onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                      required
-                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                    />
-                  </div>
-
-                  {/* 6. PIC (ESAI / TEKS BEBAS) */}
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                      6. PIC (Ketik Bebas / Esai) <span className="text-rose-400">*</span>
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={formData.pic}
-                      onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))}
-                      placeholder="Ketikkan nama PIC atau keterangan penugasan..."
-                      required
-                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 leading-relaxed"
-                    />
-                  </div>
-                </div>
-
-                {/* Tombol Aksi */}
-                <div className="pt-4 border-t border-slate-700/70 flex items-center justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setFormData({
-                      nama: '',
-                      kodeProyek: '',
-                      taskName: '',
-                      startDate: '',
-                      endDate: '',
-                      pic: '',
-                      jo: ''
-                    })}
-                    className="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-semibold rounded-xl transition cursor-pointer"
-                  >
-                    Reset Form
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-emerald-900/30 transition flex items-center gap-2 cursor-pointer hover:scale-105 active:scale-95"
-                  >
-                    <Send className="w-4 h-4" />
-                    Simpan Job Card
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {/* 2. OUTPUT HASIL SESUAI CONTOH ANDA: CARD / ACCORDION PER PEGAWAI */}
-            <div className="space-y-4">
-              {/* Header Box Output */}
-              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 sm:p-6 shadow-md">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700/60 pb-4 mb-4">
-                  <div>
-                    <h3 className="text-base font-bold text-white tracking-wide">
-                      [ FORMULIR BIRO: {selectedFormBiro.biroName.toUpperCase()} ]
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Total Personil: <b className="text-emerald-400">{totalPersonilCount} Pegawai</b> | Total Job Card Aktif: <b className="text-cyan-400">{totalTasksCount} Tugas</b>
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
+                  {/* Tombol Simpan */}
+                  <div className="pt-4 border-t border-slate-700/70 flex items-center justify-end gap-3">
                     <button
-                      onClick={() => {
-                        const all: Record<string, boolean> = {};
-                        filteredAccordionData.forEach(g => { all[g.picName] = true; });
-                        setExpandedCards(all);
-                      }}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
+                      type="button"
+                      onClick={() => setFormData({
+                        nama: '',
+                        kodeProyek: '',
+                        taskName: '',
+                        startDate: '',
+                        endDate: '',
+                        pic: '',
+                        jo: ''
+                      })}
+                      className="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-semibold rounded-xl transition cursor-pointer"
                     >
-                      Buka Semua
+                      Reset Form
                     </button>
                     <button
-                      onClick={() => setExpandedCards({})}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
+                      type="submit"
+                      className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-emerald-900/30 transition flex items-center gap-2 cursor-pointer hover:scale-105 active:scale-95"
                     >
-                      Tutup Semua
-                    </button>
-                    <button
-                      onClick={handleClearAllBiroData}
-                      className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900 text-rose-300 text-xs font-semibold rounded-lg border border-rose-800/60 transition cursor-pointer flex items-center gap-1"
-                      title="Hapus seluruh tugas hasil form di biro ini"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      Kosongkan Database Form
+                      <Send className="w-4 h-4" />
+                      Simpan Job Card
                     </button>
                   </div>
-                </div>
-
-                {/* Pencarian Personil / Proyek */}
-                <div className="relative">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Cari nama personil atau proyek..."
-                    value={outputSearch}
-                    onChange={(e) => setOutputSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
+                </form>
               </div>
+            )}
 
-              {/* LIST CARD ACCORDION PER PEGAWAI */}
-              {filteredAccordionData.length > 0 ? (
-                <div className="space-y-3.5">
-                  {filteredAccordionData.map((person, idx) => {
-                    const isExpanded = expandedCards[person.picName] ?? false;
-                    const taskCount = person.tasks.length;
-                    const isActive = taskCount > 0;
+            {/* ================= PILIHAN 2: HALAMAN OUTPUT REKAPITULASI SENDIRI ================= */}
+            {formPageMode === 'output' && (
+              <div className="space-y-5 animate-fadeIn">
+                {/* Header Box Output Sesuai Format Anda */}
+                <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 sm:p-6 shadow-md">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700/60 pb-4 mb-4">
+                    <div>
+                      <h3 className="text-base font-bold text-white tracking-wide">
+                        [ FORMULIR BIRO: {selectedFormBiro.biroName.toUpperCase()} ]
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Total Personil: <b className="text-emerald-400">{totalPersonilCount} Pegawai</b> | Total Job Card Aktif: <b className="text-cyan-400">{totalTasksCount} Tugas</b>
+                      </p>
+                    </div>
 
-                    return (
-                      <div
-                        key={idx}
-                        className="bg-slate-800/70 border border-slate-700/80 rounded-2xl overflow-hidden shadow-md transition-all duration-200 hover:border-slate-600"
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => {
+                          const all: Record<string, boolean> = {};
+                          filteredAccordionData.forEach(g => { all[g.picName] = true; });
+                          setExpandedCards(all);
+                        }}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
                       >
-                        {/* HEADER CARD: KLIK UNTUK EXPAND / COLLAPSE */}
+                        Buka Semua
+                      </button>
+                      <button
+                        onClick={() => setExpandedCards({})}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
+                      >
+                        Tutup Semua
+                      </button>
+                      <button
+                        onClick={handleClearAllBiroData}
+                        className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900 text-rose-300 text-xs font-semibold rounded-lg border border-rose-800/60 transition cursor-pointer flex items-center gap-1"
+                        title="Hapus seluruh tugas hasil form di biro ini"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Kosongkan Database Form
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Pencarian Personil / Proyek */}
+                  <div className="relative">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Cari nama personil atau proyek..."
+                      value={outputSearch}
+                      onChange={(e) => setOutputSearch(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                {/* LIST CARD ACCORDION PER PEGAWAI */}
+                {filteredAccordionData.length > 0 ? (
+                  <div className="space-y-3.5">
+                    {filteredAccordionData.map((person, idx) => {
+                      const isExpanded = expandedCards[person.picName] ?? false;
+                      const taskCount = person.tasks.length;
+                      const isActive = taskCount > 0;
+
+                      return (
                         <div
-                          onClick={() => toggleAccordion(person.picName)}
-                          className="p-4 sm:p-5 flex items-center justify-between cursor-pointer select-none bg-slate-800/90 hover:bg-slate-800 transition"
+                          key={idx}
+                          className="bg-slate-800/70 border border-slate-700/80 rounded-2xl overflow-hidden shadow-md transition-all duration-200 hover:border-slate-600"
                         >
-                          <div className="flex items-center gap-3.5">
-                            {/* Icon / Foto */}
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-md ${
-                              isActive ? 'bg-gradient-to-br from-emerald-600 to-teal-700 shadow-emerald-900/30' : 'bg-slate-700 text-slate-400'
-                            }`}>
-                              <User className="w-5 h-5" />
-                            </div>
+                          {/* HEADER CARD: KLIK UNTUK BUKA/TUTUP ACCORDION */}
+                          <div
+                            onClick={() => toggleAccordion(person.picName)}
+                            className="p-4 sm:p-5 flex items-center justify-between cursor-pointer select-none bg-slate-800/90 hover:bg-slate-800 transition"
+                          >
+                            <div className="flex items-center gap-3.5">
+                              {/* Icon / Foto */}
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-md ${
+                                isActive ? 'bg-gradient-to-br from-emerald-600 to-teal-700 shadow-emerald-900/30' : 'bg-slate-700 text-slate-400'
+                              }`}>
+                                <User className="w-5 h-5" />
+                              </div>
 
-                            {/* Nama & Status */}
-                            <div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h4 className="text-base font-bold text-white tracking-wide">
-                                  {person.picName}
-                                </h4>
-                                <span className="text-xs font-semibold text-slate-400">
-                                  ({taskCount} Job Card)
-                                </span>
-                                <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md border ${
-                                  isActive 
-                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
-                                    : 'bg-slate-700/40 text-slate-400 border-slate-600'
-                                }`}>
-                                  Status: {isActive ? 'Aktif' : 'Kosong'}
-                                </span>
+                              {/* Nama & Status */}
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h4 className="text-base font-bold text-white tracking-wide">
+                                    {person.picName}
+                                  </h4>
+                                  <span className="text-xs font-semibold text-slate-400">
+                                    ({taskCount} Job Card)
+                                  </span>
+                                  <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md border ${
+                                    isActive 
+                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                                      : 'bg-slate-700/40 text-slate-400 border-slate-600'
+                                  }`}>
+                                    Status: {isActive ? 'Aktif' : 'Kosong'}
+                                  </span>
+                                </div>
                               </div>
                             </div>
+
+                            {/* Tombol Panah Buka / Tutup */}
+                            <div className="p-1.5 rounded-lg bg-slate-700 text-slate-300">
+                              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            </div>
                           </div>
 
-                          {/* Tombol Panah Buka / Tutup */}
-                          <div className="p-1.5 rounded-lg bg-slate-700 text-slate-300">
-                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                          </div>
-                        </div>
-
-                        {/* BODY TABEL JOB CARD */}
-                        {isExpanded && (
-                          <div className="p-4 sm:p-5 border-t border-slate-700/70 bg-slate-900/40 animate-fadeIn">
-                            {taskCount > 0 ? (
-                              <div className="overflow-x-auto rounded-xl border border-slate-700/60">
-                                <table className="w-full text-left border-collapse text-xs sm:text-sm">
-                                  <thead>
-                                    <tr className="bg-slate-800/95 text-slate-300 font-bold uppercase tracking-wider border-b border-slate-700">
-                                      <th className="py-3 px-4 w-12 text-center">No</th>
-                                      <th className="py-3 px-4 w-52">Project</th>
-                                      <th className="py-3 px-4">Task Name / Uraian Pekerjaan</th>
-                                      <th className="py-3 px-4 w-36 text-center">Start Date</th>
-                                      <th className="py-3 px-4 w-36 text-center">End Date</th>
-                                      <th className="py-3 px-4 w-28 text-center">Aksi</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-700/50 text-slate-200">
-                                    {person.tasks.map((task, tIdx) => (
-                                      <tr key={task.id} className="hover:bg-slate-800/60 transition">
-                                        <td className="py-3.5 px-4 text-center font-mono text-slate-400">
-                                          {tIdx + 1}
-                                        </td>
-                                        <td className="py-3.5 px-4 font-semibold text-emerald-400">
-                                          {task.project}
-                                        </td>
-                                        <td className="py-3.5 px-4 leading-relaxed text-slate-100">
-                                          {task.taskName}
-                                          {task.jo && (
-                                            <span className="block mt-1 text-[11px] font-mono text-violet-400">
-                                              JO: #{task.jo}
-                                            </span>
-                                          )}
-                                        </td>
-                                        <td className="py-3.5 px-4 text-center font-mono text-cyan-300">
-                                          {task.startDate}
-                                        </td>
-                                        <td className="py-3.5 px-4 text-center font-mono text-amber-300">
-                                          {task.endDate}
-                                        </td>
-                                        <td className="py-3.5 px-4 text-center">
-                                          <button
-                                            onClick={() => handleDeleteTask(task.id)}
-                                            className="p-1.5 text-rose-400 hover:text-white hover:bg-rose-600 rounded-lg transition cursor-pointer"
-                                            title="Hapus job card ini"
-                                          >
-                                            <Trash2 className="w-4 h-4" />
-                                          </button>
-                                        </td>
+                          {/* BODY TABEL JOB CARD */}
+                          {isExpanded && (
+                            <div className="p-4 sm:p-5 border-t border-slate-700/70 bg-slate-900/40 animate-fadeIn">
+                              {taskCount > 0 ? (
+                                <div className="overflow-x-auto rounded-xl border border-slate-700/60">
+                                  <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                                    <thead>
+                                      <tr className="bg-slate-800/95 text-slate-300 font-bold uppercase tracking-wider border-b border-slate-700">
+                                        <th className="py-3 px-4 w-12 text-center">No</th>
+                                        <th className="py-3 px-4 w-52">Project</th>
+                                        <th className="py-3 px-4">Task Name / Uraian Pekerjaan</th>
+                                        <th className="py-3 px-4 w-36 text-center">Start Date</th>
+                                        <th className="py-3 px-4 w-36 text-center">End Date</th>
+                                        <th className="py-3 px-4 w-28 text-center">Aksi</th>
                                       </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            ) : (
-                              <div className="py-6 text-center text-slate-400 text-xs">
-                                Personil ini belum memiliki tugas aktif. Gunakan form di atas untuk menambahkan tugas baru.
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="py-12 text-center text-slate-400 bg-slate-800/40 border border-slate-700/60 rounded-2xl">
-                  Tidak ditemukan data personil untuk <b>{selectedFormBiro.biroName}</b>.
-                </div>
-              )}
-            </div>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-700/50 text-slate-200">
+                                      {person.tasks.map((task, tIdx) => (
+                                        <tr key={task.id} className="hover:bg-slate-800/60 transition">
+                                          <td className="py-3.5 px-4 text-center font-mono text-slate-400">
+                                            {tIdx + 1}
+                                          </td>
+                                          <td className="py-3.5 px-4 font-semibold text-emerald-400">
+                                            {task.project}
+                                          </td>
+                                          <td className="py-3.5 px-4 leading-relaxed text-slate-100">
+                                            {task.taskName}
+                                            {task.jo && (
+                                              <span className="block mt-1 text-[11px] font-mono text-violet-400">
+                                                JO: #{task.jo}
+                                              </span>
+                                            )}
+                                          </td>
+                                          <td className="py-3.5 px-4 text-center font-mono text-cyan-300">
+                                            {task.startDate}
+                                          </td>
+                                          <td className="py-3.5 px-4 text-center font-mono text-amber-300">
+                                            {task.endDate}
+                                          </td>
+                                          <td className="py-3.5 px-4 text-center">
+                                            <button
+                                              onClick={() => handleDeleteTask(task.id)}
+                                              className="p-1.5 text-rose-400 hover:text-white hover:bg-rose-600 rounded-lg transition cursor-pointer"
+                                              title="Hapus job card ini"
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <div className="py-6 text-center text-slate-400 text-xs">
+                                  Personil ini belum memiliki tugas aktif. Silakan isi melalui <b>Halaman Form Pengisian</b>.
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="py-12 text-center text-slate-400 bg-slate-800/40 border border-slate-700/60 rounded-2xl">
+                    Tidak ditemukan data personil untuk <b>{selectedFormBiro.biroName}</b>.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
