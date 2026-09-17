@@ -25,12 +25,13 @@ import {
   FileSpreadsheet, 
   FileText,
   User,
-  Briefcase,
   ChevronDown,
   ChevronUp,
-  Folder,
-  CheckCircle,
+  Send,
+  Trash2,
+  CheckCircle2,
   AlertCircle,
+  Hash,
   Loader2, 
   LucideIcon 
 } from 'lucide-react';
@@ -81,21 +82,20 @@ interface ExcelRow {
   ipm: number;
 }
 
-interface JobcardTask {
+interface TaskItem {
+  id?: string;
   project: string;
   taskName: string;
   startDate: string;
   endDate: string;
-  totalPersonil: string;
-  originalWorkCenter: string;
-  finalBiro: string;
+  pic?: string;
+  jo?: string;
+  isManual?: boolean;
 }
 
-interface PersonilJobcardGroup {
+interface PersonilCardGroup {
   picName: string;
-  officialBiro: string;
-  isFromMaster: boolean;
-  tasks: JobcardTask[];
+  tasks: TaskItem[];
 }
 
 interface SelectedBiroPage {
@@ -109,44 +109,34 @@ interface SelectedFormPage {
   deptName: string;
 }
 
-// Helper normalisasi teks untuk pencocokan nama
+// Helper normalisasi teks
 function cleanText(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
 
-// Helper pencocokan nama biro yang fleksibel & toleran kata "Dasar" / "Basic"
+// Helper pencocokan nama biro yang fleksibel
 function isBiroMatch(biro1: string, biro2: string): boolean {
   const b1 = (biro1 || '').toLowerCase();
   const b2 = (biro2 || '').toLowerCase();
 
-  // 1. Biro Pengembangan Desain (dengan / tanpa kata "Dasar")
   if (b1.includes('pengembangan') && b2.includes('pengembangan')) return true;
-
-  // 2. Biro Kapal Selam
   if (
     (b1.includes('kapal selam') || b1.includes('submarine') || b1.includes('scorpne')) &&
     (b2.includes('kapal selam') || b2.includes('submarine') || b2.includes('scorpne'))
   ) return true;
-
-  // 3. Biro Non Kapal
   if (b1.includes('non kapal') && b2.includes('non kapal')) return true;
-
-  // 4. Biro Kapal Permukaan
   if (
     (b1.includes('kapal permukaan') || b1.includes('surface')) &&
     (b2.includes('kapal permukaan') || b2.includes('surface'))
   ) return true;
 
-  // Fallback umum
   const c1 = cleanText(b1.replace(/biro|departemen|desain|dasar/gi, ''));
   const c2 = cleanText(b2.replace(/biro|departemen|desain|dasar/gi, ''));
-  if (c1 && c2) {
-    return c1.includes(c2) || c2.includes(c1);
-  }
+  if (c1 && c2) return c1.includes(c2) || c2.includes(c1);
   return false;
 }
 
-// Helper fetch Excel yang aman (memvalidasi biner XLSX dan bukan halaman 404 HTML)
+// Helper fetch Excel yang aman
 async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
   for (const p of paths) {
     if (!p) continue;
@@ -155,7 +145,6 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
       if (res.ok) {
         const buf = await res.arrayBuffer();
         const bytes = new Uint8Array(buf.slice(0, 4));
-        // Validasi magic byte file XLSX / ZIP: [80, 75, 3, 4] -> 'PK\x03\x04'
         if (bytes[0] === 80 && bytes[1] === 75 && bytes[2] === 3 && bytes[3] === 4) {
           return XLSX.read(buf, { type: 'array' });
         }
@@ -173,9 +162,30 @@ export default function App() {
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [tableSearch, setTableSearch] = useState('');
-  const [formSearch, setFormSearch] = useState('');
+  const [outputSearch, setOutputSearch] = useState('');
   
-  // State Accordion Buka/Tutup Card
+  // State Input Formulir
+  const [formData, setFormData] = useState({
+    nama: '',
+    kodeProyek: '',
+    taskName: '',
+    startDate: '',
+    endDate: '',
+    pic: '',
+    jo: ''
+  });
+
+  // State Task yang diinput manual lewat formulir
+  const [manualTasks, setManualTasks] = useState<{ [biroName: string]: TaskItem[] }>(() => {
+    try {
+      const saved = localStorage.getItem('kpi_manual_tasks');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  // State Accordion Buka/Tutup Card per Pegawai
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   // State Workbooks
@@ -184,7 +194,7 @@ export default function App() {
   const [strukturWorkbook, setStrukturWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [isLoadingExcel, setIsLoadingExcel] = useState<boolean>(true);
 
-  // 1. Membaca ketiga file Excel secara aman dengan nama underscore (_)
+  // 1. Membaca ketiga file Excel secara aman dari folder src/
   useEffect(() => {
     async function loadAllExcelFiles() {
       try {
@@ -194,7 +204,6 @@ export default function App() {
         let jcUrl = '';
         let strukturUrl = '';
 
-        // Deteksi URL file dari folder src secara otomatis
         Object.entries(excelGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
           if (pLower.includes('kpi')) kpiUrl = url;
@@ -210,8 +219,7 @@ export default function App() {
             '/Struktur_dan_Anggota_Desain_Upd_0826_(1).xlsx',
             './Struktur_dan_Anggota_Desain_Upd_0826_(1).xlsx',
             '/Struktur_dan_Anggota_Desain_Upd_0826.xlsx',
-            './Struktur_dan_Anggota_Desain_Upd_0826.xlsx',
-            '/struktur_desain.xlsx'
+            './Struktur_dan_Anggota_Desain_Upd_0826.xlsx'
           ])
         ]);
 
@@ -308,14 +316,13 @@ export default function App() {
     return timesheetMap;
   };
 
-  // 2. PARSER MASTER STRUKTUR ORGANISASI (Sheet: CalonPers)
-  const getMasterStructureMap = (): Map<string, { officialBiro: string; officialName: string }> => {
-    const masterMap = new Map<string, { officialBiro: string; officialName: string }>();
-    if (!strukturWorkbook) return masterMap;
+  // 2. HELPER SUMBER DATA DROPDOWN FORMULIR
 
+  // [1] Dropdown Nama: Personil di biro terkait dari file Struktur
+  const getBiroMembers = (biroName: string): string[] => {
+    if (!strukturWorkbook) return [];
     const sheet = strukturWorkbook.Sheets['CalonPers'] || strukturWorkbook.Sheets[strukturWorkbook.SheetNames[0]];
-    if (!sheet) return masterMap;
-
+    if (!sheet) return [];
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
     const colBlocks = [
@@ -327,6 +334,8 @@ export default function App() {
       { dCol: 36, nCol: 37, maxR: 30 },
     ];
 
+    const members: string[] = [];
+
     colBlocks.forEach(({ dCol, nCol, maxR }) => {
       let currentBiro = '';
       for (let r = 17; r < Math.min(rows.length, maxR); r++) {
@@ -337,19 +346,65 @@ export default function App() {
 
         if (valD.toLowerCase().includes('biro')) {
           currentBiro = valD;
-        } else if (currentBiro) {
-          if (valD && !/^\d+$/.test(valD) && !valN && !valD.toLowerCase().includes('departemen') && !valD.toLowerCase().includes('personil')) {
-            masterMap.set(cleanText(valD), { officialBiro: currentBiro, officialName: valD });
-          } else if (valN && valN.toUpperCase() !== 'PERSONIL' && !valN.toLowerCase().includes('departemen')) {
-            masterMap.set(cleanText(valN), { officialBiro: currentBiro, officialName: valN });
+        } else if (currentBiro && isBiroMatch(currentBiro, biroName)) {
+          if (
+            valD && 
+            !/^\d+$/.test(valD) && 
+            (!valN || valN.toLowerCase() === 'nan') && 
+            !valD.toLowerCase().includes('departemen') && 
+            !valD.toLowerCase().includes('personil') && 
+            !valD.toLowerCase().includes('total')
+          ) {
+            if (!members.includes(valD) && valD.toLowerCase() !== 'nan') members.push(valD);
+          } else if (valN && valN.toLowerCase() !== 'nan' && valN.toUpperCase() !== 'PERSONIL' && !valN.toLowerCase().includes('departemen')) {
+            if (!members.includes(valN)) members.push(valN);
           }
         }
       }
     });
 
-    return masterMap;
+    return members;
   };
 
+  // [2] Dropdown Kode Proyek: Dari sheet BASIC JOBCARD DESAIN (Kolom C)
+  const getJobcardProjects = (): string[] => {
+    if (!jobcardWorkbook) return [];
+    const basicSheetName = jobcardWorkbook.SheetNames.find(s => s.trim().toUpperCase() === 'BASIC') || jobcardWorkbook.SheetNames[0];
+    if (!basicSheetName) return [];
+    const worksheet = jobcardWorkbook.Sheets[basicSheetName];
+    const rows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+    const projects = new Set<string>();
+    rows.forEach((row, idx) => {
+      if (idx < 3 || !row) return;
+      const p = String(row[2] || '').trim();
+      if (p && p.toLowerCase() !== 'nan' && !p.toLowerCase().includes('kode proyek')) {
+        projects.add(p);
+      }
+    });
+    return Array.from(projects).sort();
+  };
+
+  // [3] Dropdown Task Name: Dari sheet BASIC JOBCARD DESAIN (Kolom D)
+  const getJobcardTasks = (): string[] => {
+    if (!jobcardWorkbook) return [];
+    const basicSheetName = jobcardWorkbook.SheetNames.find(s => s.trim().toUpperCase() === 'BASIC') || jobcardWorkbook.SheetNames[0];
+    if (!basicSheetName) return [];
+    const worksheet = jobcardWorkbook.Sheets[basicSheetName];
+    const rows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+    const tasks = new Set<string>();
+    rows.forEach((row, idx) => {
+      if (idx < 3 || !row) return;
+      const t = String(row[3] || '').trim();
+      if (t && t.toLowerCase() !== 'nan' && !t.toLowerCase().includes('desc pekerjaan') && !t.toLowerCase().includes('revisi ke')) {
+        tasks.add(t);
+      }
+    });
+    return Array.from(tasks).sort();
+  };
+
+  // Helper pembersih glitch typo nama PIC di Job Card
   const cleanJobcardPICName = (rawName: string): string => {
     let s = (rawName || '').trim();
     s = s.replace(/satri\s*handoyoawansyah/gi, 'Satriawansyah');
@@ -362,91 +417,152 @@ export default function App() {
     return s.replace(/\.$/, '').trim();
   };
 
-  // 3. PARSER JOBCARD DENGAN PENCOCOKAN FLEKSIBEL ISBIROMATCH
-  const getJobcardGroupsForBiro = (targetBiroName: string): PersonilJobcardGroup[] => {
-    if (!jobcardWorkbook) return [];
+  // 3. PENGELOMPOKAN TUGAS JOBCARD PER PERSONIL (EXCEL + FORM INPUT REAL-TIME)
+  const getAccordionOutputForBiro = (targetBiroName: string): PersonilCardGroup[] => {
+    const biroMembers = getBiroMembers(targetBiroName);
+    const personMap = new Map<string, TaskItem[]>();
 
-    const basicSheetName = jobcardWorkbook.SheetNames.find(s => s.trim().toUpperCase() === 'BASIC');
-    if (!basicSheetName) return [];
+    // Daftarkan semua anggota biro resmi terlebih dahulu
+    biroMembers.forEach(m => {
+      personMap.set(m, []);
+    });
 
-    const worksheet = jobcardWorkbook.Sheets[basicSheetName];
-    const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-    const masterMap = getMasterStructureMap();
+    // 1. Ambil tugas dari file Excel JOBCARD_DESAIN.xlsx (sheet BASIC)
+    if (jobcardWorkbook) {
+      const basicSheetName = jobcardWorkbook.SheetNames.find(s => s.trim().toUpperCase() === 'BASIC') || jobcardWorkbook.SheetNames[0];
+      if (basicSheetName) {
+        const worksheet = jobcardWorkbook.Sheets[basicSheetName];
+        const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
-    const picTaskMap = new Map<string, { officialBiro: string; isFromMaster: boolean; tasks: JobcardTask[] }>();
+        rawRows.forEach((row, idx) => {
+          if (!row || row.length === 0 || idx < 3) return;
 
-    rawRows.forEach((row, idx) => {
-      if (!row || row.length === 0 || idx < 3) return;
+          const projectCol    = String(row[2] || '-').trim();
+          const taskNameCol   = String(row[3] || '-').trim();
+          const workCenterCol = String(row[4] || '-').trim();
+          const startDateCol  = String(row[5] || '-').trim();
+          const endDateCol    = String(row[6] || '-').trim();
+          const rawPicCol     = String(row[8] || '').trim();
+          const joCol         = String(row[9] || '-').trim();
 
-      const projectCol    = String(row[2] || '-').trim();
-      const taskNameCol   = String(row[3] || '-').trim();
-      const workCenterCol = String(row[4] || '-').trim();
-      const startDateCol  = String(row[5] || '-').trim();
-      const endDateCol    = String(row[6] || '-').trim();
-      const personilCount = String(row[7] || '1').trim();
-      const rawPicCol     = String(row[8] || '').trim();
+          if (!rawPicCol || rawPicCol.toLowerCase().includes('(nama)')) return;
 
-      if (!rawPicCol || rawPicCol.toLowerCase().includes('(nama)')) return;
+          const individualPics = rawPicCol
+            .split(/,|\sdan\s/gi)
+            .map(p => cleanJobcardPICName(p))
+            .filter(p => p.length > 2);
 
-      const individualPics = rawPicCol
-        .split(/,|\sdan\s/gi)
-        .map(p => cleanJobcardPICName(p))
-        .filter(p => p.length > 2);
+          individualPics.forEach((pic) => {
+            // Cocokkan apakah PIC ini adalah salah satu personil di biro ini
+            let matchedMember = biroMembers.find(m => {
+              const cM = cleanText(m);
+              const cP = cleanText(pic);
+              return cM === cP || cM.includes(cP) || cP.includes(cM);
+            });
 
-      individualPics.forEach((pic) => {
-        const cleanPic = cleanText(pic);
-
-        let assignedBiro = workCenterCol;
-        let isFromMaster = false;
-        let displayName = pic;
-
-        // Cek master struktur
-        if (masterMap.has(cleanPic)) {
-          const master = masterMap.get(cleanPic)!;
-          assignedBiro = master.officialBiro;
-          displayName = master.officialName;
-          isFromMaster = true;
-        } else {
-          for (const [mKey, mVal] of masterMap.entries()) {
-            if (mKey !== 'nan' && (cleanPic.includes(mKey) || mKey.includes(cleanPic))) {
-              assignedBiro = mVal.officialBiro;
-              displayName = mVal.officialName;
-              isFromMaster = true;
-              break;
+            // Jika tidak ada di master struktur tapi workCenter-nya memang biro ini
+            if (!matchedMember && isBiroMatch(workCenterCol, targetBiroName)) {
+              matchedMember = pic;
+              if (!personMap.has(matchedMember)) {
+                personMap.set(matchedMember, []);
+              }
             }
-          }
-        }
 
-        // Cek kecocokan biro dengan fungsi toleran isBiroMatch
-        if (isBiroMatch(assignedBiro, targetBiroName)) {
-          if (!picTaskMap.has(displayName)) {
-            picTaskMap.set(displayName, { officialBiro: assignedBiro, isFromMaster, tasks: [] });
-          }
-
-          picTaskMap.get(displayName)!.tasks.push({
-            project: projectCol,
-            taskName: taskNameCol,
-            startDate: startDateCol,
-            endDate: endDateCol,
-            totalPersonil: personilCount,
-            originalWorkCenter: workCenterCol,
-            finalBiro: assignedBiro
+            if (matchedMember) {
+              personMap.get(matchedMember)!.push({
+                project: projectCol,
+                taskName: taskNameCol,
+                startDate: startDateCol,
+                endDate: endDateCol,
+                pic: pic,
+                jo: joCol,
+                isManual: false
+              });
+            }
           });
-        }
-      });
+        });
+      }
+    }
+
+    // 2. Gabungkan dengan tugas yang baru diisi dari formulir
+    const manualList = manualTasks[targetBiroName] || [];
+    manualList.forEach(mTask => {
+      let matched = biroMembers.find(m => cleanText(m) === cleanText(mTask.pic || '')) || mTask.pic || 'Personil';
+      if (!personMap.has(matched)) {
+        personMap.set(matched, []);
+      }
+      personMap.get(matched)!.unshift(mTask);
     });
 
-    const result: PersonilJobcardGroup[] = [];
-    picTaskMap.forEach((val, picName) => {
-      result.push({
-        picName,
-        officialBiro: val.officialBiro,
-        isFromMaster: val.isFromMaster,
-        tasks: val.tasks
-      });
+    const result: PersonilCardGroup[] = [];
+    personMap.forEach((tasks, picName) => {
+      result.push({ picName, tasks });
     });
 
+    // Urutkan personil berdasarkan nama
     return result.sort((a, b) => a.picName.localeCompare(b.picName));
+  };
+
+  // Submit Formulir Job Card
+  const handleSubmitForm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFormBiro) return;
+
+    const newTask: TaskItem = {
+      id: Date.now().toString(),
+      project: formData.kodeProyek,
+      taskName: formData.taskName,
+      startDate: formData.startDate,
+      endDate: formData.endDate,
+      pic: formData.nama, // Dipetakan ke nama yang dipilih
+      jo: formData.jo,
+      isManual: true
+    };
+
+    const targetBiro = selectedFormBiro.biroName;
+    const currentList = manualTasks[targetBiro] || [];
+    const updated = { ...manualTasks, [targetBiro]: [newTask, ...currentList] };
+
+    setManualTasks(updated);
+    try {
+      localStorage.setItem('kpi_manual_tasks', JSON.stringify(updated));
+    } catch {
+      // Fallback
+    }
+
+    // Otomatis buka kartu personil yang baru ditambahkan
+    setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
+
+    // Reset input form
+    setFormData({
+      nama: '',
+      kodeProyek: '',
+      taskName: '',
+      startDate: '',
+      endDate: '',
+      pic: '',
+      jo: ''
+    });
+
+    alert('Job Card berhasil disimpan dan langsung ditambahkan ke tabel personil di bawah!');
+  };
+
+  // Hapus task input manual
+  const handleDeleteManualTask = (taskId?: string) => {
+    if (!selectedFormBiro || !taskId) return;
+    if (window.confirm('Yakin ingin menghapus job card manual ini?')) {
+      const targetBiro = selectedFormBiro.biroName;
+      const currentList = manualTasks[targetBiro] || [];
+      const updatedList = currentList.filter(t => t.id !== taskId);
+      const updated = { ...manualTasks, [targetBiro]: updatedList };
+
+      setManualTasks(updated);
+      try {
+        localStorage.setItem('kpi_manual_tasks', JSON.stringify(updated));
+      } catch {
+        // Fallback
+      }
+    }
   };
 
   const toggleAccordion = (picName: string) => {
@@ -545,14 +661,20 @@ export default function App() {
     item.nama.toLowerCase().includes(tableSearch.toLowerCase())
   );
 
-  const currentJobcardGroups = selectedFormBiro ? getJobcardGroupsForBiro(selectedFormBiro.biroName) : [];
-  const filteredJobcardGroups = currentJobcardGroups.filter(group => {
-    const s = formSearch.toLowerCase();
-    return (group.picName || '').toLowerCase().includes(s) || 
-           group.tasks.some(t => (t.project || '').toLowerCase().includes(s) || (t.taskName || '').toLowerCase().includes(s));
+  // Sumber Data untuk Halaman Form
+  const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
+  const projectOptions = getJobcardProjects();
+  const taskOptions = getJobcardTasks();
+  
+  // Data Accordion Output
+  const accordionData = selectedFormBiro ? getAccordionOutputForBiro(selectedFormBiro.biroName) : [];
+  const filteredAccordionData = accordionData.filter(g => {
+    const s = outputSearch.toLowerCase();
+    return g.picName.toLowerCase().includes(s) || g.tasks.some(t => t.project.toLowerCase().includes(s) || t.taskName.toLowerCase().includes(s));
   });
 
-  const totalAllTasks = currentJobcardGroups.reduce((acc, g) => acc + g.tasks.length, 0);
+  const totalPersonilCount = accordionData.length;
+  const totalTasksCount = accordionData.reduce((acc, g) => acc + g.tasks.length, 0);
 
   return (
     <div className="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased">
@@ -761,9 +883,9 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= HALAMAN FORMULIR: ACCORDION PER PEGAWAI BERDASARKAN STRUKTUR ================= */}
+        {/* ================= LEVEL FORM: FORM INPUT + OUTPUT ACCORDION PER PEGAWAI ================= */}
         {selectedFormBiro && (
-          <div className="space-y-6 animate-fadeIn">
+          <div className="space-y-8 animate-fadeIn max-w-5xl mx-auto">
             {/* Header Form */}
             <div className="bg-gradient-to-r from-teal-900/40 via-slate-800 to-slate-800 border border-emerald-500/20 rounded-2xl p-6 sm:p-8">
               <button
@@ -776,18 +898,18 @@ export default function App() {
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-1">
-                    <Folder className="w-4 h-4" />
-                    <span>Monitoring Job Card Personil — {selectedFormBiro.deptName}</span>
+                    <FileText className="w-4 h-4" />
+                    <span>Formulir Job Card — {selectedFormBiro.deptName}</span>
                   </div>
                   <h2 className="text-2xl sm:text-3xl font-extrabold text-white">
                     {selectedFormBiro.biroName}
                   </h2>
                   <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-400">
-                    <span>Validasi Master: <b>Struktur dan Anggota Desain Upd 0826</b></span>
+                    <span>Master: <b>Struktur & Anggota Desain</b> + <b>JOBCARD DESAIN (BASIC)</b></span>
                     <span>•</span>
-                    {jobcardWorkbook && strukturWorkbook ? (
+                    {strukturWorkbook && jobcardWorkbook ? (
                       <span className="text-emerald-400 font-medium flex items-center gap-1">
-                        <CheckCircle className="w-3.5 h-3.5" /> File Excel Terhubung
+                        <CheckCircle2 className="w-3.5 h-3.5" /> File Excel Terhubung
                       </span>
                     ) : (
                       <span className="text-amber-400 font-medium flex items-center gap-1">
@@ -799,158 +921,354 @@ export default function App() {
 
                 <div className="flex items-center gap-3">
                   <div className="px-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-center">
-                    <div className="text-xl font-black text-emerald-400">{filteredJobcardGroups.length}</div>
-                    <div className="text-[10px] text-slate-400 uppercase font-semibold">Personil Terdaftar</div>
+                    <div className="text-xl font-black text-emerald-400">{totalPersonilCount}</div>
+                    <div className="text-[10px] text-slate-400 uppercase font-semibold">Total Personil</div>
                   </div>
                   <div className="px-4 py-2.5 bg-slate-900/80 border border-slate-700 rounded-xl text-center">
-                    <div className="text-xl font-black text-cyan-400">{totalAllTasks}</div>
-                    <div className="text-[10px] text-slate-400 uppercase font-semibold">Total Job Card</div>
+                    <div className="text-xl font-black text-cyan-400">{totalTasksCount}</div>
+                    <div className="text-[10px] text-slate-400 uppercase font-semibold">Total Tugas</div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Filter & Pencarian */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="relative w-full sm:w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Cari personil atau nama proyek..."
-                  value={formSearch}
-                  onChange={(e) => setFormSearch(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
-                />
-              </div>
+            {/* 1. KARTU FORMULIR PENGISIAN 7 INPUT */}
+            <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-xl">
+              <h3 className="text-lg font-bold text-white mb-6 pb-3 border-b border-slate-700/70 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-emerald-400" />
+                Form Pengisian Job Card
+              </h3>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    const all: Record<string, boolean> = {};
-                    filteredJobcardGroups.forEach(g => { all[g.picName] = true; });
-                    setExpandedCards(all);
-                  }}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
-                >
-                  Buka Semua
-                </button>
-                <button
-                  onClick={() => setExpandedCards({})}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
-                >
-                  Tutup Semua
-                </button>
-              </div>
+              <form onSubmit={handleSubmitForm} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {/* 1. NAMA (DROPDOWN STRUKTUR BIRO) */}
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                      1. Nama Personil (Sesuai Struktur Biro) <span className="text-rose-400">*</span>
+                    </label>
+                    <select
+                      value={formData.nama}
+                      onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
+                      required
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                    >
+                      <option value="">-- Pilih Nama Personil di {selectedFormBiro.biroName} --</option>
+                      {currentBiroMembers.map((nama, idx) => (
+                        <option key={idx} value={nama}>{nama}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 2. KODE PROYEK (DROPDOWN JOBCARD DESAIN SHEET BASIC) */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                      2. Kode Proyek <span className="text-rose-400">*</span>
+                    </label>
+                    <select
+                      value={formData.kodeProyek}
+                      onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
+                      required
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                    >
+                      <option value="">-- Pilih Kode Proyek --</option>
+                      {projectOptions.map((proj, idx) => (
+                        <option key={idx} value={proj}>{proj}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 7. JO (ESAI KHUSUS ANGKA) */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                      7. JO (Khusus Angka) <span className="text-rose-400">*</span>
+                    </label>
+                    <div className="relative">
+                      <Hash className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={formData.jo}
+                        onChange={(e) => {
+                          const digitsOnly = e.target.value.replace(/[^0-9]/g, '');
+                          setFormData(prev => ({ ...prev, jo: digitsOnly }));
+                        }}
+                        placeholder="Contoh: 300426"
+                        required
+                        className="w-full pl-10 pr-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white font-mono placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 3. TASK NAME (DROPDOWN JOBCARD DESAIN SHEET BASIC) */}
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                      3. Task Name / Uraian Pekerjaan <span className="text-rose-400">*</span>
+                    </label>
+                    <select
+                      value={formData.taskName}
+                      onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                      required
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                    >
+                      <option value="">-- Pilih Task Name / Deskripsi Pekerjaan --</option>
+                      {taskOptions.map((task, idx) => (
+                        <option key={idx} value={task}>{task}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 4. SCHEDULE START DATE (KALENDER) */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                      4. Schedule Start Date <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.startDate}
+                      onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                      required
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* 5. SCHEDULE END DATE (KALENDER) */}
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                      5. Schedule End Date <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      value={formData.endDate}
+                      onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                      required
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                    />
+                  </div>
+
+                  {/* 6. PIC (ESAI / TEKS BEBAS) */}
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
+                      6. PIC (Ketik Bebas / Esai) <span className="text-rose-400">*</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={formData.pic}
+                      onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))}
+                      placeholder="Ketikkan nama PIC / personil yang mengerjakan..."
+                      required
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 leading-relaxed"
+                    />
+                  </div>
+                </div>
+
+                {/* Tombol Simpan */}
+                <div className="pt-4 border-t border-slate-700/70 flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({
+                      nama: '',
+                      kodeProyek: '',
+                      taskName: '',
+                      startDate: '',
+                      endDate: '',
+                      pic: '',
+                      jo: ''
+                    })}
+                    className="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-semibold rounded-xl transition cursor-pointer"
+                  >
+                    Reset Form
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-emerald-900/30 transition flex items-center gap-2 cursor-pointer hover:scale-105 active:scale-95"
+                  >
+                    <Send className="w-4 h-4" />
+                    Simpan Job Card
+                  </button>
+                </div>
+              </form>
             </div>
 
-            {/* CARD ACCORDION PER PEGAWAI */}
-            {filteredJobcardGroups.length > 0 ? (
-              <div className="space-y-4">
-                {filteredJobcardGroups.map((person, idx) => {
-                  const isExpanded = expandedCards[person.picName] ?? false;
+            {/* 2. OUTPUT HASIL: REKAPITULASI ACCORDION PER PEGAWAI */}
+            <div className="space-y-4">
+              {/* Header Box Output */}
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-5 sm:p-6 shadow-md">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-700/60 pb-4 mb-4">
+                  <div>
+                    <h3 className="text-base font-bold text-white tracking-wide">
+                      [ FORMULIR BIRO: {selectedFormBiro.biroName.toUpperCase()} ]
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Total Personil: <b className="text-emerald-400">{totalPersonilCount} Pegawai</b> | Total Job Card Aktif: <b className="text-cyan-400">{totalTasksCount} Tugas</b>
+                    </p>
+                  </div>
 
-                  return (
-                    <div
-                      key={idx}
-                      className="bg-slate-800/70 border border-slate-700/80 rounded-2xl overflow-hidden shadow-md transition-all duration-200 hover:border-slate-600"
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const all: Record<string, boolean> = {};
+                        filteredAccordionData.forEach(g => { all[g.picName] = true; });
+                        setExpandedCards(all);
+                      }}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
                     >
-                      <div
-                        onClick={() => toggleAccordion(person.picName)}
-                        className="p-5 flex items-center justify-between cursor-pointer select-none bg-slate-800/90 hover:bg-slate-800 transition"
-                      >
-                        <div className="flex items-center gap-3.5">
-                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 flex items-center justify-center text-white font-bold shadow-md shadow-emerald-900/30">
-                            <User className="w-5 h-5" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h4 className="text-base font-bold text-white tracking-wide">
-                                {person.picName}
-                              </h4>
-                              {person.isFromMaster ? (
-                                <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] rounded font-semibold flex items-center gap-1">
-                                  <CheckCircle className="w-3 h-3" /> Terdaftar di Struktur
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] rounded font-semibold">
-                                  Biro Asal Job Card
-                                </span>
-                              )}
-                            </div>
-                            <span className="text-xs text-slate-400">
-                              {person.officialBiro}
-                            </span>
-                          </div>
-                        </div>
+                      Buka Semua
+                    </button>
+                    <button
+                      onClick={() => setExpandedCards({})}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg border border-slate-700 transition cursor-pointer"
+                    >
+                      Tutup Semua
+                    </button>
+                  </div>
+                </div>
 
-                        <div className="flex items-center gap-3">
-                          <span className="px-3 py-1 bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 rounded-full text-xs font-bold font-mono">
-                            {person.tasks.length} Job Card
-                          </span>
+                {/* Pencarian Personil / Proyek */}
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Cari nama personil atau proyek..."
+                    value={outputSearch}
+                    onChange={(e) => setOutputSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* LIST CARD ACCORDION PER PEGAWAI */}
+              {filteredAccordionData.length > 0 ? (
+                <div className="space-y-3.5">
+                  {filteredAccordionData.map((person, idx) => {
+                    const isExpanded = expandedCards[person.picName] ?? false;
+                    const taskCount = person.tasks.length;
+                    const isActive = taskCount > 0;
+
+                    return (
+                      <div
+                        key={idx}
+                        className="bg-slate-800/70 border border-slate-700/80 rounded-2xl overflow-hidden shadow-md transition-all duration-200 hover:border-slate-600"
+                      >
+                        {/* HEADER CARD: KLIK UNTUK EXPAND / COLLAPSE */}
+                        <div
+                          onClick={() => toggleAccordion(person.picName)}
+                          className="p-4 sm:p-5 flex items-center justify-between cursor-pointer select-none bg-slate-800/90 hover:bg-slate-800 transition"
+                        >
+                          <div className="flex items-center gap-3.5">
+                            {/* Icon / Foto */}
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-md ${
+                              isActive ? 'bg-gradient-to-br from-emerald-600 to-teal-700 shadow-emerald-900/30' : 'bg-slate-700 text-slate-400'
+                            }`}>
+                              <User className="w-5 h-5" />
+                            </div>
+
+                            {/* Nama & Status */}
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="text-base font-bold text-white tracking-wide">
+                                  {person.picName}
+                                </h4>
+                                <span className="text-xs font-semibold text-slate-400">
+                                  ({taskCount} Job Card)
+                                </span>
+                                <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md border ${
+                                  isActive 
+                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                                    : 'bg-slate-700/40 text-slate-400 border-slate-600'
+                                }`}>
+                                  Status: {isActive ? 'Aktif' : 'Kosong'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Tombol Panah Buka / Tutup */}
                           <div className="p-1.5 rounded-lg bg-slate-700 text-slate-300">
                             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                           </div>
                         </div>
-                      </div>
 
-                      {/* Detail Tabel Tugas */}
-                      {isExpanded && (
-                        <div className="p-5 border-t border-slate-700/70 bg-slate-900/40 animate-fadeIn">
-                          <div className="overflow-x-auto rounded-xl border border-slate-700/60">
-                            <table className="w-full text-left border-collapse text-sm">
-                              <thead>
-                                <tr className="bg-slate-800/90 text-slate-300 text-xs font-bold uppercase tracking-wider border-b border-slate-700">
-                                  <th className="py-3 px-4 w-12 text-center">No</th>
-                                  <th className="py-3 px-4 w-52">Project</th>
-                                  <th className="py-3 px-4">Task Name / Uraian Pekerjaan</th>
-                                  <th className="py-3 px-4 w-36 text-center">Start Date</th>
-                                  <th className="py-3 px-4 w-36 text-center">End Date</th>
-                                  <th className="py-3 px-4 w-28 text-center">Tim Kerja</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-700/50 text-slate-200">
-                                {person.tasks.map((task, tIdx) => (
-                                  <tr key={tIdx} className="hover:bg-slate-800/60 transition">
-                                    <td className="py-3.5 px-4 text-center font-mono text-xs text-slate-400">
-                                      {tIdx + 1}
-                                    </td>
-                                    <td className="py-3.5 px-4 font-semibold text-emerald-400 text-xs sm:text-sm">
-                                      {task.project}
-                                    </td>
-                                    <td className="py-3.5 px-4 text-xs sm:text-sm leading-relaxed text-slate-100">
-                                      {task.taskName}
-                                    </td>
-                                    <td className="py-3.5 px-4 text-center font-mono text-xs text-cyan-300">
-                                      {task.startDate}
-                                    </td>
-                                    <td className="py-3.5 px-4 text-center font-mono text-xs text-amber-300">
-                                      {task.endDate}
-                                    </td>
-                                    <td className="py-3.5 px-4 text-center font-mono text-xs text-slate-300">
-                                      <span className="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded">
-                                        {task.totalPersonil} Orang
-                                      </span>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                        {/* BODY TABEL JOB CARD */}
+                        {isExpanded && (
+                          <div className="p-4 sm:p-5 border-t border-slate-700/70 bg-slate-900/40 animate-fadeIn">
+                            {taskCount > 0 ? (
+                              <div className="overflow-x-auto rounded-xl border border-slate-700/60">
+                                <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                                  <thead>
+                                    <tr className="bg-slate-800/95 text-slate-300 font-bold uppercase tracking-wider border-b border-slate-700">
+                                      <th className="py-3 px-4 w-12 text-center">No</th>
+                                      <th className="py-3 px-4 w-52">Project</th>
+                                      <th className="py-3 px-4">Task Name / Uraian Pekerjaan</th>
+                                      <th className="py-3 px-4 w-36 text-center">Start Date</th>
+                                      <th className="py-3 px-4 w-36 text-center">End Date</th>
+                                      <th className="py-3 px-4 w-28 text-center">Aksi / Tipe</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-700/50 text-slate-200">
+                                    {person.tasks.map((task, tIdx) => (
+                                      <tr key={tIdx} className="hover:bg-slate-800/60 transition">
+                                        <td className="py-3.5 px-4 text-center font-mono text-slate-400">
+                                          {tIdx + 1}
+                                        </td>
+                                        <td className="py-3.5 px-4 font-semibold text-emerald-400">
+                                          {task.project}
+                                        </td>
+                                        <td className="py-3.5 px-4 leading-relaxed text-slate-100">
+                                          {task.taskName}
+                                          {task.jo && task.jo !== '-' && (
+                                            <span className="block mt-1 text-[11px] font-mono text-violet-400">
+                                              JO: #{task.jo}
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="py-3.5 px-4 text-center font-mono text-cyan-300">
+                                          {task.startDate}
+                                        </td>
+                                        <td className="py-3.5 px-4 text-center font-mono text-amber-300">
+                                          {task.endDate}
+                                        </td>
+                                        <td className="py-3.5 px-4 text-center">
+                                          {task.isManual ? (
+                                            <div className="flex items-center justify-center gap-1.5">
+                                              <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-semibold rounded">
+                                                Form Input
+                                              </span>
+                                              <button
+                                                onClick={() => handleDeleteManualTask(task.id)}
+                                                className="p-1 text-rose-400 hover:text-white hover:bg-rose-600 rounded transition cursor-pointer"
+                                                title="Hapus task manual ini"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <span className="px-2 py-0.5 bg-slate-800 text-slate-400 text-[10px] rounded border border-slate-700">
+                                              Excel Basic
+                                            </span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <div className="py-6 text-center text-slate-400 text-xs">
+                                Personil ini belum memiliki tugas aktif. Gunakan form di atas untuk menambahkan tugas.
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="py-16 text-center text-slate-400 bg-slate-800/40 border border-slate-700/60 rounded-2xl space-y-2">
-                <Briefcase className="w-10 h-10 mx-auto text-slate-500 opacity-60" />
-                <p className="text-base font-semibold text-slate-300">Belum Ada Personil / Job Card Terdaftar</p>
-                <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  Tidak ditemukan personil untuk <b>{selectedFormBiro.biroName}</b> berdasarkan data pencocokan file Struktur & Job Card.
-                </p>
-              </div>
-            )}
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-12 text-center text-slate-400 bg-slate-800/40 border border-slate-700/60 rounded-2xl">
+                  Tidak ditemukan data personil untuk <b>{selectedFormBiro.biroName}</b>.
+                </div>
+              )}
+            </div>
           </div>
         )}
 
