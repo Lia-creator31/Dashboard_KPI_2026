@@ -115,8 +115,10 @@ function cleanText(str: string): string {
 }
 
 function isBiroMatch(biro1: string, biro2: string): boolean {
-  const b1 = (biro1 || '').toLowerCase();
-  const b2 = (biro2 || '').toLowerCase();
+  const b1 = (biro1 || '').toLowerCase().trim();
+  const b2 = (biro2 || '').toLowerCase().trim();
+  if (!b1 || !b2) return false;
+  if (b1 === b2) return true;
 
   if (b1.includes('pengembangan') && b2.includes('pengembangan')) return true;
   if (
@@ -129,9 +131,11 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
     (b2.includes('kapal permukaan') || b2.includes('surface'))
   ) return true;
 
-  const c1 = cleanText(b1.replace(/biro|departemen|desain|dasar/gi, ''));
-  const c2 = cleanText(b2.replace(/biro|departemen|desain|dasar/gi, ''));
-  if (c1 && c2) return c1.includes(c2) || c2.includes(c1);
+  const c1 = cleanText(b1.replace(/biro|departemen|dept|divisi/gi, ''));
+  const c2 = cleanText(b2.replace(/biro|departemen|dept|divisi/gi, ''));
+  if (c1 && c2) {
+    return c1 === c2 || c1.includes(c2) || c2.includes(c1);
+  }
   return false;
 }
 
@@ -148,7 +152,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
         }
       }
     } catch {
-      // next
+      // lanjut ke path berikutnya
     }
   }
   return null;
@@ -261,7 +265,7 @@ export default function App() {
         if (wbJc) setJobcardWorkbook(wbJc);
         if (wbStruktur) setStrukturWorkbook(wbStruktur);
       } catch (error) {
-        console.error("Gagal membaca file Excel:", error);
+        console.error('Gagal membaca file Excel:', error);
       } finally {
         setIsLoadingExcel(false);
       }
@@ -347,69 +351,95 @@ export default function App() {
   };
 
   const getBiroMembers = (biroName: string): string[] => {
-    if (!strukturWorkbook) return [];
-    const sheet = strukturWorkbook.Sheets['CalonPers'] || strukturWorkbook.Sheets[strukturWorkbook.SheetNames[0]];
-    if (!sheet) return [];
-    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
-    const colBlocks = [
-      { dCol: 2, nCol: 3, maxR: 50 },
-      { dCol: 8, nCol: 9, maxR: 55 },
-      { dCol: 14, nCol: 15, maxR: 83 },
-      { dCol: 22, nCol: 23, maxR: 67 },
-      { dCol: 29, nCol: 30, maxR: 66 },
-      { dCol: 36, nCol: 37, maxR: 30 },
-    ];
-
     const members: string[] = [];
-    colBlocks.forEach(({ dCol, nCol, maxR }) => {
-      let currentBiro = '';
-      for (let r = 17; r < Math.min(rows.length, maxR); r++) {
-        const row = rows[r];
-        if (!row) continue;
-        const valD = String(row[dCol] || '').trim();
-        const valN = String(row[nCol] || '').trim();
 
-        if (valD.toLowerCase().includes('biro')) {
-          currentBiro = valD;
-        } else if (currentBiro && isBiroMatch(currentBiro, biroName)) {
-          if (valD && !/^\d+$/.test(valD) && (!valN || valN.toLowerCase() === 'nan') && !valD.toLowerCase().includes('departemen') && !valD.toLowerCase().includes('personil')) {
-            if (!members.includes(valD) && valD.toLowerCase() !== 'nan') members.push(valD);
-          } else if (valN && valN.toLowerCase() !== 'nan' && valN.toUpperCase() !== 'PERSONIL' && !valN.toLowerCase().includes('departemen')) {
-            if (!members.includes(valN)) members.push(valN);
+    if (strukturWorkbook) {
+      const sheet = strukturWorkbook.Sheets['CalonPers'] || strukturWorkbook.Sheets[strukturWorkbook.SheetNames[0]];
+      if (sheet) {
+        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        const colBlocks = [
+          { dCol: 2, nCol: 3 },
+          { dCol: 8, nCol: 9 },
+          { dCol: 14, nCol: 15 },
+          { dCol: 22, nCol: 23 },
+          { dCol: 29, nCol: 30 },
+          { dCol: 36, nCol: 37 },
+        ];
+
+        colBlocks.forEach(({ dCol, nCol }) => {
+          let currentBiro = '';
+          for (let r = 10; r < rows.length; r++) {
+            const row = rows[r];
+            if (!row) continue;
+            const valD = String(row[dCol] || '').trim();
+            const valN = String(row[nCol] || '').trim();
+
+            if (valD.toLowerCase().includes('biro')) {
+              currentBiro = valD;
+            } else if (currentBiro && isBiroMatch(currentBiro, biroName)) {
+              if (valD && !/^\d+$/.test(valD) && (!valN || valN.toLowerCase() === 'nan') && !valD.toLowerCase().includes('departemen') && !valD.toLowerCase().includes('personil') && !valD.toLowerCase().includes('total')) {
+                if (!members.includes(valD) && valD.toLowerCase() !== 'nan') members.push(valD);
+              } else if (valN && valN.toLowerCase() !== 'nan' && valN.toUpperCase() !== 'PERSONIL' && !valN.toLowerCase().includes('departemen')) {
+                if (!members.includes(valN)) members.push(valN);
+              }
+            }
           }
-        }
+        });
       }
-    });
-    return members;
+    }
+
+    // Fallback data KPI jika nama biro belum terdaftar di CalonPers
+    if (members.length === 0 && workbook) {
+      workbook.SheetNames.forEach(sName => {
+        const s = workbook.Sheets[sName];
+        if (!s) return;
+        const kRows: any[][] = XLSX.utils.sheet_to_json(s, { header: 1, defval: '' });
+        kRows.forEach((r, idx) => {
+          if (idx < 1 || !r) return;
+          const bCol = String(r[7] || '').trim();
+          const namaCol = String(r[1] || '').trim();
+          if (namaCol && isBiroMatch(bCol, biroName) && !members.includes(namaCol)) {
+            members.push(namaCol);
+          }
+        });
+      });
+    }
+
+    return members.sort();
   };
 
   const getJobcardProjects = (): string[] => {
     if (!jobcardWorkbook) return [];
-    const sheet = jobcardWorkbook.Sheets['BASIC'] || jobcardWorkbook.Sheets[jobcardWorkbook.SheetNames[0]];
-    if (!sheet) return [];
-    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
     const projects = new Set<string>();
-    rows.forEach((row, idx) => {
-      if (idx < 3 || !row) return;
-      const p = String(row[2] || '').trim();
-      if (p && p.toLowerCase() !== 'nan' && !p.toLowerCase().includes('kode proyek')) projects.add(p);
+    jobcardWorkbook.SheetNames.forEach(sheetName => {
+      const sheet = jobcardWorkbook.Sheets[sheetName];
+      if (!sheet) return;
+      const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      rows.forEach((row, idx) => {
+        if (idx < 2 || !row) return;
+        const p = String(row[2] || '').trim();
+        if (p && p.toLowerCase() !== 'nan' && !p.toLowerCase().includes('kode proyek') && !p.toLowerCase().includes('project')) {
+          projects.add(p);
+        }
+      });
     });
     return Array.from(projects).sort();
   };
 
   const getJobcardTasks = (): string[] => {
     if (!jobcardWorkbook) return [];
-    const sheet = jobcardWorkbook.Sheets['BASIC'] || jobcardWorkbook.Sheets[jobcardWorkbook.SheetNames[0]];
-    if (!sheet) return [];
-    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
     const tasks = new Set<string>();
-    rows.forEach((row, idx) => {
-      if (idx < 3 || !row) return;
-      const t = String(row[3] || '').trim();
-      if (t && t.toLowerCase() !== 'nan' && !t.toLowerCase().includes('desc pekerjaan') && !t.toLowerCase().includes('revisi ke')) tasks.add(t);
+    jobcardWorkbook.SheetNames.forEach(sheetName => {
+      const sheet = jobcardWorkbook.Sheets[sheetName];
+      if (!sheet) return;
+      const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      rows.forEach((row, idx) => {
+        if (idx < 2 || !row) return;
+        const t = String(row[3] || '').trim();
+        if (t && t.toLowerCase() !== 'nan' && !t.toLowerCase().includes('desc pekerjaan') && !t.toLowerCase().includes('task') && !t.toLowerCase().includes('uraian')) {
+          tasks.add(t);
+        }
+      });
     });
     return Array.from(tasks).sort();
   };
@@ -433,25 +463,23 @@ export default function App() {
     return result.sort((a, b) => a.picName.localeCompare(b.picName));
   };
 
-const handleSubmitForm = async (e: React.FormEvent) => {
+  const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedFormBiro) return;
 
     try {
-      // 1. Ambil ID biro resmi dari tabel biros agar tidak ditolak Foreign Key
       let validBiroId: string | null = null;
       const { data: biroList } = await supabase.from('biros').select('id, name');
       
       if (biroList && biroList.length > 0) {
         const found = biroList.find(b => isBiroMatch(b.name, selectedFormBiro.biroName));
-        validBiroId = found ? found.id : biroList[0].id; // Gunakan ID yang cocok atau fallback baris pertama
+        validBiroId = found ? found.id : biroList[0].id;
       }
 
-      // 2. Simpan ke tabel job_cards dengan biro_id yang valid
       const { data: insertedRow, error } = await supabase
         .from('job_cards')
         .insert({
-          biro_id: validBiroId, // 👈 ID resmi dari tabel biros (Lolos Foreign Key & NOT NULL)
+          biro_id: validBiroId,
           biro_name: selectedFormBiro.biroName,
           personil_name: formData.nama,
           project_code: formData.kodeProyek,
@@ -472,7 +500,6 @@ const handleSubmitForm = async (e: React.FormEvent) => {
         return;
       }
 
-      // 3. Update tampilan kartu lokal
       const biroKey = cleanText(selectedFormBiro.biroName);
       const newTask: TaskItem = {
         id: insertedRow.id,
@@ -483,7 +510,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
         endDate: formData.endDate,
         pic: formData.nama,
         jo: formData.jo,
-        kodeJc: '',
+        kode_jc: '',
       };
 
       const currentList = manualTasks[biroKey] || [];
@@ -506,6 +533,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
       alert('Terjadi kesalahan koneksi database.');
     }
   };
+
   const handleVerifyPin = (e: React.FormEvent) => {
     e.preventDefault();
     if (pinInput === PLANNER_PIN) {
@@ -565,7 +593,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
 
   const handleClearAllBiroData = async () => {
     if (!selectedFormBiro) return;
-    if (window.confirm('Kosongkan semua data tugas di biro ini?')) {
+    if (window.confirm(`Kosongkan semua data tugas di ${selectedFormBiro.biroName}?`)) {
       const { error } = await supabase
         .from('job_cards')
         .delete()
@@ -587,7 +615,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
 
   const handleMonthClick = (biroName: string, month: string) => {
     if (!workbook) {
-      alert("File data_kpi.xlsx belum terbaca.");
+      alert('File data_kpi.xlsx belum terbaca.');
       return;
     }
 
@@ -791,7 +819,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
           </div>
         )}
 
-        {/* LEVEL 2: DAFTAR BIRO */}
+        {/* LEVEL 2: DAFTAR BIRO (SEMUA BIRO MEMILIKI FORM & OUTPUT) */}
         {selectedDept && !selectedBiroPage && !selectedFormBiro && (
           <div className="space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -802,57 +830,51 @@ const handleSubmitForm = async (e: React.FormEvent) => {
             </div>
 
             <div className="space-y-3">
-              {selectedDept.biros.map((biro) => {
-                const isDesainDasar = selectedDept.name.toLowerCase().includes('desain dasar');
+              {selectedDept.biros.map((biro) => (
+                <div
+                  key={biro.id}
+                  className="bg-slate-800/60 border border-slate-700/70 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                >
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-sm font-semibold text-white">{biro.name}</h4>
 
-                return (
-                  <div
-                    key={biro.id}
-                    className="bg-slate-800/60 border border-slate-700/70 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                  >
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-semibold text-white">{biro.name}</h4>
+                    <div className="flex items-center gap-1.5 ml-2">
+                      <button
+                        onClick={() => {
+                          setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name });
+                          setFormPageMode('form');
+                        }}
+                        className="px-2.5 py-1 bg-emerald-600/90 hover:bg-emerald-600 text-white text-[11px] font-bold rounded-md transition flex items-center gap-1 cursor-pointer"
+                      >
+                        <FileText className="w-3 h-3" /> FORM
+                      </button>
 
-                      {isDesainDasar && (
-                        <div className="flex items-center gap-1.5 ml-2">
-                          <button
-                            onClick={() => {
-                              setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name });
-                              setFormPageMode('form');
-                            }}
-                            className="px-2.5 py-1 bg-emerald-600/90 hover:bg-emerald-600 text-white text-[11px] font-bold rounded-md transition flex items-center gap-1"
-                          >
-                            <FileText className="w-3 h-3" /> FORM
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name });
-                              setFormPageMode('output');
-                            }}
-                            className="px-2.5 py-1 bg-blue-600/90 hover:bg-blue-600 text-white text-[11px] font-bold rounded-md transition flex items-center gap-1"
-                          >
-                            <Layers className="w-3 h-3" /> OUTPUT
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {monthList.map((month) => (
-                        <button
-                          key={month}
-                          onClick={() => handleMonthClick(biro.name, month)}
-                          disabled={isLoadingExcel}
-                          className="px-2.5 py-1 rounded text-xs bg-slate-800 hover:bg-blue-600 text-slate-300 hover:text-white border border-slate-700 transition"
-                        >
-                          {month.slice(0, 3)}
-                        </button>
-                      ))}
+                      <button
+                        onClick={() => {
+                          setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name });
+                          setFormPageMode('output');
+                        }}
+                        className="px-2.5 py-1 bg-blue-600/90 hover:bg-blue-600 text-white text-[11px] font-bold rounded-md transition flex items-center gap-1 cursor-pointer"
+                      >
+                        <Layers className="w-3 h-3" /> OUTPUT
+                      </button>
                     </div>
                   </div>
-                );
-              })}
+
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {monthList.map((month) => (
+                      <button
+                        key={month}
+                        onClick={() => handleMonthClick(biro.name, month)}
+                        disabled={isLoadingExcel}
+                        className="px-2.5 py-1 rounded text-xs bg-slate-800 hover:bg-blue-600 text-slate-300 hover:text-white border border-slate-700 transition cursor-pointer"
+                      >
+                        {month.slice(0, 3)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -860,7 +882,6 @@ const handleSubmitForm = async (e: React.FormEvent) => {
         {/* ================= LEVEL TERPISAH: FORM vs OUTPUT ================= */}
         {selectedFormBiro && (
           <div className="space-y-4">
-            {/* Header Ringkas */}
             <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-bold text-white">{selectedFormBiro.biroName}</h2>
@@ -874,7 +895,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                 <div className="bg-slate-900 p-1 rounded-lg border border-slate-700 flex gap-1">
                   <button
                     onClick={() => setFormPageMode('form')}
-                    className={`px-3 py-1 text-xs font-semibold rounded-md transition ${
+                    className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
                       formPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
                     }`}
                   >
@@ -882,7 +903,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                   </button>
                   <button
                     onClick={() => setFormPageMode('output')}
-                    className={`px-3 py-1 text-xs font-semibold rounded-md transition ${
+                    className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
                       formPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
                     }`}
                   >
@@ -896,7 +917,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                     setIsPlannerModalOpen(true);
                     setPinError(false);
                   }}
-                  className="px-2.5 py-1 bg-amber-600/90 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition"
+                  className="px-2.5 py-1 bg-amber-600/90 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <Lock className="w-3 h-3" /> Planner
                   {pendingTasksCount > 0 && (
@@ -913,36 +934,58 @@ const handleSubmitForm = async (e: React.FormEvent) => {
               <div className="bg-slate-800/50 border border-slate-700/70 rounded-xl p-5">
                 <form onSubmit={handleSubmitForm} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Nama */}
+                    {/* Nama Personil (Dropdown atau Input Teks jika belum ada di master) */}
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-slate-300 mb-1">Nama</label>
-                      <select
-                        value={formData.nama}
-                        onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
-                        required
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                      >
-                        <option value="">Pilih Nama...</option>
-                        {currentBiroMembers.map((nama, idx) => (
-                          <option key={idx} value={nama}>{nama}</option>
-                        ))}
-                      </select>
+                      {currentBiroMembers.length > 0 ? (
+                        <select
+                          value={formData.nama}
+                          onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
+                          required
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                        >
+                          <option value="">Pilih Nama...</option>
+                          {currentBiroMembers.map((nama, idx) => (
+                            <option key={idx} value={nama}>{nama}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={formData.nama}
+                          onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
+                          placeholder="Ketik Nama Personil..."
+                          required
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      )}
                     </div>
 
                     {/* Proyek */}
                     <div>
                       <label className="block text-xs font-medium text-slate-300 mb-1">Proyek</label>
-                      <select
-                        value={formData.kodeProyek}
-                        onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
-                        required
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                      >
-                        <option value="">Pilih Proyek...</option>
-                        {projectOptions.map((proj, idx) => (
-                          <option key={idx} value={proj}>{proj}</option>
-                        ))}
-                      </select>
+                      {projectOptions.length > 0 ? (
+                        <select
+                          value={formData.kodeProyek}
+                          onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
+                          required
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                        >
+                          <option value="">Pilih Proyek...</option>
+                          {projectOptions.map((proj, idx) => (
+                            <option key={idx} value={proj}>{proj}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={formData.kodeProyek}
+                          onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
+                          placeholder="Kode Proyek..."
+                          required
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      )}
                     </div>
 
                     {/* JO */}
@@ -962,17 +1005,28 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                     {/* Task Name */}
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-slate-300 mb-1">Task Name</label>
-                      <select
-                        value={formData.taskName}
-                        onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                        required
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                      >
-                        <option value="">Pilih Task...</option>
-                        {taskOptions.map((task, idx) => (
-                          <option key={idx} value={task}>{task}</option>
-                        ))}
-                      </select>
+                      {taskOptions.length > 0 ? (
+                        <select
+                          value={formData.taskName}
+                          onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                          required
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                        >
+                          <option value="">Pilih Task...</option>
+                          {taskOptions.map((task, idx) => (
+                            <option key={idx} value={task}>{task}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={formData.taskName}
+                          onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                          placeholder="Uraian Pekerjaan / Task Name..."
+                          required
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      )}
                     </div>
 
                     {/* Start Date */}
@@ -983,7 +1037,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                         value={formData.startDate}
                         onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
                         required
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
                       />
                     </div>
 
@@ -995,7 +1049,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                         value={formData.endDate}
                         onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
                         required
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
                       />
                     </div>
 
@@ -1017,13 +1071,13 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                     <button
                       type="button"
                       onClick={() => setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '' })}
-                      className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs rounded-lg transition"
+                      className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs rounded-lg transition cursor-pointer"
                     >
                       Reset
                     </button>
                     <button
                       type="submit"
-                      className="px-5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5"
+                      className="px-5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer"
                     >
                       <Send className="w-3.5 h-3.5" /> Simpan
                     </button>
@@ -1035,7 +1089,6 @@ const handleSubmitForm = async (e: React.FormEvent) => {
             {/* ================= 2. OUTPUT VIEW ================= */}
             {formPageMode === 'output' && (
               <div className="space-y-3">
-                {/* Control bar */}
                 <div className="flex items-center justify-between gap-3">
                   <div className="relative flex-1 max-w-xs">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
@@ -1055,19 +1108,19 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                         filteredAccordionData.forEach(g => { all[g.picName] = true; });
                         setExpandedCards(all);
                       }}
-                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700"
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700 cursor-pointer"
                     >
                       Buka
                     </button>
                     <button
                       onClick={() => setExpandedCards({})}
-                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700"
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700 cursor-pointer"
                     >
                       Tutup
                     </button>
                     <button
                       onClick={handleClearAllBiroData}
-                      className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded border border-rose-800/40"
+                      className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded border border-rose-800/40 cursor-pointer"
                       title="Reset Data"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
@@ -1075,7 +1128,6 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                   </div>
                 </div>
 
-                {/* Accordion List */}
                 {filteredAccordionData.length > 0 ? (
                   <div className="space-y-2">
                     {filteredAccordionData.map((person, idx) => {
@@ -1144,7 +1196,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                                           <td className="py-2 px-2 text-center">
                                             <button
                                               onClick={() => handleDeleteTask(task.id, selectedFormBiro.biroName)}
-                                              className="p-1 text-slate-500 hover:text-rose-400 rounded"
+                                              className="p-1 text-slate-500 hover:text-rose-400 rounded cursor-pointer"
                                             >
                                               <Trash2 className="w-3.5 h-3.5" />
                                             </button>
@@ -1183,7 +1235,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                 </span>
                 <button
                   onClick={() => setIsPlannerModalOpen(false)}
-                  className="p-1 text-slate-400 hover:text-white"
+                  className="p-1 text-slate-400 hover:text-white cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1211,7 +1263,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
 
                     <button
                       type="submit"
-                      className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-lg transition"
+                      className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-lg transition cursor-pointer"
                     >
                       Buka
                     </button>
@@ -1222,7 +1274,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                       <span>Daftar Pengajuan ({currentBiroSubmittedTasks.length})</span>
                       <button
                         onClick={() => setIsPlannerUnlocked(false)}
-                        className="text-[11px] underline hover:text-white"
+                        className="text-[11px] underline hover:text-white cursor-pointer"
                       >
                         Kunci
                       </button>
@@ -1261,7 +1313,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
                                 />
                                 <button
                                   onClick={() => handleSaveKodeJcForTask(task.id, selectedFormBiro!.biroName)}
-                                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center gap-1"
+                                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center gap-1 cursor-pointer"
                                 >
                                   <Check className="w-3 h-3" /> Simpan
                                 </button>
@@ -1290,7 +1342,7 @@ const handleSubmitForm = async (e: React.FormEvent) => {
               </div>
               <button
                 onClick={() => setSelectedBiroPage(null)}
-                className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded-lg"
+                className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded-lg cursor-pointer"
               >
                 Kembali
               </button>
