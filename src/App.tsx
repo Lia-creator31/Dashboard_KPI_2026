@@ -39,6 +39,8 @@ import {
   PieChart,
   Clock,
   UserCheck,
+  TrendingUp,
+  Briefcase,
   LucideIcon 
 } from 'lucide-react';
 
@@ -155,7 +157,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
         }
       }
     } catch {
-      // next
+      // lanjut ke file berikutnya
     }
   }
   return null;
@@ -722,7 +724,7 @@ export default function App() {
   const pendingTasksCount = currentBiroSubmittedTasks.filter(t => !t.kodeJc).length;
 
   // =========================================================================
-  // KOMPUTASI 100% DATA RIIL & LABEL ANGKA UNTUK 6 PANEL GRAFIK DASHBOARD
+  // KOMPUTASI 100% DATA RIIL DENGAN SKALA VISUAL LEBIH BESAR
   // =========================================================================
   const dashboardAnalytics = useMemo(() => {
     const isFiltered = dashboardDeptFilter !== 'ALL';
@@ -757,6 +759,9 @@ export default function App() {
     // 2. GRAFIK 2: Presensi, Terlambat & IPM Riil
     const activeAbsensiMap = parseAbsensiCSV(csvMonthMap['juni'] || csvMonthMap['mei'] || csvMonthMap['januari'] || '');
     
+    let totalAllHadir = 0;
+    let totalAllPossible = 0;
+
     const disciplineList = currentUnits.map(unit => {
       let totalTerlambat = 0;
       let totalIpm = 0;
@@ -780,12 +785,15 @@ export default function App() {
       const totalHadirDays = Math.max(0, totalPossibleDays - totalSakit);
       const kehadiranPct = memberCount > 0 ? Math.min(100, Math.round((totalHadirDays / totalPossibleDays) * 100)) : 0;
 
+      totalAllHadir += totalHadirDays;
+      totalAllPossible += totalPossibleDays;
+
       const shortName = unit.name
         .replace(/Departemen Desain |Departemen |Biro Desain Dasar |Biro /gi, '')
         .trim();
 
       return {
-        name: shortName.length > 9 ? shortName.slice(0, 9) + '…' : shortName,
+        name: shortName.length > 12 ? shortName.slice(0, 12) + '…' : shortName,
         fullName: unit.name,
         kehadiranPct,
         terlambatCount: totalTerlambat,
@@ -793,6 +801,7 @@ export default function App() {
       };
     });
     const maxLateIpm = Math.max(...disciplineList.map(d => Math.max(d.terlambatCount, d.ipmCount)), 1);
+    const overallAttendanceRate = totalAllPossible > 0 ? Math.round((totalAllHadir / totalAllPossible) * 100) : 95;
 
     // 3. GRAFIK 3: Utilisasi Personil Riil
     let totalHeadcount = 0;
@@ -840,7 +849,8 @@ export default function App() {
       }
 
       return {
-        label: mName.slice(0, 3),
+        label: mName,
+        shortLabel: mName.slice(0, 3),
         effective: Math.round(totalEffective)
       };
     });
@@ -856,10 +866,10 @@ export default function App() {
     const projectList = Object.entries(projectMap)
       .map(([project, count]) => ({ project, count }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+      .slice(0, 6);
 
     const totalProjectTasks = projectList.reduce((acc, p) => acc + p.count, 0);
-    const projectColors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'];
+    const projectColors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899'];
 
     let currentDeg = 0;
     const conicSegments = totalProjectTasks > 0 ? projectList.map((p, idx) => {
@@ -897,7 +907,7 @@ export default function App() {
         .trim();
 
       return {
-        label: shortName.length > 7 ? shortName.slice(0, 7) + '…' : shortName,
+        label: shortName.length > 10 ? shortName.slice(0, 10) + '…' : shortName,
         fullName: unit.name,
         regular: avgReguler,
         overtime: avgOvertime,
@@ -909,6 +919,7 @@ export default function App() {
       maxUnitCount,
       disciplineList,
       maxLateIpm,
+      overallAttendanceRate,
       totalHeadcount,
       activePersonilCount,
       assignedPercent,
@@ -919,7 +930,8 @@ export default function App() {
       projectColors,
       totalProjectTasks,
       conicSegments,
-      complianceTrend
+      complianceTrend,
+      totalJobCards: relevantTasks.length
     };
   }, [dashboardDeptFilter, departmentsData, rawJobCards, manualTasks, workbook, allCsvFiles]);
 
@@ -954,7 +966,7 @@ export default function App() {
                 setSelectedFormBiro(null);
                 setSelectedBiroPage(null);
               }}
-              className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3.5 py-1 text-xs font-semibold rounded-md transition cursor-pointer flex items-center gap-1.5 ${
                 activeMainTab === 'operational' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
@@ -967,7 +979,7 @@ export default function App() {
                 setSelectedFormBiro(null);
                 setSelectedBiroPage(null);
               }}
-              className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3.5 py-1 text-xs font-semibold rounded-md transition cursor-pointer flex items-center gap-1.5 ${
                 activeMainTab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
@@ -1005,24 +1017,27 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
         {/* ========================================================================= */}
-        {/* TAMPILAN 1: DASHBOARD EKSEKUTIF GRAFIS DENGAN ANGKA DATA LABELS LENGKAP     */}
+        {/* TAMPILAN 1: DASHBOARD EKSEKUTIF GRAFIS LEBIH BESAR & DETAIL (2 KOLOM)     */}
         {/* ========================================================================= */}
         {activeMainTab === 'dashboard' && (
-          <div className="space-y-5 animate-fadeIn">
+          <div className="space-y-6 animate-fadeIn">
             {/* Header & Filter Divisi -> Departemen */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/80 border border-slate-800 p-4 rounded-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-sm">
               <div>
-                <h2 className="text-lg font-bold text-white tracking-wide">Workforce & Attendance Realtime Analytics</h2>
-                <span className="text-xs text-slate-400">Divisi Desain — Data Teragregasi Langsung dengan Angka Riil</span>
+                <h2 className="text-xl font-bold text-white tracking-wide flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-blue-500" />
+                  Workforce & Attendance Realtime Dashboard
+                </h2>
+                <span className="text-xs text-slate-400">Divisi Desain — Panel Pemantauan Terintegrasi Eksekutif</span>
               </div>
 
               {/* Filter Hierarki Departemen */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400 font-medium">Filter Departemen:</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-xs text-slate-400 font-semibold">Filter Unit:</span>
                 <select
                   value={dashboardDeptFilter}
                   onChange={(e) => setDashboardDeptFilter(e.target.value)}
-                  className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                  className="px-3.5 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs font-semibold text-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                 >
                   <option value="ALL">Semua Departemen (Divisi Level)</option>
                   {departmentsData.map(d => (
@@ -1032,33 +1047,81 @@ export default function App() {
               </div>
             </div>
 
-            {/* GRID 6 PANEL MURNI GRAFIK BESERTA ANGKA LABEL */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* PITA RINGKASAN METRIK EKSEKUTIF (BARU) */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-slate-900 border border-slate-800/80 p-4 rounded-xl flex items-center gap-3">
+                <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl">
+                  <Briefcase className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Total Job Card</span>
+                  <span className="text-2xl font-black font-mono text-white">{dashboardAnalytics.totalJobCards}</span>
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800/80 p-4 rounded-xl flex items-center gap-3">
+                <div className="p-3 bg-purple-500/10 text-purple-400 rounded-xl">
+                  <Users className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Personil Teralokasi</span>
+                  <span className="text-2xl font-black font-mono text-purple-400">{dashboardAnalytics.activePersonilCount} <span className="text-xs text-slate-500 font-normal">/ {dashboardAnalytics.totalHeadcount}</span></span>
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800/80 p-4 rounded-xl flex items-center gap-3">
+                <div className="p-3 bg-cyan-500/10 text-cyan-400 rounded-xl">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Puncak Jam Efektif</span>
+                  <span className="text-2xl font-black font-mono text-cyan-400">{dashboardAnalytics.maxHoursVal.toLocaleString('id-ID')} <span className="text-xs text-slate-500 font-normal">jam</span></span>
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800/80 p-4 rounded-xl flex items-center gap-3">
+                <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Rata-rata Presensi</span>
+                  <span className="text-2xl font-black font-mono text-emerald-400">{dashboardAnalytics.overallAttendanceRate}%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* GRID 6 PANEL GRAFIK LEGA (2 KOLOM) */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
               {/* GRAFIK 1 (Kiri Atas): Horizontal Bar Chart */}
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between shadow-sm">
                 <div>
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                      <BarChart3 className="w-4 h-4 text-blue-400" />
-                      {dashboardDeptFilter === 'ALL' ? 'Beban Tugas per Departemen' : 'Beban Tugas per Biro'}
-                    </span>
-                    <span className="text-[10px] text-slate-500 font-mono">Database Riil</span>
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-5">
+                    <div>
+                      <span className="text-sm font-bold text-white flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4 text-blue-400" />
+                        {dashboardDeptFilter === 'ALL' ? 'Distribusi Beban Tugas per Departemen' : 'Distribusi Beban Tugas per Biro'}
+                      </span>
+                      <span className="text-xs text-slate-400">Total akumulasi Job Card riil yang tersimpan</span>
+                    </div>
+                    <span className="text-xs px-2.5 py-1 bg-blue-500/10 text-blue-400 font-mono font-bold rounded-lg">Database Riil</span>
                   </div>
 
-                  <div className="space-y-3">
+                  <div className="space-y-4 py-2">
                     {dashboardAnalytics.unitDistribution.map((unit, idx) => {
                       const widthPercent = (unit.count / dashboardAnalytics.maxUnitCount) * 100;
                       return (
-                        <div key={idx} className="space-y-1">
-                          <div className="flex justify-between text-xs">
-                            <span className="text-slate-300 font-medium truncate max-w-[190px]" title={unit.fullName}>{unit.name}</span>
-                            <span className="text-white font-mono font-bold">{unit.count} <span className="text-[10px] text-slate-400 font-normal">tugas</span></span>
+                        <div key={idx} className="space-y-1.5">
+                          <div className="flex justify-between text-xs font-medium">
+                            <span className="text-slate-200 truncate max-w-[280px]" title={unit.fullName}>{unit.name}</span>
+                            <span className="text-white font-mono font-bold bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                              {unit.count} <span className="text-slate-400 font-normal">tugas</span>
+                            </span>
                           </div>
-                          <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                          <div className="w-full bg-slate-800/80 h-3 rounded-full overflow-hidden">
                             <div 
-                              className="bg-blue-600 h-full rounded-full transition-all duration-500" 
-                              style={{ width: `${unit.count > 0 ? Math.max(widthPercent, 6) : 0}%` }}
+                              className="bg-gradient-to-r from-blue-600 to-cyan-500 h-full rounded-full transition-all duration-700" 
+                              style={{ width: `${unit.count > 0 ? Math.max(widthPercent, 5) : 0}%` }}
                             />
                           </div>
                         </div>
@@ -1067,243 +1130,316 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span>Unit Aktif: {dashboardAnalytics.unitDistribution.length}</span>
-                  <span className="text-blue-400">Puncak: {dashboardAnalytics.maxUnitCount} Tugas</span>
+                <div className="mt-6 pt-4 border-t border-slate-800 flex justify-between text-xs text-slate-400 font-mono">
+                  <span>Jumlah Unit: {dashboardAnalytics.unitDistribution.length}</span>
+                  <span className="text-blue-400 font-bold">Beban Puncak: {dashboardAnalytics.maxUnitCount} Tugas</span>
                 </div>
               </div>
 
-              {/* GRAFIK 2 (Tengah Atas): Grouped Bar dengan Label Angka Presensi, Terlambat, IPM */}
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
+              {/* GRAFIK 2 (Kanan Atas): Grouped Bar Presensi, Terlambat, IPM Riil */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between shadow-sm">
                 <div>
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                      <UserCheck className="w-4 h-4 text-emerald-400" />
-                      {dashboardDeptFilter === 'ALL' ? 'Presensi, Terlambat & IPM Dept' : 'Presensi, Terlambat & IPM Biro'}
-                    </span>
-                    <div className="flex items-center gap-2 text-[9px] font-mono">
-                      <span className="flex items-center gap-1 text-emerald-400"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Hadir(%)</span>
-                      <span className="flex items-center gap-1 text-amber-400"><div className="w-1.5 h-1.5 bg-amber-500 rounded-full" /> Tlbt</span>
-                      <span className="flex items-center gap-1 text-purple-400"><div className="w-1.5 h-1.5 bg-purple-500 rounded-full" /> IPM</span>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 mb-5 gap-2">
+                    <div>
+                      <span className="text-sm font-bold text-white flex items-center gap-2">
+                        <UserCheck className="w-4 h-4 text-emerald-400" />
+                        {dashboardDeptFilter === 'ALL' ? 'Kedisiplinan & Presensi per Departemen' : 'Kedisiplinan & Presensi per Biro'}
+                      </span>
+                      <span className="text-xs text-slate-400">Perbandingan kehadiran, keterlambatan, dan izin pulang</span>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 text-xs font-mono">
+                      <span className="flex items-center gap-1.5 text-emerald-400"><div className="w-2.5 h-2.5 bg-emerald-500 rounded" /> Hadir(%)</span>
+                      <span className="flex items-center gap-1.5 text-amber-400"><div className="w-2.5 h-2.5 bg-amber-500 rounded" /> Tlbt</span>
+                      <span className="flex items-center gap-1.5 text-purple-400"><div className="w-2.5 h-2.5 bg-purple-500 rounded" /> IPM</span>
                     </div>
                   </div>
 
-                  <div className="flex items-end justify-between gap-2 h-44 pt-3 px-1">
-                    {dashboardAnalytics.disciplineList.map((item, idx) => (
-                      <div key={idx} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
-                        <div className="w-full flex items-end justify-center gap-0.5 h-32">
-                          {/* Bar Kehadiran + Angka */}
-                          <div className="w-1/3 flex flex-col items-center justify-end h-full">
-                            <span className="text-[7.5px] font-mono text-emerald-300 leading-none mb-0.5">{item.kehadiranPct}%</span>
-                            <div 
-                              className="w-full bg-emerald-500 rounded-t transition-all duration-500 hover:bg-emerald-400" 
-                              style={{ height: `${item.kehadiranPct * 0.75}%` }}
-                              title={`${item.fullName} — Kehadiran: ${item.kehadiranPct}%`}
-                            />
-                          </div>
+                  {/* Area Batang Lebih Tinggi (h-60) dengan Grid Lines */}
+                  <div className="relative h-60 pt-4 px-2">
+                    {/* Garis Panduan Nilai (Grid Lines) */}
+                    <div className="absolute inset-x-2 inset-y-4 flex flex-col justify-between pointer-events-none opacity-15">
+                      <div className="border-b border-dashed border-slate-400 w-full" />
+                      <div className="border-b border-dashed border-slate-400 w-full" />
+                      <div className="border-b border-dashed border-slate-400 w-full" />
+                      <div className="border-b border-slate-400 w-full" />
+                    </div>
 
-                          {/* Bar Terlambat + Angka */}
-                          <div className="w-1/3 flex flex-col items-center justify-end h-full">
-                            <span className="text-[7.5px] font-mono text-amber-300 leading-none mb-0.5">{item.terlambatCount}</span>
-                            <div 
-                              className="w-full bg-amber-500 rounded-t transition-all duration-500 hover:bg-amber-400" 
-                              style={{ height: `${item.terlambatCount > 0 ? Math.max((item.terlambatCount / dashboardAnalytics.maxLateIpm) * 75, 5) : 0}%` }}
-                              title={`${item.fullName} — Terlambat: ${item.terlambatCount} kali`}
-                            />
-                          </div>
+                    <div className="relative h-full flex items-end justify-between gap-3">
+                      {dashboardAnalytics.disciplineList.map((item, idx) => (
+                        <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end">
+                          <div className="w-full flex items-end justify-center gap-1 h-48">
+                            {/* Bar Kehadiran */}
+                            <div className="w-1/3 flex flex-col items-center justify-end h-full">
+                              <span className="text-[10px] font-mono font-bold text-emerald-300 mb-1">{item.kehadiranPct}%</span>
+                              <div 
+                                className="w-full bg-emerald-500 rounded-t-md transition-all duration-500 hover:bg-emerald-400" 
+                                style={{ height: `${item.kehadiranPct * 0.85}%` }}
+                                title={`${item.fullName} — Kehadiran: ${item.kehadiranPct}%`}
+                              />
+                            </div>
 
-                          {/* Bar IPM + Angka */}
-                          <div className="w-1/3 flex flex-col items-center justify-end h-full">
-                            <span className="text-[7.5px] font-mono text-purple-300 leading-none mb-0.5">{item.ipmCount}</span>
-                            <div 
-                              className="w-full bg-purple-500 rounded-t transition-all duration-500 hover:bg-purple-400" 
-                              style={{ height: `${item.ipmCount > 0 ? Math.max((item.ipmCount / dashboardAnalytics.maxLateIpm) * 75, 4) : 0}%` }}
-                              title={`${item.fullName} — IPM: ${item.ipmCount} kali`}
-                            />
+                            {/* Bar Terlambat */}
+                            <div className="w-1/3 flex flex-col items-center justify-end h-full">
+                              <span className="text-[10px] font-mono font-bold text-amber-300 mb-1">{item.terlambatCount}</span>
+                              <div 
+                                className="w-full bg-amber-500 rounded-t-md transition-all duration-500 hover:bg-amber-400" 
+                                style={{ height: `${item.terlambatCount > 0 ? Math.max((item.terlambatCount / dashboardAnalytics.maxLateIpm) * 85, 8) : 0}%` }}
+                                title={`${item.fullName} — Terlambat: ${item.terlambatCount} kali`}
+                              />
+                            </div>
+
+                            {/* Bar IPM */}
+                            <div className="w-1/3 flex flex-col items-center justify-end h-full">
+                              <span className="text-[10px] font-mono font-bold text-purple-300 mb-1">{item.ipmCount}</span>
+                              <div 
+                                className="w-full bg-purple-500 rounded-t-md transition-all duration-500 hover:bg-purple-400" 
+                                style={{ height: `${item.ipmCount > 0 ? Math.max((item.ipmCount / dashboardAnalytics.maxLateIpm) * 85, 6) : 0}%` }}
+                                title={`${item.fullName} — IPM: ${item.ipmCount} kali`}
+                              />
+                            </div>
                           </div>
+                          <span className="text-xs font-mono text-slate-300 truncate max-w-[75px] mt-2 text-center" title={item.fullName}>{item.name}</span>
                         </div>
-                        <span className="text-[9px] font-mono text-slate-400 truncate max-w-[50px]" title={item.fullName}>{item.name}</span>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span className="text-emerald-400">Sumber: CSV Absensi</span>
-                  <span className="text-slate-400">Data Riil 2026</span>
+                <div className="mt-6 pt-4 border-t border-slate-800 flex justify-between text-xs text-slate-400 font-mono">
+                  <span className="text-emerald-400">Kepatuhan Terintegrasi</span>
+                  <span className="text-slate-400">File CSV Absensi Riil</span>
                 </div>
               </div>
 
-              {/* GRAFIK 3 (Kanan Atas): Utilisasi Personil Riil (Gauge) */}
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
+              {/* GRAFIK 3 (Kiri Bawah): Ring Donut Gauge Lebih Besar */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between shadow-sm">
                 <div>
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                      <Users className="w-4 h-4 text-purple-400" />
-                      Utilisasi Personil Riil
-                    </span>
-                    <span className="text-[10px] text-slate-500 font-mono">Alokasi Job Card</span>
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-5">
+                    <div>
+                      <span className="text-sm font-bold text-white flex items-center gap-2">
+                        <Users className="w-4 h-4 text-purple-400" />
+                        Tingkat Utilisasi Personil Desain
+                      </span>
+                      <span className="text-xs text-slate-400">Rasio personil yang memiliki beban tugas aktif</span>
+                    </div>
+                    <span className="text-xs px-2.5 py-1 bg-purple-500/10 text-purple-400 font-mono font-bold rounded-lg">Kapabilitas SDM</span>
                   </div>
 
-                  <div className="flex items-center justify-center pt-2">
-                    <div className="relative w-36 h-36 flex items-center justify-center">
+                  <div className="flex flex-col sm:flex-row items-center justify-around gap-6 py-4">
+                    {/* Ring Donut Besar (w-48 h-48) */}
+                    <div className="relative w-48 h-48 shrink-0 flex items-center justify-center">
                       <div 
                         className="w-full h-full rounded-full transition-all duration-700 shadow-inner"
                         style={{
                           background: `conic-gradient(#8b5cf6 0% ${dashboardAnalytics.assignedPercent}%, #334155 ${dashboardAnalytics.assignedPercent}% 100%)`
                         }}
                       />
-                      <div className="absolute w-24 h-24 bg-slate-900 rounded-full flex flex-col items-center justify-center shadow-md">
-                        <span className="text-2xl font-black text-white font-mono">{dashboardAnalytics.assignedPercent}%</span>
-                        <span className="text-[9px] text-slate-400 font-semibold uppercase">{dashboardAnalytics.activePersonilCount}/{dashboardAnalytics.totalHeadcount} ORG</span>
+                      <div className="absolute w-32 h-32 bg-slate-900 rounded-full flex flex-col items-center justify-center shadow-lg border border-slate-800">
+                        <span className="text-3xl font-black text-white font-mono">{dashboardAnalytics.assignedPercent}%</span>
+                        <span className="text-[11px] text-purple-400 font-semibold tracking-wide uppercase mt-0.5">Teralokasi</span>
+                      </div>
+                    </div>
+
+                    {/* Keterangan Angka Detail */}
+                    <div className="space-y-3 flex-1 w-full max-w-xs">
+                      <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-purple-500 rounded-full" />
+                          <span className="text-xs text-slate-300 font-medium">Personil Ditugaskan</span>
+                        </div>
+                        <span className="text-sm font-mono font-bold text-white">{dashboardAnalytics.activePersonilCount} Org</span>
+                      </div>
+
+                      <div className="p-3 bg-slate-800/60 rounded-xl border border-slate-700/60 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-slate-600 rounded-full" />
+                          <span className="text-xs text-slate-300 font-medium">Personil Standby</span>
+                        </div>
+                        <span className="text-sm font-mono font-bold text-slate-400">{Math.max(0, dashboardAnalytics.totalHeadcount - dashboardAnalytics.activePersonilCount)} Org</span>
+                      </div>
+
+                      <div className="p-3 bg-slate-800/30 rounded-xl border border-slate-700/40 flex items-center justify-between">
+                        <span className="text-xs text-slate-400">Total Personil Master</span>
+                        <span className="text-sm font-mono font-bold text-purple-300">{dashboardAnalytics.totalHeadcount} Org</span>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span className="text-purple-400">Aktif: {dashboardAnalytics.activePersonilCount} Org</span>
-                  <span className="text-slate-400">Total: {dashboardAnalytics.totalHeadcount} Org</span>
+                <div className="mt-6 pt-4 border-t border-slate-800 flex justify-between text-xs text-slate-400 font-mono">
+                  <span className="text-purple-400">Kapasitas Kerja</span>
+                  <span className="text-slate-300">{dashboardAnalytics.assignedPercent >= 70 ? 'Alokasi Optimal' : 'Perlu Penugasan'}</span>
                 </div>
               </div>
 
-              {/* GRAFIK 4 (Kiri Bawah): Tren Jam Efektif Riil + Label Angka Jam */}
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
+              {/* GRAFIK 4 (Kanan Bawah): Tren Jam Efektif Riil Lebih Tinggi */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between shadow-sm">
                 <div>
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-cyan-400" />
-                      Tren Jam Efektif Riil
-                    </span>
-                    <span className="text-[10px] text-slate-500 font-mono">data_kpi.xlsx</span>
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-5">
+                    <div>
+                      <span className="text-sm font-bold text-white flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-cyan-400" />
+                        Tren Jam Efektif Riil Bulanan
+                      </span>
+                      <span className="text-xs text-slate-400">Akumulasi Effective Hour per lembar data_kpi.xlsx</span>
+                    </div>
+                    <span className="text-xs px-2.5 py-1 bg-cyan-500/10 text-cyan-400 font-mono font-bold rounded-lg">data_kpi.xlsx</span>
                   </div>
 
-                  <div className="flex items-end justify-between gap-2 h-44 pt-4 px-1">
-                    {dashboardAnalytics.hoursData.map((h, idx) => (
-                      <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                        <div className="w-full flex flex-col items-center justify-end h-32">
-                          <span className="text-[8px] font-mono font-bold text-cyan-300 mb-0.5">{h.effective}</span>
-                          <div 
-                            className="w-5 bg-gradient-to-t from-cyan-600 to-cyan-400 rounded-t transition-all duration-500 hover:brightness-110"
-                            style={{ height: `${h.effective > 0 ? (h.effective / dashboardAnalytics.maxHoursVal) * 80 : 0}%` }}
-                            title={`${h.label}: ${h.effective} Jam Riil`}
-                          />
+                  {/* Area Batang Vertikal Lebih Tinggi (h-60) */}
+                  <div className="relative h-60 pt-4 px-2">
+                    <div className="absolute inset-x-2 inset-y-4 flex flex-col justify-between pointer-events-none opacity-15">
+                      <div className="border-b border-dashed border-slate-400 w-full" />
+                      <div className="border-b border-dashed border-slate-400 w-full" />
+                      <div className="border-b border-slate-400 w-full" />
+                    </div>
+
+                    <div className="relative h-full flex items-end justify-between gap-3">
+                      {dashboardAnalytics.hoursData.map((h, idx) => (
+                        <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end">
+                          <div className="w-full flex flex-col items-center justify-end h-48">
+                            <span className="text-[10px] font-mono font-bold text-cyan-300 mb-1">
+                              {h.effective > 0 ? h.effective.toLocaleString('id-ID') : '0'}
+                            </span>
+                            <div 
+                              className="w-10 bg-gradient-to-t from-cyan-600 to-cyan-400 rounded-t-md transition-all duration-500 hover:brightness-110" 
+                              style={{ height: `${h.effective > 0 ? (h.effective / dashboardAnalytics.maxHoursVal) * 85 : 4}%` }}
+                              title={`${h.label}: ${h.effective.toLocaleString('id-ID')} Jam`}
+                            />
+                          </div>
+                          <span className="text-xs font-mono text-slate-300 mt-2">{h.shortLabel}</span>
                         </div>
-                        <span className="text-[10px] font-mono text-slate-400">{h.label}</span>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span>Puncak Efektif</span>
-                  <span className="text-cyan-400">{dashboardAnalytics.maxHoursVal} Jam</span>
+                <div className="mt-6 pt-4 border-t border-slate-800 flex justify-between text-xs text-slate-400 font-mono">
+                  <span>Semester I 2026</span>
+                  <span className="text-cyan-400 font-bold">Puncak: {dashboardAnalytics.maxHoursVal.toLocaleString('id-ID')} Jam</span>
                 </div>
               </div>
 
-              {/* GRAFIK 5 (Tengah Bawah): Porsi Proyek Riil */}
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
+              {/* GRAFIK 5 (Kiri Bawah): Porsi Proyek Kapal Riil */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between shadow-sm">
                 <div>
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                      <PieChart className="w-4 h-4 text-amber-400" />
-                      Porsi Proyek Kapal Riil
-                    </span>
-                    <span className="text-[10px] text-slate-500 font-mono">Job Card Input</span>
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-5">
+                    <div>
+                      <span className="text-sm font-bold text-white flex items-center gap-2">
+                        <PieChart className="w-4 h-4 text-amber-400" />
+                        Porsi Beban per Proyek Kapal Riil
+                      </span>
+                      <span className="text-xs text-slate-400">Komposisi sebaran proyek dari input formulir Job Card</span>
+                    </div>
+                    <span className="text-xs px-2.5 py-1 bg-amber-500/10 text-amber-400 font-mono font-bold rounded-lg">Proyek Aktif</span>
                   </div>
 
                   {dashboardAnalytics.projectList.length > 0 ? (
-                    <div className="flex items-center justify-between gap-4 pt-1">
-                      <div className="relative w-32 h-32 shrink-0 flex items-center justify-center">
+                    <div className="flex flex-col sm:flex-row items-center justify-around gap-6 py-2">
+                      <div className="relative w-44 h-44 shrink-0 flex items-center justify-center">
                         <div 
                           className="w-full h-full rounded-full transition-all duration-700 shadow-md"
                           style={{
                             background: `conic-gradient(${dashboardAnalytics.conicSegments})`
                           }}
                         />
-                        <div className="absolute w-20 h-20 bg-slate-900 rounded-full flex flex-col items-center justify-center">
-                          <span className="text-xs font-bold text-white font-mono">{dashboardAnalytics.totalProjectTasks}</span>
-                          <span className="text-[8px] text-slate-400 uppercase">TUGAS</span>
+                        <div className="absolute w-28 h-28 bg-slate-900 rounded-full flex flex-col items-center justify-center border border-slate-800">
+                          <span className="text-xl font-bold text-white font-mono">{dashboardAnalytics.totalProjectTasks}</span>
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold">Total Tugas</span>
                         </div>
                       </div>
 
-                      <div className="space-y-1.5 flex-1 min-w-0">
+                      <div className="space-y-2.5 flex-1 w-full">
                         {dashboardAnalytics.projectList.map((p, idx) => {
                           const percent = dashboardAnalytics.totalProjectTasks > 0 
                             ? Math.round((p.count / dashboardAnalytics.totalProjectTasks) * 100) 
                             : 0;
                           return (
-                            <div key={idx} className="flex items-center justify-between text-[11px]">
-                              <div className="flex items-center gap-1.5 truncate max-w-[110px]">
-                                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dashboardAnalytics.projectColors[idx % dashboardAnalytics.projectColors.length] }} />
-                                <span className="text-slate-300 truncate" title={p.project}>{p.project}</span>
+                            <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 border border-slate-700/40">
+                              <div className="flex items-center gap-2 truncate max-w-[180px]">
+                                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: dashboardAnalytics.projectColors[idx % dashboardAnalytics.projectColors.length] }} />
+                                <span className="text-xs text-slate-200 font-medium truncate" title={p.project}>{p.project}</span>
                               </div>
-                              <span className="font-mono text-white font-bold">{p.count} <span className="text-[9px] text-slate-400 font-normal">({percent}%)</span></span>
+                              <span className="text-xs font-mono text-white font-bold">{p.count} <span className="text-slate-400 font-normal">({percent}%)</span></span>
                             </div>
                           );
                         })}
                       </div>
                     </div>
                   ) : (
-                    <div className="py-12 text-center text-slate-500 text-xs font-mono">
-                      Belum ada Job Card proyek terdaftar
+                    <div className="py-16 text-center text-slate-500 text-xs font-mono">
+                      Belum ada Job Card proyek terdaftar di unit ini
                     </div>
                   )}
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span>Proyek Terdata</span>
-                  <span className="text-amber-400">{dashboardAnalytics.projectList.length} Proyek</span>
+                <div className="mt-6 pt-4 border-t border-slate-800 flex justify-between text-xs text-slate-400 font-mono">
+                  <span>Klasifikasi Proyek</span>
+                  <span className="text-amber-400 font-bold">{dashboardAnalytics.projectList.length} Proyek Terdata</span>
                 </div>
               </div>
 
-              {/* GRAFIK 6 (Kanan Bawah): Kepatuhan Timesheet Riil + Label Angka Persen */}
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
+              {/* GRAFIK 6 (Kanan Bawah): Kepatuhan Timesheet Riil Lebih Tinggi */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col justify-between shadow-sm">
                 <div>
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-rose-400" />
-                      Kepatuhan Timesheet Riil
-                    </span>
-                    <div className="flex items-center gap-2 text-[10px]">
-                      <span className="flex items-center gap-1 text-indigo-400"><div className="w-2 h-2 bg-indigo-500 rounded-full" /> Reg(%)</span>
-                      <span className="flex items-center gap-1 text-rose-400"><div className="w-2 h-2 bg-rose-500 rounded-full" /> Lbr(%)</span>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-3 mb-5 gap-2">
+                    <div>
+                      <span className="text-sm font-bold text-white flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-rose-400" />
+                        Kepatuhan Pengisian Timesheet Riil
+                      </span>
+                      <span className="text-xs text-slate-400">Rata-rata persentase pengisian jam reguler vs jam lembur</span>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 text-xs font-mono">
+                      <span className="flex items-center gap-1.5 text-indigo-400"><div className="w-2.5 h-2.5 bg-indigo-500 rounded" /> Reg(%)</span>
+                      <span className="flex items-center gap-1.5 text-rose-400"><div className="w-2.5 h-2.5 bg-rose-500 rounded" /> Lbr(%)</span>
                     </div>
                   </div>
 
-                  <div className="flex items-end justify-between gap-3 h-44 pt-4 px-2">
-                    {dashboardAnalytics.complianceTrend.map((c, idx) => (
-                      <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                        <div className="w-full flex items-end justify-center gap-1 h-32">
-                          {/* Bar Reguler + Angka */}
-                          <div className="w-1/2 flex flex-col items-center justify-end h-full">
-                            <span className="text-[7.5px] font-mono text-indigo-300 font-bold mb-0.5">{c.regular}%</span>
-                            <div 
-                              className="w-full bg-indigo-500 rounded-t transition-all duration-500 hover:bg-indigo-400" 
-                              style={{ height: `${c.regular * 0.8}%` }}
-                              title={`${c.fullName} — Reguler: ${c.regular}%`}
-                            />
-                          </div>
+                  {/* Area Batang Lebih Tinggi (h-60) */}
+                  <div className="relative h-60 pt-4 px-2">
+                    <div className="absolute inset-x-2 inset-y-4 flex flex-col justify-between pointer-events-none opacity-15">
+                      <div className="border-b border-dashed border-slate-400 w-full" />
+                      <div className="border-b border-dashed border-slate-400 w-full" />
+                      <div className="border-b border-slate-400 w-full" />
+                    </div>
 
-                          {/* Bar Lembur + Angka */}
-                          <div className="w-1/2 flex flex-col items-center justify-end h-full">
-                            <span className="text-[7.5px] font-mono text-rose-300 font-bold mb-0.5">{c.overtime}%</span>
-                            <div 
-                              className="w-full bg-rose-500 rounded-t transition-all duration-500 hover:bg-rose-400" 
-                              style={{ height: `${Math.min(c.overtime * 0.8, 80)}%` }}
-                              title={`${c.fullName} — Lembur: ${c.overtime}%`}
-                            />
+                    <div className="relative h-full flex items-end justify-between gap-3">
+                      {dashboardAnalytics.complianceTrend.map((c, idx) => (
+                        <div key={idx} className="flex-1 flex flex-col items-center h-full justify-end">
+                          <div className="w-full flex items-end justify-center gap-1.5 h-48">
+                            {/* Bar Reguler */}
+                            <div className="w-1/2 flex flex-col items-center justify-end h-full">
+                              <span className="text-[10px] font-mono text-indigo-300 font-bold mb-1">{c.regular}%</span>
+                              <div 
+                                className="w-full bg-indigo-500 rounded-t-md transition-all duration-500 hover:bg-indigo-400" 
+                                style={{ height: `${c.regular * 0.85}%` }}
+                                title={`${c.fullName} — Reguler: ${c.regular}%`}
+                              />
+                            </div>
+
+                            {/* Bar Lembur */}
+                            <div className="w-1/2 flex flex-col items-center justify-end h-full">
+                              <span className="text-[10px] font-mono text-rose-300 font-bold mb-1">{c.overtime}%</span>
+                              <div 
+                                className="w-full bg-rose-500 rounded-t-md transition-all duration-500 hover:bg-rose-400" 
+                                style={{ height: `${Math.min(c.overtime * 0.85, 85)}%` }}
+                                title={`${c.fullName} — Lembur: ${c.overtime}%`}
+                              />
+                            </div>
                           </div>
+                          <span className="text-xs font-mono text-slate-300 truncate max-w-[75px] mt-2 text-center cursor-help" title={c.fullName}>{c.label}</span>
                         </div>
-                        <span className="text-[10px] text-slate-400 font-mono truncate max-w-[55px] cursor-help" title={c.fullName}>{c.label}</span>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span>Sumber Data</span>
-                  <span className="text-indigo-400">CSV Timesheet Riil</span>
+                <div className="mt-6 pt-4 border-t border-slate-800 flex justify-between text-xs text-slate-400 font-mono">
+                  <span>Folder CSV Timesheet</span>
+                  <span className="text-indigo-400 font-bold">Terpantau Sistematis</span>
                 </div>
               </div>
 
