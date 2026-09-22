@@ -155,7 +155,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
         }
       }
     } catch {
-      // lanjut ke file berikutnya
+      // next
     }
   }
   return null;
@@ -722,23 +722,21 @@ export default function App() {
   const pendingTasksCount = currentBiroSubmittedTasks.filter(t => !t.kodeJc).length;
 
   // =========================================================================
-  // KOMPUTASI 100% DATA RIIL UNTUK 6 PANEL GRAFIK DASHBOARD
+  // KOMPUTASI 100% DATA RIIL & LABEL ANGKA UNTUK 6 PANEL GRAFIK DASHBOARD
   // =========================================================================
   const dashboardAnalytics = useMemo(() => {
     const isFiltered = dashboardDeptFilter !== 'ALL';
     const targetDept = departmentsData.find(d => d.id === dashboardDeptFilter);
 
-    // Filter baris Job Card riil dari Supabase sesuai cakupan (Divisi vs Departemen)
     const relevantTasks = isFiltered && targetDept
       ? rawJobCards.filter(r => targetDept.biros.some(b => isBiroMatch(b.name, r.biro_name)))
       : rawJobCards;
 
-    // Unit cakupan saat ini: seluruh departemen atau seluruh biro dalam departemen terpilih
     const currentUnits = !isFiltered 
       ? departmentsData.map(d => ({ name: d.name, biros: d.biros }))
       : (targetDept ? targetDept.biros.map(b => ({ name: b.name, biros: [b] })) : []);
 
-    // 1. GRAFIK 1: Beban Tugas Riil (Job Card per Departemen / Biro)
+    // 1. GRAFIK 1: Beban Tugas Riil
     const unitDistribution = currentUnits.map(unit => {
       let count = 0;
       unit.biros.forEach(b => {
@@ -756,7 +754,7 @@ export default function App() {
     });
     const maxUnitCount = Math.max(...unitDistribution.map(u => u.count), 1);
 
-    // 2. GRAFIK 2: Presensi, Terlambat & IPM Riil (dari CSV Absensi Terkini)
+    // 2. GRAFIK 2: Presensi, Terlambat & IPM Riil
     const activeAbsensiMap = parseAbsensiCSV(csvMonthMap['juni'] || csvMonthMap['mei'] || csvMonthMap['januari'] || '');
     
     const disciplineList = currentUnits.map(unit => {
@@ -778,7 +776,6 @@ export default function App() {
         });
       });
 
-      // Kalkulasi tingkat kehadiran riil (Hari kerja standar = 21 hari/bulan/personil)
       const totalPossibleDays = Math.max(memberCount * 21, 1);
       const totalHadirDays = Math.max(0, totalPossibleDays - totalSakit);
       const kehadiranPct = memberCount > 0 ? Math.min(100, Math.round((totalHadirDays / totalPossibleDays) * 100)) : 0;
@@ -797,7 +794,7 @@ export default function App() {
     });
     const maxLateIpm = Math.max(...disciplineList.map(d => Math.max(d.terlambatCount, d.ipmCount)), 1);
 
-    // 3. GRAFIK 3: Rasio Utilisasi Personil Riil (Personil Punya Tugas vs Total)
+    // 3. GRAFIK 3: Utilisasi Personil Riil
     let totalHeadcount = 0;
     const allUnitMembers: string[] = [];
     currentUnits.forEach(u => u.biros.forEach(b => {
@@ -806,7 +803,6 @@ export default function App() {
       allUnitMembers.push(...mems);
     }));
 
-    // Hitung berapa personil unik yang tercatat memegang tugas di Supabase
     const activeAssignedSet = new Set<string>();
     relevantTasks.forEach(t => {
       const picName = (t.pic || t.personil_name || '').trim();
@@ -817,7 +813,7 @@ export default function App() {
     const assignedPercent = totalHeadcount > 0 ? Math.min(100, Math.round((activePersonilCount / totalHeadcount) * 100)) : 0;
     const idlePercent = 100 - assignedPercent;
 
-    // 4. GRAFIK 4: Tren Jam Efektif Riil per Bulan (Diagregasikan dari data_kpi.xlsx)
+    // 4. GRAFIK 4: Tren Jam Efektif Riil per Bulan
     const hoursData = monthList.map(mName => {
       const mPrefix = mName.toLowerCase().slice(0, 3);
       let totalEffective = 0;
@@ -835,7 +831,6 @@ export default function App() {
             const biroCol = String(row[7] || '').trim();
             const effCol = parseValToNumber(row[10]);
 
-            // Filter sesuai departemen/biro yang aktif
             const isMatch = currentUnits.some(u => u.biros.some(b => isBiroMatch(biroCol, b.name)));
             if (isMatch) {
               totalEffective += effCol;
@@ -851,7 +846,7 @@ export default function App() {
     });
     const maxHoursVal = Math.max(...hoursData.map(h => h.effective), 1);
 
-    // 5. GRAFIK 5: Porsi Proyek Riil (Job Card per Proyek di Supabase)
+    // 5. GRAFIK 5: Porsi Proyek Riil
     const projectMap: Record<string, number> = {};
     relevantTasks.forEach(t => {
       const p = (t.project || 'Umum/Internal').trim();
@@ -875,7 +870,7 @@ export default function App() {
       return `${projectColors[idx % projectColors.length]} ${start}deg ${end}deg`;
     }).join(', ') : '#334155 0deg 360deg';
 
-    // 6. GRAFIK 6: Kepatuhan Timesheet Riil (Reguler vs Lembur dari Folder CSV Timesheet)
+    // 6. GRAFIK 6: Kepatuhan Timesheet Riil
     const activeTimesheetMap = parseTimesheetFolder('juni');
     
     const complianceTrend = currentUnits.map(unit => {
@@ -951,7 +946,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Switcher Tab Utama: Operasional vs Dashboard */}
+          {/* Switcher Tab Utama */}
           <div className="flex items-center gap-1 bg-slate-800 p-1 rounded-lg border border-slate-700">
             <button
               onClick={() => {
@@ -1010,7 +1005,7 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
         {/* ========================================================================= */}
-        {/* TAMPILAN 1: DASHBOARD EKSEKUTIF GRAFIS (100% SUMBER DATA RIIL)             */}
+        {/* TAMPILAN 1: DASHBOARD EKSEKUTIF GRAFIS DENGAN ANGKA DATA LABELS LENGKAP     */}
         {/* ========================================================================= */}
         {activeMainTab === 'dashboard' && (
           <div className="space-y-5 animate-fadeIn">
@@ -1018,7 +1013,7 @@ export default function App() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/80 border border-slate-800 p-4 rounded-xl">
               <div>
                 <h2 className="text-lg font-bold text-white tracking-wide">Workforce & Attendance Realtime Analytics</h2>
-                <span className="text-xs text-slate-400">Divisi Desain — Data Teragregasi Langsung dari Database, Excel, dan CSV</span>
+                <span className="text-xs text-slate-400">Divisi Desain — Data Teragregasi Langsung dengan Angka Riil</span>
               </div>
 
               {/* Filter Hierarki Departemen */}
@@ -1037,10 +1032,10 @@ export default function App() {
               </div>
             </div>
 
-            {/* GRID 6 PANEL MURNI GRAFIK RIIL */}
+            {/* GRID 6 PANEL MURNI GRAFIK BESERTA ANGKA LABEL */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
-              {/* GRAFIK 1 (Kiri Atas): Horizontal Bar Chart (Beban Job Card Riil) */}
+              {/* GRAFIK 1 (Kiri Atas): Horizontal Bar Chart */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
                 <div>
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
@@ -1058,7 +1053,7 @@ export default function App() {
                         <div key={idx} className="space-y-1">
                           <div className="flex justify-between text-xs">
                             <span className="text-slate-300 font-medium truncate max-w-[190px]" title={unit.fullName}>{unit.name}</span>
-                            <span className="text-white font-mono font-bold">{unit.count}</span>
+                            <span className="text-white font-mono font-bold">{unit.count} <span className="text-[10px] text-slate-400 font-normal">tugas</span></span>
                           </div>
                           <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                             <div 
@@ -1078,13 +1073,13 @@ export default function App() {
                 </div>
               </div>
 
-              {/* GRAFIK 2 (Tengah Atas): Grouped Bar Presensi, Terlambat, IPM Riil */}
+              {/* GRAFIK 2 (Tengah Atas): Grouped Bar dengan Label Angka Presensi, Terlambat, IPM */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
                 <div>
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                       <UserCheck className="w-4 h-4 text-emerald-400" />
-                      {dashboardDeptFilter === 'ALL' ? 'Kehadiran, Terlambat & IPM Dept' : 'Kehadiran, Terlambat & IPM Biro'}
+                      {dashboardDeptFilter === 'ALL' ? 'Presensi, Terlambat & IPM Dept' : 'Presensi, Terlambat & IPM Biro'}
                     </span>
                     <div className="flex items-center gap-2 text-[9px] font-mono">
                       <span className="flex items-center gap-1 text-emerald-400"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Hadir(%)</span>
@@ -1097,21 +1092,35 @@ export default function App() {
                     {dashboardAnalytics.disciplineList.map((item, idx) => (
                       <div key={idx} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
                         <div className="w-full flex items-end justify-center gap-0.5 h-32">
-                          <div 
-                            className="w-1/3 bg-emerald-500 rounded-t transition-all duration-500 hover:bg-emerald-400" 
-                            style={{ height: `${item.kehadiranPct * 0.9}%` }}
-                            title={`${item.fullName} — Kehadiran: ${item.kehadiranPct}%`}
-                          />
-                          <div 
-                            className="w-1/3 bg-amber-500 rounded-t transition-all duration-500 hover:bg-amber-400" 
-                            style={{ height: `${item.terlambatCount > 0 ? Math.max((item.terlambatCount / dashboardAnalytics.maxLateIpm) * 85, 6) : 0}%` }}
-                            title={`${item.fullName} — Terlambat: ${item.terlambatCount} kali`}
-                          />
-                          <div 
-                            className="w-1/3 bg-purple-500 rounded-t transition-all duration-500 hover:bg-purple-400" 
-                            style={{ height: `${item.ipmCount > 0 ? Math.max((item.ipmCount / dashboardAnalytics.maxLateIpm) * 85, 6) : 0}%` }}
-                            title={`${item.fullName} — IPM: ${item.ipmCount} kali`}
-                          />
+                          {/* Bar Kehadiran + Angka */}
+                          <div className="w-1/3 flex flex-col items-center justify-end h-full">
+                            <span className="text-[7.5px] font-mono text-emerald-300 leading-none mb-0.5">{item.kehadiranPct}%</span>
+                            <div 
+                              className="w-full bg-emerald-500 rounded-t transition-all duration-500 hover:bg-emerald-400" 
+                              style={{ height: `${item.kehadiranPct * 0.75}%` }}
+                              title={`${item.fullName} — Kehadiran: ${item.kehadiranPct}%`}
+                            />
+                          </div>
+
+                          {/* Bar Terlambat + Angka */}
+                          <div className="w-1/3 flex flex-col items-center justify-end h-full">
+                            <span className="text-[7.5px] font-mono text-amber-300 leading-none mb-0.5">{item.terlambatCount}</span>
+                            <div 
+                              className="w-full bg-amber-500 rounded-t transition-all duration-500 hover:bg-amber-400" 
+                              style={{ height: `${item.terlambatCount > 0 ? Math.max((item.terlambatCount / dashboardAnalytics.maxLateIpm) * 75, 5) : 0}%` }}
+                              title={`${item.fullName} — Terlambat: ${item.terlambatCount} kali`}
+                            />
+                          </div>
+
+                          {/* Bar IPM + Angka */}
+                          <div className="w-1/3 flex flex-col items-center justify-end h-full">
+                            <span className="text-[7.5px] font-mono text-purple-300 leading-none mb-0.5">{item.ipmCount}</span>
+                            <div 
+                              className="w-full bg-purple-500 rounded-t transition-all duration-500 hover:bg-purple-400" 
+                              style={{ height: `${item.ipmCount > 0 ? Math.max((item.ipmCount / dashboardAnalytics.maxLateIpm) * 75, 4) : 0}%` }}
+                              title={`${item.fullName} — IPM: ${item.ipmCount} kali`}
+                            />
+                          </div>
                         </div>
                         <span className="text-[9px] font-mono text-slate-400 truncate max-w-[50px]" title={item.fullName}>{item.name}</span>
                       </div>
@@ -1146,7 +1155,7 @@ export default function App() {
                       />
                       <div className="absolute w-24 h-24 bg-slate-900 rounded-full flex flex-col items-center justify-center shadow-md">
                         <span className="text-2xl font-black text-white font-mono">{dashboardAnalytics.assignedPercent}%</span>
-                        <span className="text-[9px] text-slate-400 font-semibold uppercase">Teralokasi</span>
+                        <span className="text-[9px] text-slate-400 font-semibold uppercase">{dashboardAnalytics.activePersonilCount}/{dashboardAnalytics.totalHeadcount} ORG</span>
                       </div>
                     </div>
                   </div>
@@ -1158,7 +1167,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* GRAFIK 4 (Kiri Bawah): Tren Jam Efektif Riil dari data_kpi.xlsx */}
+              {/* GRAFIK 4 (Kiri Bawah): Tren Jam Efektif Riil + Label Angka Jam */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
                 <div>
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
@@ -1172,10 +1181,11 @@ export default function App() {
                   <div className="flex items-end justify-between gap-2 h-44 pt-4 px-1">
                     {dashboardAnalytics.hoursData.map((h, idx) => (
                       <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                        <div className="w-full flex items-end justify-center h-32">
+                        <div className="w-full flex flex-col items-center justify-end h-32">
+                          <span className="text-[8px] font-mono font-bold text-cyan-300 mb-0.5">{h.effective}</span>
                           <div 
                             className="w-5 bg-gradient-to-t from-cyan-600 to-cyan-400 rounded-t transition-all duration-500 hover:brightness-110"
-                            style={{ height: `${h.effective > 0 ? (h.effective / dashboardAnalytics.maxHoursVal) * 100 : 0}%` }}
+                            style={{ height: `${h.effective > 0 ? (h.effective / dashboardAnalytics.maxHoursVal) * 80 : 0}%` }}
                             title={`${h.label}: ${h.effective} Jam Riil`}
                           />
                         </div>
@@ -1191,7 +1201,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* GRAFIK 5 (Tengah Bawah): Porsi Proyek Riil dari Database Supabase */}
+              {/* GRAFIK 5 (Tengah Bawah): Porsi Proyek Riil */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
                 <div>
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
@@ -1213,20 +1223,25 @@ export default function App() {
                         />
                         <div className="absolute w-20 h-20 bg-slate-900 rounded-full flex flex-col items-center justify-center">
                           <span className="text-xs font-bold text-white font-mono">{dashboardAnalytics.totalProjectTasks}</span>
-                          <span className="text-[8px] text-slate-400 uppercase">Tugas</span>
+                          <span className="text-[8px] text-slate-400 uppercase">TUGAS</span>
                         </div>
                       </div>
 
                       <div className="space-y-1.5 flex-1 min-w-0">
-                        {dashboardAnalytics.projectList.map((p, idx) => (
-                          <div key={idx} className="flex items-center justify-between text-[11px]">
-                            <div className="flex items-center gap-1.5 truncate max-w-[110px]">
-                              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dashboardAnalytics.projectColors[idx % dashboardAnalytics.projectColors.length] }} />
-                              <span className="text-slate-300 truncate" title={p.project}>{p.project}</span>
+                        {dashboardAnalytics.projectList.map((p, idx) => {
+                          const percent = dashboardAnalytics.totalProjectTasks > 0 
+                            ? Math.round((p.count / dashboardAnalytics.totalProjectTasks) * 100) 
+                            : 0;
+                          return (
+                            <div key={idx} className="flex items-center justify-between text-[11px]">
+                              <div className="flex items-center gap-1.5 truncate max-w-[110px]">
+                                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dashboardAnalytics.projectColors[idx % dashboardAnalytics.projectColors.length] }} />
+                                <span className="text-slate-300 truncate" title={p.project}>{p.project}</span>
+                              </div>
+                              <span className="font-mono text-white font-bold">{p.count} <span className="text-[9px] text-slate-400 font-normal">({percent}%)</span></span>
                             </div>
-                            <span className="font-mono text-slate-400">{p.count}</span>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   ) : (
@@ -1242,7 +1257,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* GRAFIK 6 (Kanan Bawah): Kepatuhan Timesheet Riil dari CSV Timesheet */}
+              {/* GRAFIK 6 (Kanan Bawah): Kepatuhan Timesheet Riil + Label Angka Persen */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
                 <div>
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
@@ -1260,16 +1275,25 @@ export default function App() {
                     {dashboardAnalytics.complianceTrend.map((c, idx) => (
                       <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
                         <div className="w-full flex items-end justify-center gap-1 h-32">
-                          <div 
-                            className="w-1/2 bg-indigo-500 rounded-t transition-all duration-500 hover:bg-indigo-400" 
-                            style={{ height: `${c.regular}%` }}
-                            title={`${c.fullName} — Reguler: ${c.regular}%`}
-                          />
-                          <div 
-                            className="w-1/2 bg-rose-500 rounded-t transition-all duration-500 hover:bg-rose-400" 
-                            style={{ height: `${c.overtime}%` }}
-                            title={`${c.fullName} — Lembur: ${c.overtime}%`}
-                          />
+                          {/* Bar Reguler + Angka */}
+                          <div className="w-1/2 flex flex-col items-center justify-end h-full">
+                            <span className="text-[7.5px] font-mono text-indigo-300 font-bold mb-0.5">{c.regular}%</span>
+                            <div 
+                              className="w-full bg-indigo-500 rounded-t transition-all duration-500 hover:bg-indigo-400" 
+                              style={{ height: `${c.regular * 0.8}%` }}
+                              title={`${c.fullName} — Reguler: ${c.regular}%`}
+                            />
+                          </div>
+
+                          {/* Bar Lembur + Angka */}
+                          <div className="w-1/2 flex flex-col items-center justify-end h-full">
+                            <span className="text-[7.5px] font-mono text-rose-300 font-bold mb-0.5">{c.overtime}%</span>
+                            <div 
+                              className="w-full bg-rose-500 rounded-t transition-all duration-500 hover:bg-rose-400" 
+                              style={{ height: `${Math.min(c.overtime * 0.8, 80)}%` }}
+                              title={`${c.fullName} — Lembur: ${c.overtime}%`}
+                            />
+                          </div>
                         </div>
                         <span className="text-[10px] text-slate-400 font-mono truncate max-w-[55px] cursor-help" title={c.fullName}>{c.label}</span>
                       </div>
