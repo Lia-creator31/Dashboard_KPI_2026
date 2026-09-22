@@ -155,7 +155,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
         }
       }
     } catch {
-      // next
+      // lanjut ke file berikutnya
     }
   }
   return null;
@@ -722,181 +722,190 @@ export default function App() {
   const pendingTasksCount = currentBiroSubmittedTasks.filter(t => !t.kodeJc).length;
 
   // =========================================================================
-  // KOMPUTASI DATA 6 GRAFIK VISUAL (TERMASUK GRAFIK PRESENSI, TERLAMBAT, IPM)
+  // KOMPUTASI 100% DATA RIIL UNTUK 6 PANEL GRAFIK DASHBOARD
   // =========================================================================
   const dashboardAnalytics = useMemo(() => {
     const isFiltered = dashboardDeptFilter !== 'ALL';
     const targetDept = departmentsData.find(d => d.id === dashboardDeptFilter);
 
-    // 1. Panel Kiri Atas: Horizontal Bar Chart (Distribusi Beban)
-    let unitDistribution: { name: string; count: number }[] = [];
-    if (!isFiltered) {
-      unitDistribution = departmentsData.map(dept => {
-        let total = 0;
-        dept.biros.forEach(b => {
-          const k = cleanText(b.name);
-          total += (manualTasks[k] || []).length;
-        });
-        return { name: dept.name.replace('Departemen ', ''), count: total };
-      });
-    } else if (targetDept) {
-      unitDistribution = targetDept.biros.map(b => {
+    // Filter baris Job Card riil dari Supabase sesuai cakupan (Divisi vs Departemen)
+    const relevantTasks = isFiltered && targetDept
+      ? rawJobCards.filter(r => targetDept.biros.some(b => isBiroMatch(b.name, r.biro_name)))
+      : rawJobCards;
+
+    // Unit cakupan saat ini: seluruh departemen atau seluruh biro dalam departemen terpilih
+    const currentUnits = !isFiltered 
+      ? departmentsData.map(d => ({ name: d.name, biros: d.biros }))
+      : (targetDept ? targetDept.biros.map(b => ({ name: b.name, biros: [b] })) : []);
+
+    // 1. GRAFIK 1: Beban Tugas Riil (Job Card per Departemen / Biro)
+    const unitDistribution = currentUnits.map(unit => {
+      let count = 0;
+      unit.biros.forEach(b => {
         const k = cleanText(b.name);
-        return { name: b.name.replace(/Biro Desain Dasar |Biro /gi, ''), count: (manualTasks[k] || []).length };
+        count += (manualTasks[k] || []).length;
       });
-    }
+      const shortName = unit.name
+        .replace(/Departemen Desain |Departemen |Biro Desain Dasar |Biro /gi, '')
+        .trim();
+      return { 
+        name: shortName, 
+        fullName: unit.name, 
+        count 
+      };
+    });
     const maxUnitCount = Math.max(...unitDistribution.map(u => u.count), 1);
 
-    // 2. PANEL BARU (Tengah Atas): Presensi, Terlambat, IPM per Departemen / Biro
-    // Parsir data absensi CSV terbaru (Juni sebagai representasi riil)
-    const activeAbsensiMap = parseAbsensiCSV(csvMonthMap['juni'] || csvMonthMap['januari'] || '');
+    // 2. GRAFIK 2: Presensi, Terlambat & IPM Riil (dari CSV Absensi Terkini)
+    const activeAbsensiMap = parseAbsensiCSV(csvMonthMap['juni'] || csvMonthMap['mei'] || csvMonthMap['januari'] || '');
+    
+    const disciplineList = currentUnits.map(unit => {
+      let totalTerlambat = 0;
+      let totalIpm = 0;
+      let totalSakit = 0;
+      let memberCount = 0;
 
-    interface DisciplineStat {
-      name: string;
-      kehadiranPct: number; // Persentase Kehadiran (0-100%)
-      terlambatCount: number; // Jumlah Keterlambatan
-      ipmCount: number; // Jumlah IPM
-    }
-
-    let disciplineList: DisciplineStat[] = [];
-
-    if (!isFiltered) {
-      // Level Divisi: Tampilkan per Departemen
-      disciplineList = departmentsData.map((dept, dIdx) => {
-        let totalTerlambat = 0;
-        let totalIpm = 0;
-        let totalSakit = 0;
-        let memberCount = 0;
-
-        dept.biros.forEach(b => {
-          const members = getBiroMembers(b.name);
-          memberCount += members.length;
-          members.forEach(m => {
-            const abs = activeAbsensiMap.get(cleanText(m));
-            if (abs) {
-              totalTerlambat += abs.terlambat;
-              totalIpm += abs.ipm;
-              totalSakit += abs.sakit;
-            }
-          });
-        });
-
-        // Simulasi dasar kehadiran jika file CSV sedang kosong
-        const baseKehadiran = Math.max(88, 98 - (totalTerlambat * 0.4) - (totalIpm * 0.2) - (dIdx * 1.5));
-
-        return {
-          name: dept.name.replace('Departemen ', '').slice(0, 11),
-          kehadiranPct: Math.min(100, Math.round(baseKehadiran)),
-          terlambatCount: totalTerlambat > 0 ? totalTerlambat : (3 + (dIdx * 2)),
-          ipmCount: totalIpm > 0 ? totalIpm : (1 + dIdx),
-        };
-      });
-    } else if (targetDept) {
-      // Level Departemen Terfilter: Tampilkan rincian per Biro
-      disciplineList = targetDept.biros.map((biro, bIdx) => {
-        let totalTerlambat = 0;
-        let totalIpm = 0;
-        const members = getBiroMembers(biro.name);
+      unit.biros.forEach(b => {
+        const members = getBiroMembers(b.name);
+        memberCount += members.length;
         members.forEach(m => {
           const abs = activeAbsensiMap.get(cleanText(m));
           if (abs) {
             totalTerlambat += abs.terlambat;
             totalIpm += abs.ipm;
+            totalSakit += abs.sakit;
           }
         });
-
-        const baseKehadiran = Math.max(90, 99 - (totalTerlambat * 0.5) - (bIdx * 1.2));
-
-        return {
-          name: biro.name.replace(/Biro Desain Dasar |Biro /gi, '').slice(0, 12),
-          kehadiranPct: Math.min(100, Math.round(baseKehadiran)),
-          terlambatCount: totalTerlambat > 0 ? totalTerlambat : (2 + bIdx),
-          ipmCount: totalIpm > 0 ? totalIpm : (bIdx % 3),
-        };
       });
-    }
 
-    const maxLateIpm = Math.max(...disciplineList.map(d => Math.max(d.terlambatCount, d.ipmCount)), 10);
+      // Kalkulasi tingkat kehadiran riil (Hari kerja standar = 21 hari/bulan/personil)
+      const totalPossibleDays = Math.max(memberCount * 21, 1);
+      const totalHadirDays = Math.max(0, totalPossibleDays - totalSakit);
+      const kehadiranPct = memberCount > 0 ? Math.min(100, Math.round((totalHadirDays / totalPossibleDays) * 100)) : 0;
 
-    // 3. Panel Kanan Atas: Ring Donut Gauge (Utilisasi Personil)
+      const shortName = unit.name
+        .replace(/Departemen Desain |Departemen |Biro Desain Dasar |Biro /gi, '')
+        .trim();
+
+      return {
+        name: shortName.length > 9 ? shortName.slice(0, 9) + '…' : shortName,
+        fullName: unit.name,
+        kehadiranPct,
+        terlambatCount: totalTerlambat,
+        ipmCount: totalIpm,
+      };
+    });
+    const maxLateIpm = Math.max(...disciplineList.map(d => Math.max(d.terlambatCount, d.ipmCount)), 1);
+
+    // 3. GRAFIK 3: Rasio Utilisasi Personil Riil (Personil Punya Tugas vs Total)
     let totalHeadcount = 0;
-    if (!isFiltered) {
-      departmentsData.forEach(d => d.biros.forEach(b => {
-        totalHeadcount += getBiroMembers(b.name).length;
-      }));
-    } else if (targetDept) {
-      targetDept.biros.forEach(b => {
-        totalHeadcount += getBiroMembers(b.name).length;
-      });
-    }
+    const allUnitMembers: string[] = [];
+    currentUnits.forEach(u => u.biros.forEach(b => {
+      const mems = getBiroMembers(b.name);
+      totalHeadcount += mems.length;
+      allUnitMembers.push(...mems);
+    }));
 
-    const relevantTasks = isFiltered && targetDept
-      ? rawJobCards.filter(r => targetDept.biros.some(b => isBiroMatch(b.name, r.biro_name)))
-      : rawJobCards;
+    // Hitung berapa personil unik yang tercatat memegang tugas di Supabase
+    const activeAssignedSet = new Set<string>();
+    relevantTasks.forEach(t => {
+      const picName = (t.pic || t.personil_name || '').trim();
+      if (picName) activeAssignedSet.add(cleanText(picName));
+    });
 
-    const assignedCount = Math.min(relevantTasks.length, totalHeadcount);
-    const assignedPercent = totalHeadcount > 0 ? Math.min(100, Math.round((assignedCount / totalHeadcount) * 100)) : 75;
+    const activePersonilCount = allUnitMembers.filter(m => activeAssignedSet.has(cleanText(m))).length;
+    const assignedPercent = totalHeadcount > 0 ? Math.min(100, Math.round((activePersonilCount / totalHeadcount) * 100)) : 0;
     const idlePercent = 100 - assignedPercent;
 
-    // 4. Panel Kiri Bawah: Vertical Histogram / Column Chart (Jam Kerja)
-    const hoursData = [
-      { label: 'Jan', effective: 140 },
-      { label: 'Feb', effective: 152 },
-      { label: 'Mar', effective: 148 },
-      { label: 'Apr', effective: 160 },
-      { label: 'Mei', effective: 145 },
-      { label: 'Jun', effective: 158 },
-    ];
-    const maxHoursVal = 180;
+    // 4. GRAFIK 4: Tren Jam Efektif Riil per Bulan (Diagregasikan dari data_kpi.xlsx)
+    const hoursData = monthList.map(mName => {
+      const mPrefix = mName.toLowerCase().slice(0, 3);
+      let totalEffective = 0;
 
-    // 5. Panel Tengah Bawah: Multi-slice Segmented Donut (Proyek Kapal)
+      if (workbook) {
+        const targetSheet = workbook.SheetNames.find(s => {
+          const sLow = s.toLowerCase();
+          return sLow.includes(mName.toLowerCase()) || sLow.includes(mPrefix);
+        });
+
+        if (targetSheet && workbook.Sheets[targetSheet]) {
+          const rows: any[][] = XLSX.utils.sheet_to_json(workbook.Sheets[targetSheet], { header: 1, defval: '' });
+          rows.forEach((row, rIdx) => {
+            if (rIdx < 1 || !row) return;
+            const biroCol = String(row[7] || '').trim();
+            const effCol = parseValToNumber(row[10]);
+
+            // Filter sesuai departemen/biro yang aktif
+            const isMatch = currentUnits.some(u => u.biros.some(b => isBiroMatch(biroCol, b.name)));
+            if (isMatch) {
+              totalEffective += effCol;
+            }
+          });
+        }
+      }
+
+      return {
+        label: mName.slice(0, 3),
+        effective: Math.round(totalEffective)
+      };
+    });
+    const maxHoursVal = Math.max(...hoursData.map(h => h.effective), 1);
+
+    // 5. GRAFIK 5: Porsi Proyek Riil (Job Card per Proyek di Supabase)
     const projectMap: Record<string, number> = {};
     relevantTasks.forEach(t => {
       const p = (t.project || 'Umum/Internal').trim();
       projectMap[p] = (projectMap[p] || 0) + 1;
     });
 
-    const projectList = Object.entries(projectMap).map(([project, count]) => ({ project, count }))
+    const projectList = Object.entries(projectMap)
+      .map(([project, count]) => ({ project, count }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 4);
-
-    if (projectList.length === 0) {
-      projectList.push(
-        { project: 'W000314 Frigate', count: 12 },
-        { project: 'Scorpene Submarine', count: 8 },
-        { project: 'KCR 60M', count: 6 },
-        { project: 'Landing Platform Dock', count: 4 }
-      );
-    }
+      .slice(0, 5);
 
     const totalProjectTasks = projectList.reduce((acc, p) => acc + p.count, 0);
-    const projectColors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
+    const projectColors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'];
 
     let currentDeg = 0;
-    const conicSegments = projectList.map((p, idx) => {
+    const conicSegments = totalProjectTasks > 0 ? projectList.map((p, idx) => {
       const deg = (p.count / totalProjectTasks) * 360;
       const start = currentDeg;
       const end = currentDeg + deg;
       currentDeg = end;
       return `${projectColors[idx % projectColors.length]} ${start}deg ${end}deg`;
-    }).join(', ');
+    }).join(', ') : '#334155 0deg 360deg';
 
-    // 6. Panel Kanan Bawah: Dual-Bar Comparison Chart (Timesheet & Kepatuhan)
-const sourceList = !isFiltered 
-      ? departmentsData 
-      : (targetDept ? targetDept.biros : []);
+    // 6. GRAFIK 6: Kepatuhan Timesheet Riil (Reguler vs Lembur dari Folder CSV Timesheet)
+    const activeTimesheetMap = parseTimesheetFolder('juni');
+    
+    const complianceTrend = currentUnits.map(unit => {
+      let sumReguler = 0;
+      let sumOvertime = 0;
+      let countPerson = 0;
 
-    const complianceTrend = sourceList.map((item, idx) => {
-      // Ringkas nama agar tidak bertumpukan di sumbu grafik
-      const shortName = item.name
+      unit.biros.forEach(b => {
+        const members = getBiroMembers(b.name);
+        members.forEach(m => {
+          const ts = activeTimesheetMap.get(cleanText(m));
+          if (ts) {
+            sumReguler += ts.reguler;
+            sumOvertime += ts.overtime;
+            countPerson++;
+          }
+        });
+      });
+
+      const avgReguler = countPerson > 0 ? Math.min(100, Math.round(sumReguler / countPerson)) : 0;
+      const avgOvertime = countPerson > 0 ? Math.min(100, Math.round(sumOvertime / countPerson)) : 0;
+      const shortName = unit.name
         .replace(/Departemen Desain |Departemen |Biro Desain Dasar |Biro /gi, '')
         .trim();
 
       return {
         label: shortName.length > 7 ? shortName.slice(0, 7) + '…' : shortName,
-        fullName: item.name,
-        regular: 88 + ((idx * 3) % 10), // nilai persentase reguler
-        overtime: 12 + ((idx * 4) % 18), // nilai persentase lembur
+        fullName: unit.name,
+        regular: avgReguler,
+        overtime: avgOvertime,
       };
     });
 
@@ -906,6 +915,7 @@ const sourceList = !isFiltered
       disciplineList,
       maxLateIpm,
       totalHeadcount,
+      activePersonilCount,
       assignedPercent,
       idlePercent,
       hoursData,
@@ -916,7 +926,7 @@ const sourceList = !isFiltered
       conicSegments,
       complianceTrend
     };
-  }, [dashboardDeptFilter, manualTasks, rawJobCards]);
+  }, [dashboardDeptFilter, departmentsData, rawJobCards, manualTasks, workbook, allCsvFiles]);
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
@@ -1000,15 +1010,15 @@ const sourceList = !isFiltered
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
         {/* ========================================================================= */}
-        {/* TAMPILAN 1: DASHBOARD EKSEKUTIF GRAFIS (6 PANEL MURNI GRAFIK VISUAL)       */}
+        {/* TAMPILAN 1: DASHBOARD EKSEKUTIF GRAFIS (100% SUMBER DATA RIIL)             */}
         {/* ========================================================================= */}
         {activeMainTab === 'dashboard' && (
           <div className="space-y-5 animate-fadeIn">
             {/* Header & Filter Divisi -> Departemen */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/80 border border-slate-800 p-4 rounded-xl">
               <div>
-                <h2 className="text-lg font-bold text-white tracking-wide">Workforce & Attendance Analytics Dashboard</h2>
-                <span className="text-xs text-slate-400">Divisi Desain — Visualisasi Metrik Seluruh Unit</span>
+                <h2 className="text-lg font-bold text-white tracking-wide">Workforce & Attendance Realtime Analytics</h2>
+                <span className="text-xs text-slate-400">Divisi Desain — Data Teragregasi Langsung dari Database, Excel, dan CSV</span>
               </div>
 
               {/* Filter Hierarki Departemen */}
@@ -1027,18 +1037,18 @@ const sourceList = !isFiltered
               </div>
             </div>
 
-            {/* GRID 6 PANEL MURNI GRAFIK */}
+            {/* GRID 6 PANEL MURNI GRAFIK RIIL */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
-              {/* GRAFIK 1 (Kiri Atas): Horizontal Bar Chart (Distribusi Beban) */}
+              {/* GRAFIK 1 (Kiri Atas): Horizontal Bar Chart (Beban Job Card Riil) */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
                 <div>
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                       <BarChart3 className="w-4 h-4 text-blue-400" />
-                      {dashboardDeptFilter === 'ALL' ? 'Headcount Beban per Departemen' : 'Beban Tugas per Biro'}
+                      {dashboardDeptFilter === 'ALL' ? 'Beban Tugas per Departemen' : 'Beban Tugas per Biro'}
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono">Horizontal Bar</span>
+                    <span className="text-[10px] text-slate-500 font-mono">Database Riil</span>
                   </div>
 
                   <div className="space-y-3">
@@ -1047,13 +1057,13 @@ const sourceList = !isFiltered
                       return (
                         <div key={idx} className="space-y-1">
                           <div className="flex justify-between text-xs">
-                            <span className="text-slate-300 font-medium truncate max-w-[190px]">{unit.name}</span>
+                            <span className="text-slate-300 font-medium truncate max-w-[190px]" title={unit.fullName}>{unit.name}</span>
                             <span className="text-white font-mono font-bold">{unit.count}</span>
                           </div>
                           <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
                             <div 
                               className="bg-blue-600 h-full rounded-full transition-all duration-500" 
-                              style={{ width: `${Math.max(widthPercent, 6)}%` }}
+                              style={{ width: `${unit.count > 0 ? Math.max(widthPercent, 6) : 0}%` }}
                             />
                           </div>
                         </div>
@@ -1063,14 +1073,12 @@ const sourceList = !isFiltered
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span>Unit Terbanyak: {dashboardAnalytics.unitDistribution[0]?.name || '-'}</span>
-                  <span className="text-blue-400">Total: {dashboardAnalytics.maxUnitCount} Max</span>
+                  <span>Unit Aktif: {dashboardAnalytics.unitDistribution.length}</span>
+                  <span className="text-blue-400">Puncak: {dashboardAnalytics.maxUnitCount} Tugas</span>
                 </div>
               </div>
 
-              {/* ========================================================================= */}
-              {/* GRAFIK 2 (Tengah Atas): FITUR BARU - KEHADIRAN, TERLAMBAT, IPM            */}
-              {/* ========================================================================= */}
+              {/* GRAFIK 2 (Tengah Atas): Grouped Bar Presensi, Terlambat, IPM Riil */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
                 <div>
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
@@ -1078,7 +1086,6 @@ const sourceList = !isFiltered
                       <UserCheck className="w-4 h-4 text-emerald-400" />
                       {dashboardDeptFilter === 'ALL' ? 'Kehadiran, Terlambat & IPM Dept' : 'Kehadiran, Terlambat & IPM Biro'}
                     </span>
-                    {/* Legend Warna */}
                     <div className="flex items-center gap-2 text-[9px] font-mono">
                       <span className="flex items-center gap-1 text-emerald-400"><div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Hadir(%)</span>
                       <span className="flex items-center gap-1 text-amber-400"><div className="w-1.5 h-1.5 bg-amber-500 rounded-full" /> Tlbt</span>
@@ -1086,51 +1093,47 @@ const sourceList = !isFiltered
                     </div>
                   </div>
 
-                  {/* Grouped Column Chart */}
-                  <div className="flex items-end justify-between gap-2.5 h-44 pt-3 px-1">
+                  <div className="flex items-end justify-between gap-2 h-44 pt-3 px-1">
                     {dashboardAnalytics.disciplineList.map((item, idx) => (
                       <div key={idx} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
                         <div className="w-full flex items-end justify-center gap-0.5 h-32">
-                          {/* Bar Kehadiran (%) */}
                           <div 
                             className="w-1/3 bg-emerald-500 rounded-t transition-all duration-500 hover:bg-emerald-400" 
                             style={{ height: `${item.kehadiranPct * 0.9}%` }}
-                            title={`Kehadiran: ${item.kehadiranPct}%`}
+                            title={`${item.fullName} — Kehadiran: ${item.kehadiranPct}%`}
                           />
-                          {/* Bar Terlambat (Frekuensi) */}
                           <div 
                             className="w-1/3 bg-amber-500 rounded-t transition-all duration-500 hover:bg-amber-400" 
-                            style={{ height: `${Math.max((item.terlambatCount / dashboardAnalytics.maxLateIpm) * 85, 8)}%` }}
-                            title={`Terlambat: ${item.terlambatCount} kali`}
+                            style={{ height: `${item.terlambatCount > 0 ? Math.max((item.terlambatCount / dashboardAnalytics.maxLateIpm) * 85, 6) : 0}%` }}
+                            title={`${item.fullName} — Terlambat: ${item.terlambatCount} kali`}
                           />
-                          {/* Bar IPM (Frekuensi) */}
                           <div 
                             className="w-1/3 bg-purple-500 rounded-t transition-all duration-500 hover:bg-purple-400" 
-                            style={{ height: `${Math.max((item.ipmCount / dashboardAnalytics.maxLateIpm) * 85, 5)}%` }}
-                            title={`IPM: ${item.ipmCount} kali`}
+                            style={{ height: `${item.ipmCount > 0 ? Math.max((item.ipmCount / dashboardAnalytics.maxLateIpm) * 85, 6) : 0}%` }}
+                            title={`${item.fullName} — IPM: ${item.ipmCount} kali`}
                           />
                         </div>
-                        <span className="text-[9px] font-mono text-slate-400 truncate max-w-[50px]">{item.name}</span>
+                        <span className="text-[9px] font-mono text-slate-400 truncate max-w-[50px]" title={item.fullName}>{item.name}</span>
                       </div>
                     ))}
                   </div>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span className="text-emerald-400">Rata2 Hadir: 96%</span>
-                  <span className="text-amber-400">Terpantau Disiplin</span>
+                  <span className="text-emerald-400">Sumber: CSV Absensi</span>
+                  <span className="text-slate-400">Data Riil 2026</span>
                 </div>
               </div>
 
-              {/* GRAFIK 3 (Kanan Atas): Ring Donut Gauge Chart (Utilisasi Personil) */}
+              {/* GRAFIK 3 (Kanan Atas): Utilisasi Personil Riil (Gauge) */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
                 <div>
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                       <Users className="w-4 h-4 text-purple-400" />
-                      Utilisasi Personil (Gauge)
+                      Utilisasi Personil Riil
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono">Active vs Standby</span>
+                    <span className="text-[10px] text-slate-500 font-mono">Alokasi Job Card</span>
                   </div>
 
                   <div className="flex items-center justify-center pt-2">
@@ -1143,27 +1146,27 @@ const sourceList = !isFiltered
                       />
                       <div className="absolute w-24 h-24 bg-slate-900 rounded-full flex flex-col items-center justify-center shadow-md">
                         <span className="text-2xl font-black text-white font-mono">{dashboardAnalytics.assignedPercent}%</span>
-                        <span className="text-[9px] text-slate-400 font-semibold uppercase">Ditugaskan</span>
+                        <span className="text-[9px] text-slate-400 font-semibold uppercase">Teralokasi</span>
                       </div>
                     </div>
                   </div>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span className="text-purple-400">Aktif: {dashboardAnalytics.assignedPercent}%</span>
-                  <span className="text-slate-400">Standby: {dashboardAnalytics.idlePercent}%</span>
+                  <span className="text-purple-400">Aktif: {dashboardAnalytics.activePersonilCount} Org</span>
+                  <span className="text-slate-400">Total: {dashboardAnalytics.totalHeadcount} Org</span>
                 </div>
               </div>
 
-              {/* GRAFIK 4 (Kiri Bawah): Vertical Histogram Chart (Tren Jam Efektif) */}
+              {/* GRAFIK 4 (Kiri Bawah): Tren Jam Efektif Riil dari data_kpi.xlsx */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
                 <div>
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                       <Clock className="w-4 h-4 text-cyan-400" />
-                      Tren Jam Efektif (Histogram)
+                      Tren Jam Efektif Riil
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono">6 Bulan (Jam)</span>
+                    <span className="text-[10px] text-slate-500 font-mono">data_kpi.xlsx</span>
                   </div>
 
                   <div className="flex items-end justify-between gap-2 h-44 pt-4 px-1">
@@ -1172,8 +1175,8 @@ const sourceList = !isFiltered
                         <div className="w-full flex items-end justify-center h-32">
                           <div 
                             className="w-5 bg-gradient-to-t from-cyan-600 to-cyan-400 rounded-t transition-all duration-500 hover:brightness-110"
-                            style={{ height: `${(h.effective / dashboardAnalytics.maxHoursVal) * 100}%` }}
-                            title={`${h.label}: ${h.effective} Jam`}
+                            style={{ height: `${h.effective > 0 ? (h.effective / dashboardAnalytics.maxHoursVal) * 100 : 0}%` }}
+                            title={`${h.label}: ${h.effective} Jam Riil`}
                           />
                         </div>
                         <span className="text-[10px] font-mono text-slate-400">{h.label}</span>
@@ -1183,67 +1186,73 @@ const sourceList = !isFiltered
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span>Rata-rata: 152 Jam/Bln</span>
-                  <span className="text-cyan-400">Efisiensi Tinggi</span>
+                  <span>Puncak Efektif</span>
+                  <span className="text-cyan-400">{dashboardAnalytics.maxHoursVal} Jam</span>
                 </div>
               </div>
 
-              {/* GRAFIK 5 (Tengah Bawah): Multi-slice Donut Chart (Proyek Kapal) */}
+              {/* GRAFIK 5 (Tengah Bawah): Porsi Proyek Riil dari Database Supabase */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
                 <div>
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                       <PieChart className="w-4 h-4 text-amber-400" />
-                      Porsi Proyek Kapal (Pie Donut)
+                      Porsi Proyek Kapal Riil
                     </span>
-                    <span className="text-[10px] text-slate-500 font-mono">Breakdown</span>
+                    <span className="text-[10px] text-slate-500 font-mono">Job Card Input</span>
                   </div>
 
-                  <div className="flex items-center justify-between gap-4 pt-1">
-                    <div className="relative w-32 h-32 shrink-0 flex items-center justify-center">
-                      <div 
-                        className="w-full h-full rounded-full transition-all duration-700 shadow-md"
-                        style={{
-                          background: `conic-gradient(${dashboardAnalytics.conicSegments})`
-                        }}
-                      />
-                      <div className="absolute w-20 h-20 bg-slate-900 rounded-full flex flex-col items-center justify-center">
-                        <span className="text-xs font-bold text-white font-mono">{dashboardAnalytics.totalProjectTasks}</span>
-                        <span className="text-[8px] text-slate-400">TUGAS</span>
+                  {dashboardAnalytics.projectList.length > 0 ? (
+                    <div className="flex items-center justify-between gap-4 pt-1">
+                      <div className="relative w-32 h-32 shrink-0 flex items-center justify-center">
+                        <div 
+                          className="w-full h-full rounded-full transition-all duration-700 shadow-md"
+                          style={{
+                            background: `conic-gradient(${dashboardAnalytics.conicSegments})`
+                          }}
+                        />
+                        <div className="absolute w-20 h-20 bg-slate-900 rounded-full flex flex-col items-center justify-center">
+                          <span className="text-xs font-bold text-white font-mono">{dashboardAnalytics.totalProjectTasks}</span>
+                          <span className="text-[8px] text-slate-400 uppercase">Tugas</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 flex-1 min-w-0">
+                        {dashboardAnalytics.projectList.map((p, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-[11px]">
+                            <div className="flex items-center gap-1.5 truncate max-w-[110px]">
+                              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dashboardAnalytics.projectColors[idx % dashboardAnalytics.projectColors.length] }} />
+                              <span className="text-slate-300 truncate" title={p.project}>{p.project}</span>
+                            </div>
+                            <span className="font-mono text-slate-400">{p.count}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
-
-                    <div className="space-y-1.5 flex-1 min-w-0">
-                      {dashboardAnalytics.projectList.map((p, idx) => (
-                        <div key={idx} className="flex items-center justify-between text-[11px]">
-                          <div className="flex items-center gap-1.5 truncate max-w-[110px]">
-                            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dashboardAnalytics.projectColors[idx % dashboardAnalytics.projectColors.length] }} />
-                            <span className="text-slate-300 truncate">{p.project}</span>
-                          </div>
-                          <span className="font-mono text-slate-400">{p.count}</span>
-                        </div>
-                      ))}
+                  ) : (
+                    <div className="py-12 text-center text-slate-500 text-xs font-mono">
+                      Belum ada Job Card proyek terdaftar
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span>Kategori Proyek</span>
-                  <span className="text-amber-400">{dashboardAnalytics.projectList.length} Utama</span>
+                  <span>Proyek Terdata</span>
+                  <span className="text-amber-400">{dashboardAnalytics.projectList.length} Proyek</span>
                 </div>
               </div>
 
-              {/* GRAFIK 6 (Kanan Bawah): Dual-Bar Comparison Chart (Kepatuhan Timesheet) */}
+              {/* GRAFIK 6 (Kanan Bawah): Kepatuhan Timesheet Riil dari CSV Timesheet */}
               <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 flex flex-col justify-between shadow-sm">
                 <div>
                   <div className="flex items-center justify-between border-b border-slate-800 pb-3 mb-4">
                     <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                       <ShieldCheck className="w-4 h-4 text-rose-400" />
-                      Kepatuhan Timesheet: Reguler vs Lembur
+                      Kepatuhan Timesheet Riil
                     </span>
                     <div className="flex items-center gap-2 text-[10px]">
-                      <span className="flex items-center gap-1 text-indigo-400"><div className="w-2 h-2 bg-indigo-500 rounded-full" /> Reg</span>
-                      <span className="flex items-center gap-1 text-rose-400"><div className="w-2 h-2 bg-rose-500 rounded-full" /> Lbr</span>
+                      <span className="flex items-center gap-1 text-indigo-400"><div className="w-2 h-2 bg-indigo-500 rounded-full" /> Reg(%)</span>
+                      <span className="flex items-center gap-1 text-rose-400"><div className="w-2 h-2 bg-rose-500 rounded-full" /> Lbr(%)</span>
                     </div>
                   </div>
 
@@ -1254,23 +1263,23 @@ const sourceList = !isFiltered
                           <div 
                             className="w-1/2 bg-indigo-500 rounded-t transition-all duration-500 hover:bg-indigo-400" 
                             style={{ height: `${c.regular}%` }}
-                            title={`Reguler: ${c.regular}%`}
+                            title={`${c.fullName} — Reguler: ${c.regular}%`}
                           />
                           <div 
                             className="w-1/2 bg-rose-500 rounded-t transition-all duration-500 hover:bg-rose-400" 
-                            style={{ height: `${Math.min(c.overtime * 2.5, 100)}%` }}
-                            title={`Lembur: ${c.overtime}%`}
+                            style={{ height: `${c.overtime}%` }}
+                            title={`${c.fullName} — Lembur: ${c.overtime}%`}
                           />
                         </div>
-                        <span className="text-[10px] text-slate-400 font-mono">{c.label}</span>
+                        <span className="text-[10px] text-slate-400 font-mono truncate max-w-[55px] cursor-help" title={c.fullName}>{c.label}</span>
                       </div>
                     ))}
                   </div>
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-800 flex justify-between text-[11px] text-slate-400 font-mono">
-                  <span className="text-indigo-400">Rata-rata Reg: 93%</span>
-                  <span className="text-rose-400">Terkendali</span>
+                  <span>Sumber Data</span>
+                  <span className="text-indigo-400">CSV Timesheet Riil</span>
                 </div>
               </div>
 
