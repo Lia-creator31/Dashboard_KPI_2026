@@ -882,13 +882,23 @@ export default function App() {
     }).join(', ');
 
     // 6. Panel Kanan Bawah: Dual-Bar Comparison Chart (Timesheet & Kepatuhan)
-    const complianceTrend = [
-      { label: 'Dept 1', regular: 92, overtime: 18 },
-      { label: 'Dept 2', regular: 95, overtime: 24 },
-      { label: 'Dept 3', regular: 89, overtime: 15 },
-      { label: 'Dept 4', regular: 97, overtime: 30 },
-      { label: 'Dept 5', regular: 91, overtime: 20 },
-    ];
+const sourceList = !isFiltered 
+      ? departmentsData 
+      : (targetDept ? targetDept.biros : []);
+
+    const complianceTrend = sourceList.map((item, idx) => {
+      // Ringkas nama agar tidak bertumpukan di sumbu grafik
+      const shortName = item.name
+        .replace(/Departemen Desain |Departemen |Biro Desain Dasar |Biro /gi, '')
+        .trim();
+
+      return {
+        label: shortName.length > 7 ? shortName.slice(0, 7) + '…' : shortName,
+        fullName: item.name,
+        regular: 88 + ((idx * 3) % 10), // nilai persentase reguler
+        overtime: 12 + ((idx * 4) % 18), // nilai persentase lembur
+      };
+    });
 
     return {
       unitDistribution,
