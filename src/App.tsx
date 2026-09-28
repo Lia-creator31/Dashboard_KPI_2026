@@ -816,12 +816,6 @@ export default function App() {
                   <div>
                     <h3 className="text-xl font-bold text-white group-hover:text-blue-400 transition-colors">
                       Pegawai Organik
-                    </h3>
-                    <span className="text-xs text-blue-400 font-mono">Divisi Desain PT PAL</span>
-                  </div>
-                  <p className="text-slate-400 text-xs leading-relaxed">
-                    Akses 6 Departemen, 19 Biro, Formulir Pengajuan & Verifikasi Job Card Planner, Output Rekapitulasi Personil, serta Evaluasi KPI Bulanan.
-                  </p>
                 </div>
 
                 <div className="mt-8 pt-4 border-t border-slate-800 flex items-center justify-between text-xs font-semibold text-blue-400">
