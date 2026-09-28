@@ -816,6 +816,8 @@ export default function App() {
                   <div>
                     <h3 className="text-xl font-bold text-white group-hover:text-blue-400 transition-colors">
                       Pegawai Organik
+                    </h3>
+                  </div>
                 </div>
 
                 <div className="mt-8 pt-4 border-t border-slate-800 flex items-center justify-between text-xs font-semibold text-blue-400">
