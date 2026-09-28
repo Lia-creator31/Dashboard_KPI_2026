@@ -68,7 +68,7 @@ const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', {
   eager: true 
 }) as Record<string, string>;
 
-// Hanya 3 file Excel utama (data_kpi, JOBCARD_DESAIN, AKSES AKUN IM4)
+// Hanya membaca 3 file Excel utama
 const excelGlobUrls = import.meta.glob('./*.xlsx', { 
   query: '?url', 
   import: 'default', 
@@ -211,7 +211,7 @@ export default function App() {
       const { data, error } = await supabase
         .from('job_cards')
         .select('*')
-        .order('created_at', { ascending: true }); // Ascending agar nomor AA1, AA2 sesuai urutan approval
+        .order('created_at', { ascending: true });
 
       if (error) return;
 
@@ -245,11 +245,12 @@ export default function App() {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
   const [editingTaskKode, setEditingTaskKode] = useState<{ [taskId: string]: string }>({});
+  const [plannerScope, setPlannerScope] = useState<'current' | 'all'>('current');
 
   const PLANNER_PIN = '2026';
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
-  // 3 FILE EXCEL UTAMA (FILE NOMOR 4 SUDAH DIHAPUS BERSIH)
+  // 3 FILE EXCEL UTAMA
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);          // data_kpi.xlsx
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);  // JOBCARD_DESAIN.xlsx
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);          // AKSES AKUN IM4...
@@ -392,6 +393,38 @@ export default function App() {
   const getSubconCountForDept = useCallback((deptName: string) => {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.dept, deptName)).length;
   }, [dynamicOutsourcingList]);
+
+  // =========================================================================
+  // DETEKSI BIRO AKTIF (MENDUKUNG SUBKON MAUPUN ORGANIK)
+  // =========================================================================
+  const currentActiveBiroName = useMemo(() => {
+    if (accessMode === 'subkon') return subconSelectedBiro || '';
+    return selectedFormBiro?.biroName || '';
+  }, [accessMode, subconSelectedBiro, selectedFormBiro]);
+
+  const currentActiveBiroKey = useMemo(() => {
+    return cleanText(currentActiveBiroName);
+  }, [currentActiveBiroName]);
+
+  // Daftar tugas biro yang sedang dibuka
+  const currentActiveBiroTasks = useMemo(() => {
+    return manualTasks[currentActiveBiroKey] || [];
+  }, [manualTasks, currentActiveBiroKey]);
+
+  // Seluruh tugas dari semua biro (untuk mempermudah review Planner)
+  const allSubmittedTasksList = useMemo(() => {
+    const list: TaskItem[] = [];
+    Object.values(manualTasks).forEach(arr => {
+      list.push(...arr);
+    });
+    return list;
+  }, [manualTasks]);
+
+  // Tugas yang ditampilkan di Planner Modal
+  const plannerTasksToShow = useMemo(() => {
+    if (plannerScope === 'all') return allSubmittedTasksList;
+    return currentActiveBiroTasks;
+  }, [plannerScope, allSubmittedTasksList, currentActiveBiroTasks]);
 
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
@@ -552,15 +585,18 @@ export default function App() {
 
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    const activeBiroName = accessMode === 'subkon' ? subconSelectedBiro : selectedFormBiro?.biroName;
-    if (!activeBiroName) return;
+    const activeBiro = currentActiveBiroName;
+    if (!activeBiro) {
+      alert('Pilih Biro terlebih dahulu.');
+      return;
+    }
 
     try {
       let validBiroId: string | null = null;
       const { data: biroList } = await supabase.from('biros').select('id, name');
       
       if (biroList && biroList.length > 0) {
-        const found = biroList.find(b => isBiroMatch(b.name, activeBiroName));
+        const found = biroList.find(b => isBiroMatch(b.name, activeBiro));
         validBiroId = found ? found.id : biroList[0].id;
       }
 
@@ -568,7 +604,7 @@ export default function App() {
         .from('job_cards')
         .insert({
           biro_id: validBiroId,
-          biro_name: activeBiroName,
+          biro_name: activeBiro,
           personil_name: formData.nama,
           project_code: formData.kodeProyek,
           project: formData.kodeProyek,
@@ -588,10 +624,10 @@ export default function App() {
         return;
       }
 
-      const biroKey = cleanText(activeBiroName);
+      const biroKey = cleanText(activeBiro);
       const newTask: TaskItem = {
         id: insertedRow.id,
-        biroName: activeBiroName,
+        biroName: activeBiro,
         project: formData.kodeProyek,
         taskName: formData.taskName,
         startDate: formData.startDate,
@@ -615,7 +651,7 @@ export default function App() {
         jo: ''
       });
 
-      alert('Job Card berhasil tersimpan! Segera hubungi Planner untuk verifikasi Kode JC agar terbit nomor paket AA.');
+      alert('Job Card berhasil tersimpan! Segera buka menu Planner untuk memasukkan Kode JC agar paket AA otomatis terbit.');
       loadAllJobCards();
     } catch {
       alert('Terjadi kesalahan koneksi database.');
@@ -633,7 +669,7 @@ export default function App() {
     }
   };
 
-  const handleSaveKodeJcForTask = async (taskId: string, biroName: string) => {
+  const handleSaveKodeJcForTask = async (taskId: string, targetBiroName: string) => {
     const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase();
     if (!inputVal) return;
 
@@ -647,11 +683,14 @@ export default function App() {
       return;
     }
 
-    const biroKey = cleanText(biroName);
-    const currentList = manualTasks[biroKey] || [];
-    const updatedList = currentList.map(task => task.id === taskId ? { ...task, kodeJc: inputVal } : task);
-
-    setManualTasks({ ...manualTasks, [biroKey]: updatedList });
+    // Update state manualTasks secara menyeluruh
+    setManualTasks(prev => {
+      const updated = { ...prev };
+      Object.keys(updated).forEach(k => {
+        updated[k] = updated[k].map(t => t.id === taskId ? { ...t, kodeJc: inputVal } : t);
+      });
+      return updated;
+    });
 
     setEditingTaskKode(prev => {
       const next = { ...prev };
@@ -659,6 +698,7 @@ export default function App() {
       return next;
     });
 
+    alert(`Kode JC "${inputVal}" berhasil disimpan! Paket AA otomatis terbit.`);
     loadAllJobCards();
   };
 
@@ -674,10 +714,14 @@ export default function App() {
         return;
       }
 
-      const biroKey = cleanText(biroName);
-      const currentList = manualTasks[biroKey] || [];
-      const updatedList = currentList.filter(t => t.id !== taskId);
-      setManualTasks({ ...manualTasks, [biroKey]: updatedList });
+      setManualTasks(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(k => {
+          updated[k] = updated[k].filter(t => t.id !== taskId);
+        });
+        return updated;
+      });
+
       loadAllJobCards();
     }
   };
@@ -814,27 +858,19 @@ export default function App() {
   const countOrganik = totalPersonilCount - countOutsourcing;
   const totalTasksCount = accordionData.reduce((acc, g) => acc + g.tasks.length, 0);
 
-  const currentBiroKey = selectedFormBiro ? cleanText(selectedFormBiro.biroName) : '';
-  const currentBiroSubmittedTasks = manualTasks[currentBiroKey] || [];
-  const pendingTasksCount = currentBiroSubmittedTasks.filter(t => !t.kodeJc).length;
-
   // DATA KHUSUS BIRO SUBCON TERPILIH
   const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
-  const activeSubconKey = subconSelectedBiro ? cleanText(subconSelectedBiro) : '';
-  const activeSubconSubmittedTasks = manualTasks[activeSubconKey] || [];
-  const activeSubconPendingCount = activeSubconSubmittedTasks.filter(t => !t.kodeJc).length;
+  const activeSubconPendingCount = currentActiveBiroTasks.filter(t => !t.kodeJc).length;
 
-  // =========================================================================
   // LOGIKA AUTO-NUMBERING PAKET TERBIT SUBKON: AA1, AA2, AA3... PER BIRO
-  // =========================================================================
   const approvedSubconPackages = useMemo(() => {
-    return activeSubconSubmittedTasks
+    return currentActiveBiroTasks
       .filter(t => t.kodeJc && t.kodeJc.trim() !== '')
       .map((task, idx) => ({
         ...task,
         packageTitle: `AA${idx + 1}`
       }));
-  }, [activeSubconSubmittedTasks]);
+  }, [currentActiveBiroTasks]);
 
   const subconAccordionData = useMemo(() => {
     if (!subconSelectedBiro) return [];
@@ -845,7 +881,7 @@ export default function App() {
       pMap.set(m.nama, { status: 'Outsourcing', jabatan: m.jabatan, tasks: [] });
     });
 
-    activeSubconSubmittedTasks.forEach(t => {
+    currentActiveBiroTasks.forEach(t => {
       const found = members.find(m => cleanText(m.nama) === cleanText(t.pic));
       const key = found ? found.nama : t.pic;
       if (!pMap.has(key)) {
@@ -859,7 +895,7 @@ export default function App() {
       res.push({ picName, status: v.status, jabatan: v.jabatan, tasks: v.tasks });
     });
     return res.sort((a, b) => a.picName.localeCompare(b.picName));
-  }, [subconSelectedBiro, getSubconMembersForBiro, activeSubconSubmittedTasks]);
+  }, [subconSelectedBiro, getSubconMembersForBiro, currentActiveBiroTasks]);
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
@@ -1198,7 +1234,7 @@ export default function App() {
                             }}
                             className="px-3 py-1.5 bg-purple-600/90 hover:bg-purple-600 text-white text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer"
                           >
-                            <Sparkles className="w-3.5 h-3.5 text-amber-300" /> PAKET AA ({releaseCount})
+                            <Sparkles className="w-3 h-3 text-amber-300" /> PAKET AA ({releaseCount})
                           </button>
                         </div>
                       </div>
@@ -1218,7 +1254,7 @@ export default function App() {
                       {subconSelectedBiro}
                     </h2>
                     <span className="text-xs text-slate-400 font-mono">
-                      {subconSelectedDept?.name} • {activeSubconMembers.length} Outsourcing • {approvedSubconPackages.length} Paket Disetujui
+                      {subconSelectedDept?.name} • {activeSubconMembers.length} Outsourcing • {approvedSubconPackages.length} Paket Rilis
                     </span>
                   </div>
 
@@ -1246,7 +1282,7 @@ export default function App() {
                           subconPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
                         }`}
                       >
-                        Output ({activeSubconSubmittedTasks.length})
+                        Output ({currentActiveBiroTasks.length})
                       </button>
                       <button
                         onClick={() => setSubconPageMode('release')}
@@ -1634,9 +1670,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* ========================================================================= */}
-                {/* VIEW 4: FITUR BARU - HALAMAN PAKET JC TERBIT (AA1, AA2, AA3...)           */}
-                {/* ========================================================================= */}
+                {/* VIEW 4: HALAMAN PAKET JC TERBIT (AA1, AA2, AA3...) */}
                 {subconPageMode === 'release' && (
                   <div className="space-y-4">
                     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1646,7 +1680,7 @@ export default function App() {
                           Daftar Paket Job Card Terbit ({subconSelectedBiro})
                         </h3>
                         <span className="text-xs text-slate-400">
-                          Penugasan resmi yang telah tervalidasi Kode JC oleh Planner dan berpenomoran urut otomatis (AA1, AA2..)
+                          Penugasan resmi yang telah divalidasi Kode JC oleh Planner dan berpenomoran urut otomatis (AA1, AA2..)
                         </span>
                       </div>
 
@@ -1906,9 +1940,9 @@ export default function App() {
                       className="px-2.5 py-1 bg-amber-600/90 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
                     >
                       <Lock className="w-3 h-3" /> Planner
-                      {pendingTasksCount > 0 && (
+                      {currentActiveBiroTasks.filter(t => !t.kodeJc).length > 0 && (
                         <span className="px-1.5 py-0.2 bg-rose-600 text-[10px] font-bold rounded-full">
-                          {pendingTasksCount}
+                          {currentActiveBiroTasks.filter(t => !t.kodeJc).length}
                         </span>
                       )}
                     </button>
@@ -2177,7 +2211,7 @@ export default function App() {
                                             <tr key={task.id} className="hover:bg-slate-800/40">
                                               <td className="py-2 px-2 text-center text-slate-500 font-mono">{tIdx + 1}</td>
                                               <td className="py-2 px-3 font-mono font-semibold text-amber-300">
-                                                {task.kodeJc || <span className="text-rose-400 text-[11px]">Menunggu</span>}
+                                                {task.kodeJc || <span className="text-rose-400 text-[11px]">Menunggu Planner</span>}
                                               </td>
                                               <td className="py-2 px-3 text-emerald-400 font-medium">{task.project}</td>
                                               <td className="py-2 px-3 text-slate-200">{task.taskName}</td>
@@ -2292,13 +2326,15 @@ export default function App() {
           </>
         )}
 
-        {/* MODAL PLANNER */}
+        {/* ========================================================================= */}
+        {/* MODAL PLANNER PANEL (SUDAH DIPERBAIKI: MENDUKUNG SUBKON & SEMUA BIRO)     */}
+        {/* ========================================================================= */}
         {isPlannerModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-2xl shadow-xl overflow-hidden max-h-[85vh] flex flex-col">
               <div className="p-3.5 bg-slate-900 border-b border-slate-700 flex items-center justify-between">
                 <span className="font-bold text-xs text-white flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-amber-400" /> Planner Panel
+                  <Lock className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Verifikasi Kode JC
                 </span>
                 <button
                   onClick={() => setIsPlannerModalOpen(false)}
@@ -2313,7 +2349,7 @@ export default function App() {
                   <form onSubmit={handleVerifyPin} className="max-w-xs mx-auto space-y-3 py-4">
                     <div className="text-center">
                       <KeyRound className="w-8 h-8 mx-auto text-amber-400 mb-1.5" />
-                      <span className="text-xs text-slate-300">PIN Planner</span>
+                      <span className="text-xs text-slate-300">Masukkan PIN Planner</span>
                     </div>
 
                     <input
@@ -2332,24 +2368,46 @@ export default function App() {
                       type="submit"
                       className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-lg transition cursor-pointer"
                     >
-                      Buka
+                      Buka Panel
                     </button>
                   </form>
                 ) : (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between text-xs text-slate-400 pb-2 border-b border-slate-700">
-                      <span>Daftar Pengajuan ({currentBiroSubmittedTasks.length})</span>
+                    {/* Header Filter Cakupan Tugas di Modal Planner */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-700 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-400">Tampilkan:</span>
+                        <div className="bg-slate-900 p-0.5 rounded border border-slate-700 flex text-[11px]">
+                          <button
+                            onClick={() => setPlannerScope('current')}
+                            className={`px-2 py-0.5 rounded transition cursor-pointer ${
+                              plannerScope === 'current' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            Biro Ini ({currentActiveBiroTasks.length})
+                          </button>
+                          <button
+                            onClick={() => setPlannerScope('all')}
+                            className={`px-2 py-0.5 rounded transition cursor-pointer ${
+                              plannerScope === 'all' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            Semua Biro ({allSubmittedTasksList.length})
+                          </button>
+                        </div>
+                      </div>
+
                       <button
                         onClick={() => setIsPlannerUnlocked(false)}
-                        className="text-[11px] underline hover:text-white cursor-pointer"
+                        className="text-[11px] text-slate-400 underline hover:text-white cursor-pointer self-end sm:self-auto"
                       >
-                        Kunci
+                        Kunci Kembali
                       </button>
                     </div>
 
-                    {currentBiroSubmittedTasks.length > 0 ? (
+                    {plannerTasksToShow.length > 0 ? (
                       <div className="space-y-2">
-                        {currentBiroSubmittedTasks.map((task, idx) => {
+                        {plannerTasksToShow.map((task, idx) => {
                           const currentVal = editingTaskKode[task.id] ?? task.kodeJc ?? '';
 
                           return (
@@ -2357,17 +2415,20 @@ export default function App() {
                               key={task.id}
                               className="p-3 bg-slate-900/60 border border-slate-700 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
                             >
-                              <div className="space-y-0.5 text-xs">
-                                <div className="flex items-center gap-2">
+                              <div className="space-y-0.5 text-xs flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <span className="font-mono text-slate-500">#{idx + 1}</span>
                                   <span className="font-semibold text-white">{task.pic}</span>
-                                  <span className="text-blue-400">{task.project}</span>
+                                  <span className="text-blue-400 font-mono">[{task.project}]</span>
                                   <span className="text-purple-400 font-mono">#{task.jo}</span>
+                                  <span className="px-1.5 py-0.2 bg-slate-800 text-slate-400 rounded text-[10px]">
+                                    {task.biroName}
+                                  </span>
                                 </div>
                                 <div className="text-slate-300 text-[11px]">{task.taskName}</div>
                               </div>
 
-                              <div className="flex items-center gap-1.5 self-end sm:self-center">
+                              <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
                                 <input
                                   type="text"
                                   value={currentVal}
@@ -2379,7 +2440,7 @@ export default function App() {
                                   className="w-32 px-2.5 py-1 bg-slate-900 border border-slate-600 rounded text-xs font-mono text-white uppercase focus:outline-none focus:ring-1 focus:ring-amber-500"
                                 />
                                 <button
-                                  onClick={() => handleSaveKodeJcForTask(task.id, selectedFormBiro ? selectedFormBiro.biroName : subconSelectedBiro || '')}
+                                  onClick={() => handleSaveKodeJcForTask(task.id, task.biroName || currentActiveBiroName)}
                                   className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center gap-1 cursor-pointer"
                                 >
                                   <Check className="w-3 h-3" /> Simpan
@@ -2390,7 +2451,9 @@ export default function App() {
                         })}
                       </div>
                     ) : (
-                      <div className="py-6 text-center text-slate-500 text-xs">Tidak ada data</div>
+                      <div className="py-8 text-center text-slate-500 text-xs">
+                        Tidak ada antrean tugas pada cakupan ini
+                      </div>
                     )}
                   </div>
                 )}
