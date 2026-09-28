@@ -797,9 +797,6 @@ export default function App() {
               <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
                 Pilih Akses Portal Sistem
               </h1>
-              <p className="text-slate-400 text-sm max-w-lg mx-auto">
-                Silakan pilih kategori entitas kerja Anda untuk melanjutkan ke modul Job Card dan Rekapitulasi Kerja.
-              </p>
             </div>
 
             {/* Pilihan 2 Kartu: Organik vs Subkon */}
