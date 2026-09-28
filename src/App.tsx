@@ -36,7 +36,7 @@ import {
   RotateCcw, 
   Briefcase, 
   HardHat, 
-  Filter,
+  UserCheck,
   LucideIcon 
 } from 'lucide-react';
 
@@ -80,7 +80,7 @@ export interface OutsourcingMember {
   dept: string;
 }
 
-// 77 Data Anggota Outsourcing Riil dari file AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx
+// Data paten 77 Anggota Outsourcing dari file AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx
 export const masterOutsourcingData: OutsourcingMember[] = [
   { no: 1, nama: "Agustina Indira Wati", nip: "231205011", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Dokumen dan Perencanaan", dept: "Departemen Perencanaan Desain" },
   { no: 2, nama: "Hari Priyono", nip: "240313017", status: "Outsourcing", jabatan: "Desainer I", biro: "Biro Dokumen dan Perencanaan", dept: "Departemen Perencanaan Desain" },
@@ -255,11 +255,13 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
 export default function App() {
   const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
 
-  // Filter khusus halaman Subkontraktor
-  const [subconSearch, setSubconSearch] = useState('');
-  const [subconDeptFilter, setSubconDeptFilter] = useState('ALL');
-  const [subconBiroFilter, setSubconBiroFilter] = useState('ALL');
+  // ================= STATE KHUSUS SUBKON (DEPARTEMEN -> BIRO -> ANGGOTA) =================
+  const [subconSelectedDept, setSubconSelectedDept] = useState<Department | null>(null);
+  const [subconSelectedBiro, setSubconSelectedBiro] = useState<string | null>(null);
+  const [subconPageMode, setSubconPageMode] = useState<'members' | 'form' | 'output'>('members');
+  const [subconSearchQuery, setSubconSearchQuery] = useState('');
 
+  // ================= STATE KHUSUS ORGANIK =================
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedBiroPage, setSelectedBiroPage] = useState<SelectedBiroPage | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
@@ -368,33 +370,15 @@ export default function App() {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
-  // Filter Data Outsourcing pada Halaman Subkon
-  const filteredSubconList = useMemo(() => {
-    return masterOutsourcingData.filter(item => {
-      const matchSearch = subconSearch === '' || 
-        item.nama.toLowerCase().includes(subconSearch.toLowerCase()) ||
-        item.nip.includes(subconSearch) ||
-        item.jabatan.toLowerCase().includes(subconSearch.toLowerCase()) ||
-        item.biro.toLowerCase().includes(subconSearch.toLowerCase());
-
-      const matchDept = subconDeptFilter === 'ALL' || item.dept === subconDeptFilter;
-      const matchBiro = subconBiroFilter === 'ALL' || item.biro === subconBiroFilter;
-
-      return matchSearch && matchDept && matchBiro;
-    });
-  }, [subconSearch, subconDeptFilter, subconBiroFilter]);
-
-  // Daftar unik departemen & biro untuk dropdown filter
-  const uniqueSubconDepts = useMemo(() => {
-    return Array.from(new Set(masterOutsourcingData.map(m => m.dept))).sort();
+  // Fungsi Pembantu: Mengambil anggota outsourcing khusus untuk biro tertentu
+  const getSubconMembersForBiro = useCallback((biroName: string) => {
+    return masterOutsourcingData.filter(os => isBiroMatch(os.biro, biroName));
   }, []);
 
-  const uniqueSubconBiros = useMemo(() => {
-    const list = subconDeptFilter === 'ALL' 
-      ? masterOutsourcingData 
-      : masterOutsourcingData.filter(m => m.dept === subconDeptFilter);
-    return Array.from(new Set(list.map(m => m.biro))).sort();
-  }, [subconDeptFilter]);
+  // Fungsi Pembantu: Mengambil total anggota outsourcing untuk suatu departemen
+  const getSubconCountForDept = useCallback((deptName: string) => {
+    return masterOutsourcingData.filter(os => isBiroMatch(os.dept, deptName)).length;
+  }, []);
 
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
@@ -475,14 +459,14 @@ export default function App() {
   const getBiroMembers = (biroName: string): { nama: string; status: string; jabatan: string }[] => {
     const members: { nama: string; status: string; jabatan: string }[] = [];
 
-    // 1. Masukkan Anggota Outsourcing yang cocok dengan biro ini
+    // Anggota Outsourcing
     masterOutsourcingData.forEach(os => {
       if (isBiroMatch(os.biro, biroName)) {
         members.push({ nama: os.nama, status: 'Outsourcing', jabatan: os.jabatan });
       }
     });
 
-    // 2. Masukkan Anggota Organik dari file Struktur
+    // Anggota Organik dari file Struktur
     if (strukturWorkbook) {
       const sheet = strukturWorkbook.Sheets['CalonPers'] || strukturWorkbook.Sheets[strukturWorkbook.SheetNames[0]];
       if (sheet) {
@@ -597,14 +581,15 @@ export default function App() {
 
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFormBiro) return;
+    const activeBiroName = accessMode === 'subkon' ? subconSelectedBiro : selectedFormBiro?.biroName;
+    if (!activeBiroName) return;
 
     try {
       let validBiroId: string | null = null;
       const { data: biroList } = await supabase.from('biros').select('id, name');
       
       if (biroList && biroList.length > 0) {
-        const found = biroList.find(b => isBiroMatch(b.name, selectedFormBiro.biroName));
+        const found = biroList.find(b => isBiroMatch(b.name, activeBiroName));
         validBiroId = found ? found.id : biroList[0].id;
       }
 
@@ -612,7 +597,7 @@ export default function App() {
         .from('job_cards')
         .insert({
           biro_id: validBiroId,
-          biro_name: selectedFormBiro.biroName,
+          biro_name: activeBiroName,
           personil_name: formData.nama,
           project_code: formData.kodeProyek,
           project: formData.kodeProyek,
@@ -632,10 +617,10 @@ export default function App() {
         return;
       }
 
-      const biroKey = cleanText(selectedFormBiro.biroName);
+      const biroKey = cleanText(activeBiroName);
       const newTask: TaskItem = {
         id: insertedRow.id,
-        biroName: selectedFormBiro.biroName,
+        biroName: activeBiroName,
         project: formData.kodeProyek,
         taskName: formData.taskName,
         startDate: formData.startDate,
@@ -726,20 +711,20 @@ export default function App() {
     }
   };
 
-  const handleClearAllBiroData = async () => {
-    if (!selectedFormBiro) return;
-    if (window.confirm(`Kosongkan semua data tugas di ${selectedFormBiro.biroName}?`)) {
+  const handleClearAllBiroData = async (targetBiroName: string) => {
+    if (!targetBiroName) return;
+    if (window.confirm(`Kosongkan semua data tugas di ${targetBiroName}?`)) {
       const { error } = await supabase
         .from('job_cards')
         .delete()
-        .eq('biro_name', selectedFormBiro.biroName);
+        .eq('biro_name', targetBiroName);
 
       if (error) {
         alert('Gagal mengosongkan data: ' + error.message);
         return;
       }
 
-      const biroKey = cleanText(selectedFormBiro.biroName);
+      const biroKey = cleanText(targetBiroName);
       setManualTasks({ ...manualTasks, [biroKey]: [] });
       loadAllJobCards();
     }
@@ -831,6 +816,11 @@ export default function App() {
     (dept.description || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const filteredSubconDepartments = (departmentsData || []).filter((dept) => 
+    dept.name.toLowerCase().includes(subconSearchQuery.toLowerCase()) ||
+    (dept.description || '').toLowerCase().includes(subconSearchQuery.toLowerCase())
+  );
+
   const filteredTableData = (selectedBiroPage?.data || []).filter(item => 
     item.nip.toLowerCase().includes(tableSearch.toLowerCase()) ||
     item.nama.toLowerCase().includes(tableSearch.toLowerCase())
@@ -857,6 +847,37 @@ export default function App() {
   const currentBiroSubmittedTasks = manualTasks[currentBiroKey] || [];
   const pendingTasksCount = currentBiroSubmittedTasks.filter(t => !t.kodeJc).length;
 
+  // DATA KHUSUS BIRO SUBCON TERPILIH
+  const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
+  const activeSubconKey = subconSelectedBiro ? cleanText(subconSelectedBiro) : '';
+  const activeSubconSubmittedTasks = manualTasks[activeSubconKey] || [];
+  const activeSubconPendingCount = activeSubconSubmittedTasks.filter(t => !t.kodeJc).length;
+
+  const subconAccordionData = useMemo(() => {
+    if (!subconSelectedBiro) return [];
+    const members = getSubconMembersForBiro(subconSelectedBiro);
+    const pMap = new Map<string, { status: string; jabatan: string; tasks: TaskItem[] }>();
+
+    members.forEach(m => {
+      pMap.set(m.nama, { status: 'Outsourcing', jabatan: m.jabatan, tasks: [] });
+    });
+
+    activeSubconSubmittedTasks.forEach(t => {
+      const found = members.find(m => cleanText(m.nama) === cleanText(t.pic));
+      const key = found ? found.nama : t.pic;
+      if (!pMap.has(key)) {
+        pMap.set(key, { status: 'Outsourcing', jabatan: '', tasks: [] });
+      }
+      pMap.get(key)!.tasks.push(t);
+    });
+
+    const res: PersonilCardGroup[] = [];
+    pMap.forEach((v, picName) => {
+      res.push({ picName, status: v.status, jabatan: v.jabatan, tasks: v.tasks });
+    });
+    return res.sort((a, b) => a.picName.localeCompare(b.picName));
+  }, [subconSelectedBiro, getSubconMembersForBiro, activeSubconSubmittedTasks]);
+
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
       {/* Top Navbar */}
@@ -869,6 +890,8 @@ export default function App() {
               setSelectedFormBiro(null);
               setSelectedBiroPage(null);
               setSelectedDept(null);
+              setSubconSelectedBiro(null);
+              setSubconSelectedDept(null);
             }}
           >
             <div className="p-1.5 bg-blue-600 rounded-lg text-white">
@@ -890,6 +913,8 @@ export default function App() {
                   setSelectedFormBiro(null);
                   setSelectedBiroPage(null);
                   setSelectedDept(null);
+                  setSubconSelectedBiro(null);
+                  setSubconSelectedDept(null);
                 }}
                 className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
               >
@@ -897,21 +922,39 @@ export default function App() {
               </button>
             )}
 
-            {selectedFormBiro ? (
+            {/* Tombol Back Dinamis untuk Subkon */}
+            {accessMode === 'subkon' && subconSelectedBiro ? (
+              <button
+                onClick={() => setSubconSelectedBiro(null)}
+                className="flex items-center gap-1.5 px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Biro
+              </button>
+            ) : accessMode === 'subkon' && subconSelectedDept ? (
+              <button
+                onClick={() => setSubconSelectedDept(null)}
+                className="flex items-center gap-1.5 px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" /> Departemen
+              </button>
+            ) : null}
+
+            {/* Tombol Back Dinamis untuk Organik */}
+            {accessMode === 'organik' && selectedFormBiro ? (
               <button
                 onClick={() => setSelectedFormBiro(null)}
                 className="flex items-center gap-1.5 px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" /> Biro
               </button>
-            ) : selectedBiroPage ? (
+            ) : accessMode === 'organik' && selectedBiroPage ? (
               <button
                 onClick={() => setSelectedBiroPage(null)}
                 className="flex items-center gap-1.5 px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" /> Biro
               </button>
-            ) : selectedDept ? (
+            ) : accessMode === 'organik' && selectedDept ? (
               <button
                 onClick={() => setSelectedDept(null)}
                 className="flex items-center gap-1.5 px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
@@ -958,10 +1001,10 @@ export default function App() {
                     <h3 className="text-xl font-bold text-white group-hover:text-blue-400 transition-colors">
                       Pegawai Organik
                     </h3>
-                    <span className="text-xs text-blue-400 font-mono">Divisi Desain PT PAL</span>
+                    <span className="text-xs text-blue-400 font-mono">Divisi Desain PT PAL (PKWTT, PKWT)</span>
                   </div>
                   <p className="text-slate-400 text-xs leading-relaxed">
-                    Akses 6 Departemen, 19 Biro, Formulir Pengajuan & Verifikasi Job Card Planner, Output Rekapitulasi Personil, serta Evaluasi KPI Bulanan.
+                    Akses 6 Departemen, 19 Biro, Formulir Pengajuan & Verifikasi Job Card Planner, Output Rekapitulasi Personil Organik, serta Evaluasi KPI Bulanan.
                   </p>
                 </div>
 
@@ -984,10 +1027,10 @@ export default function App() {
                     <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition-colors">
                       Mitra / Subkontraktor
                     </h3>
-                    <span className="text-xs text-amber-400 font-mono">Daftar Anggota Outsourcing per Biro</span>
+                    <span className="text-xs text-amber-400 font-mono">Daftar Anggota Outsourcing per Departemen & Biro</span>
                   </div>
                   <p className="text-slate-400 text-xs leading-relaxed">
-                    Akses lengkap 77 personel Outsourcing terdistribusi per Biro dan Departemen berdasarkan berkas AKSES AKUN IM4 MENU DRAWING CONTROL.
+                    Akses terkelompok per Departemen dan Biro untuk 77 personel Outsourcing (Drafter & Desainer) berdasarkan berkas AKSES AKUN IM4.
                   </p>
                 </div>
 
@@ -1001,156 +1044,566 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* TAMPILAN MODUL SUBKON: 77 ANGGOTA OUTSOURCING LENGKAP                     */}
+        {/* TAMPILAN MODUL SUBKON: DIKELOMPOKKAN PER DEPARTEMEN -> BIRO -> ANGGOTA   */}
         {/* ========================================================================= */}
         {accessMode === 'subkon' && (
           <div className="space-y-6 animate-fadeIn">
-            {/* Header Portal Subkon */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl">
-                  <HardHat className="w-6 h-6" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-white">Daftar Anggota Outsourcing Divisi Desain</h2>
-                  <span className="text-xs text-slate-400 font-mono">
-                    Sumber: AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL • Terbagi Rinci per Biro
-                  </span>
-                </div>
-              </div>
+            {/* SUBKON LEVEL 1: PILIH DEPARTEMEN */}
+            {!subconSelectedDept && !subconSelectedBiro && (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                      <HardHat className="w-5 h-5 text-amber-400" />
+                      Departemen Desain (Portal Subkontraktor)
+                    </h2>
+                    <span className="text-xs text-slate-400">
+                      Pilih departemen untuk melihat pembagian biro dan 77 personel outsourcing
+                    </span>
+                  </div>
 
-              <button
-                onClick={() => setAccessMode('landing')}
-                className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 transition cursor-pointer self-start sm:self-auto"
-              >
-                Kembali ke Beranda
-              </button>
-            </div>
-
-            {/* Ringkasan Kartu Metrik Outsourcing */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                <span className="text-[11px] text-slate-400 font-medium block">Total Personil Outsourcing</span>
-                <span className="text-2xl font-black font-mono text-amber-400">{masterOutsourcingData.length}</span>
-                <span className="text-[10px] text-slate-500 block mt-0.5">Pegawai Rekanan</span>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                <span className="text-[11px] text-slate-400 font-medium block">Jumlah Biro Penempatan</span>
-                <span className="text-2xl font-black font-mono text-blue-400">15</span>
-                <span className="text-[10px] text-slate-500 block mt-0.5">Biro Desain</span>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                <span className="text-[11px] text-slate-400 font-medium block">Jumlah Drafter</span>
-                <span className="text-2xl font-black font-mono text-emerald-400">
-                  {masterOutsourcingData.filter(o => o.jabatan.toLowerCase().includes('drafter')).length}
-                </span>
-                <span className="text-[10px] text-slate-500 block mt-0.5">Jalur Drafting</span>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
-                <span className="text-[11px] text-slate-400 font-medium block">Jumlah Desainer</span>
-                <span className="text-2xl font-black font-mono text-purple-400">
-                  {masterOutsourcingData.filter(o => o.jabatan.toLowerCase().includes('desainer')).length}
-                </span>
-                <span className="text-[10px] text-slate-500 block mt-0.5">Desainer I / II</span>
-              </div>
-            </div>
-
-            {/* Panel Tabel & Filter Personel Outsourcing */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-              <div className="p-4 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
                   <div className="relative w-64">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="Cari nama, NIP, atau jabatan..."
-                      value={subconSearch}
-                      onChange={(e) => setSubconSearch(e.target.value)}
+                      placeholder="Cari departemen..."
+                      value={subconSearchQuery}
+                      onChange={(e) => setSubconSearchQuery(e.target.value)}
                       className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
-                  {/* Filter Departemen */}
-                  <select
-                    value={subconDeptFilter}
-                    onChange={(e) => {
-                      setSubconDeptFilter(e.target.value);
-                      setSubconBiroFilter('ALL');
-                    }}
-                    className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
-                  >
-                    <option value="ALL">Semua Departemen</option>
-                    {uniqueSubconDepts.map((d, i) => (
-                      <option key={i} value={d}>{d}</option>
-                    ))}
-                  </select>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredSubconDepartments.map((dept) => {
+                    const IconComponent = iconMap[dept.icon] || Building2;
+                    const countSubcon = getSubconCountForDept(dept.name);
 
-                  {/* Filter Biro */}
-                  <select
-                    value={subconBiroFilter}
-                    onChange={(e) => setSubconBiroFilter(e.target.value)}
-                    className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
-                  >
-                    <option value="ALL">Semua Biro</option>
-                    {uniqueSubconBiros.map((b, i) => (
-                      <option key={i} value={b}>{b}</option>
-                    ))}
-                  </select>
+                    return (
+                      <div
+                        key={dept.id}
+                        onClick={() => setSubconSelectedDept(dept)}
+                        className="bg-slate-900 border border-slate-800 hover:border-amber-500/60 rounded-xl p-5 cursor-pointer transition flex flex-col justify-between hover:shadow-lg hover:shadow-amber-500/5 group"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-lg group-hover:bg-amber-500 group-hover:text-slate-950 transition-colors">
+                              <IconComponent className="w-5 h-5" />
+                            </div>
+                            <span className="text-[10px] font-mono px-2 py-0.5 bg-slate-800 text-amber-400 rounded border border-amber-500/20 font-bold">
+                              {countSubcon} Subkon
+                            </span>
+                          </div>
+                          <h3 className="font-semibold text-white text-base group-hover:text-amber-400 transition-colors">
+                            {dept.name}
+                          </h3>
+                        </div>
+
+                        <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                          <span>{dept.biros.length} Biro</span>
+                          <span className="text-amber-400 flex items-center gap-0.5 font-medium group-hover:translate-x-1 transition-transform">
+                            Buka Biro <ChevronRight className="w-3.5 h-3.5" />
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
+            )}
 
-              {/* Tabel Daftar Outsourcing */}
-              <div className="overflow-x-auto">
-                {filteredSubconList.length > 0 ? (
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-800/80 text-slate-300 border-b border-slate-700 font-semibold">
-                      <tr>
-                        <th className="py-3 px-3 text-center w-12">#</th>
-                        <th className="py-3 px-3">Nama Lengkap</th>
-                        <th className="py-3 px-3 font-mono">NIP</th>
-                        <th className="py-3 px-3 text-center">Status</th>
-                        <th className="py-3 px-3">Jabatan</th>
-                        <th className="py-3 px-3">Departemen</th>
-                        <th className="py-3 px-3">Biro Penempatan</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800 text-slate-200">
-                      {filteredSubconList.map((person, idx) => (
-                        <tr key={idx} className="hover:bg-slate-800/40">
-                          <td className="py-3 px-3 text-center text-slate-500 font-mono">{idx + 1}</td>
-                          <td className="py-3 px-3 font-medium text-white flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-[10px]">
-                              {person.nama.charAt(0)}
+            {/* SUBKON LEVEL 2: DAFTAR BIRO DI BAWAH DEPARTEMEN TERPILIH */}
+            {subconSelectedDept && !subconSelectedBiro && (
+              <div className="space-y-5 animate-fadeIn">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div>
+                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                      <Building2 className="w-5 h-5 text-amber-400" />
+                      {subconSelectedDept.name}
+                    </h2>
+                    <span className="text-xs text-slate-400">
+                      {subconSelectedDept.biros.length} Biro Terdaftar • Total {getSubconCountForDept(subconSelectedDept.name)} Personel Outsourcing
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {subconSelectedDept.biros.map((biro) => {
+                    const biroSubconMembers = getSubconMembersForBiro(biro.name);
+                    const countInBiro = biroSubconMembers.length;
+
+                    return (
+                      <div
+                        key={biro.id}
+                        className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-slate-700 transition"
+                      >
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <h4 className="text-sm font-semibold text-white">{biro.name}</h4>
+                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
+                            countInBiro > 0 
+                              ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' 
+                              : 'bg-slate-800 text-slate-500 border-slate-700'
+                          }`}>
+                            {countInBiro} Anggota Outsourcing
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              setSubconSelectedBiro(biro.name);
+                              setSubconPageMode('members');
+                            }}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Users className="w-3.5 h-3.5 text-amber-400" /> ANGGOTA ({countInBiro})
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setSubconSelectedBiro(biro.name);
+                              setSubconPageMode('form');
+                            }}
+                            className="px-3 py-1.5 bg-emerald-600/90 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <FileText className="w-3.5 h-3.5" /> FORM
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setSubconSelectedBiro(biro.name);
+                              setSubconPageMode('output');
+                            }}
+                            className="px-3 py-1.5 bg-blue-600/90 hover:bg-blue-600 text-white text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <Layers className="w-3.5 h-3.5" /> OUTPUT
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* SUBKON LEVEL 3: HALAMAN BIRO (TABEL ANGGOTA / FORM / OUTPUT) */}
+            {subconSelectedBiro && (
+              <div className="space-y-4 animate-fadeIn">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-bold text-white flex items-center gap-2">
+                      <HardHat className="w-4 h-4 text-amber-400" />
+                      {subconSelectedBiro}
+                    </h2>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {subconSelectedDept?.name} • {activeSubconMembers.length} Anggota Outsourcing • {activeSubconSubmittedTasks.length} Tugas
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1">
+                      <button
+                        onClick={() => setSubconPageMode('members')}
+                        className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
+                          subconPageMode === 'members' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Anggota ({activeSubconMembers.length})
+                      </button>
+                      <button
+                        onClick={() => setSubconPageMode('form')}
+                        className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
+                          subconPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Form
+                      </button>
+                      <button
+                        onClick={() => setSubconPageMode('output')}
+                        className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
+                          subconPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Output ({activeSubconSubmittedTasks.length})
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPlannerModalOpen(true);
+                        setPinError(false);
+                      }}
+                      className="px-2.5 py-1 bg-amber-600/90 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Lock className="w-3 h-3" /> Planner
+                      {activeSubconPendingCount > 0 && (
+                        <span className="px-1.5 py-0.2 bg-rose-600 text-[10px] font-bold rounded-full">
+                          {activeSubconPendingCount}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* VIEW 1: TABEL DAFTAR ANGGOTA OUTSOURCING DI BIRO INI */}
+                {subconPageMode === 'members' && (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                    <div className="p-3.5 border-b border-slate-800 flex items-center justify-between">
+                      <span className="text-xs font-bold text-white flex items-center gap-2">
+                        <Users className="w-4 h-4 text-amber-400" />
+                        Daftar Anggota Outsourcing {subconSelectedBiro}
+                      </span>
+                      <span className="text-xs font-mono text-slate-400">
+                        {activeSubconMembers.length} Personel Terdaftar
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      {activeSubconMembers.length > 0 ? (
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-slate-800/80 text-slate-300 border-b border-slate-700 font-semibold">
+                            <tr>
+                              <th className="py-2.5 px-3 text-center w-12">#</th>
+                              <th className="py-2.5 px-3">Nama Personil</th>
+                              <th className="py-2.5 px-3 font-mono">NIP</th>
+                              <th className="py-2.5 px-3 text-center">Status</th>
+                              <th className="py-2.5 px-3">Jabatan</th>
+                              <th className="py-2.5 px-3">Biro Penempatan</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800 text-slate-200">
+                            {activeSubconMembers.map((person, idx) => (
+                              <tr key={idx} className="hover:bg-slate-800/40">
+                                <td className="py-2.5 px-3 text-center text-slate-500 font-mono">{idx + 1}</td>
+                                <td className="py-2.5 px-3 font-medium text-white flex items-center gap-2">
+                                  <div className="w-6 h-6 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-[10px]">
+                                    {person.nama.charAt(0)}
+                                  </div>
+                                  {person.nama}
+                                </td>
+                                <td className="py-2.5 px-3 font-mono text-slate-400">{person.nip}</td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                                    {person.status}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-cyan-300">{person.jabatan}</td>
+                                <td className="py-2.5 px-3 text-slate-300 font-medium">{person.biro}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <div className="py-12 text-center text-slate-500 text-xs">
+                          Biro ini belum memiliki personel outsourcing terdaftar pada file master IM4
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* VIEW 2: FORMULIR JOB CARD KHUSUS ANGGOTA OUTSOURCING BIRO INI */}
+                {subconPageMode === 'form' && (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                    <form onSubmit={handleSubmitForm} className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-medium text-slate-300 mb-1">
+                            Nama Personil Outsourcing ({subconSelectedBiro})
+                          </label>
+                          {activeSubconMembers.length > 0 ? (
+                            <select
+                              value={formData.nama}
+                              onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
+                              required
+                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                            >
+                              <option value="">Pilih Nama Personil...</option>
+                              {activeSubconMembers.map((person, idx) => (
+                                <option key={idx} value={person.nama}>
+                                  {person.nama} ({person.jabatan})
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={formData.nama}
+                              onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
+                              placeholder="Ketik Nama Personil Outsourcing..."
+                              required
+                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            />
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-slate-300 mb-1">Proyek</label>
+                          {projectOptions.length > 0 ? (
+                            <select
+                              value={formData.kodeProyek}
+                              onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
+                              required
+                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                            >
+                              <option value="">Pilih Proyek...</option>
+                              {projectOptions.map((proj, idx) => (
+                                <option key={idx} value={proj}>{proj}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={formData.kodeProyek}
+                              onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
+                              placeholder="Kode Proyek..."
+                              required
+                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            />
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-slate-300 mb-1">JO (Angka)</label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={formData.jo}
+                            onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9]/g, '') }))}
+                            placeholder="Contoh: 300426"
+                            required
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-amber-500"
+                          />
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-medium text-slate-300 mb-1">Task Name / Uraian Gambar</label>
+                          {taskOptions.length > 0 ? (
+                            <select
+                              value={formData.taskName}
+                              onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                              required
+                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                            >
+                              <option value="">Pilih Task...</option>
+                              {taskOptions.map((task, idx) => (
+                                <option key={idx} value={task}>{task}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={formData.taskName}
+                              onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                              placeholder="Uraian Pekerjaan / Task Name..."
+                              required
+                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            />
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-slate-300 mb-1">Start Date</label>
+                          <input
+                            type="date"
+                            value={formData.startDate}
+                            onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                            required
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-slate-300 mb-1">End Date</label>
+                          <input
+                            type="date"
+                            value={formData.endDate}
+                            onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                            required
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-medium text-slate-300 mb-1">PIC Subkon</label>
+                          <input
+                            type="text"
+                            value={formData.pic}
+                            onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))}
+                            placeholder="Nama PIC Subkon..."
+                            required
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '' })}
+                          className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg transition cursor-pointer"
+                        >
+                          Reset
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Send className="w-3.5 h-3.5" /> Simpan Tugas Subkon
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                {/* VIEW 3: OUTPUT REKAPITULASI TUGAS PERSONEL OUTSOURCING */}
+                {subconPageMode === 'output' && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="relative flex-1 max-w-xs">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Cari tugas subkon..."
+                          value={outputSearch}
+                          onChange={(e) => setOutputSearch(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            const all: Record<string, boolean> = {};
+                            subconAccordionData.forEach(g => { all[g.picName] = true; });
+                            setExpandedCards(all);
+                          }}
+                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700 cursor-pointer"
+                        >
+                          Buka
+                        </button>
+                        <button
+                          onClick={() => setExpandedCards({})}
+                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700 cursor-pointer"
+                        >
+                          Tutup
+                        </button>
+                        <button
+                          onClick={() => handleClearAllBiroData(subconSelectedBiro)}
+                          className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded border border-rose-800/40 cursor-pointer"
+                          title="Reset Data"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {subconAccordionData.length > 0 ? (
+                      <div className="space-y-2">
+                        {subconAccordionData.map((person, idx) => {
+                          const isExpanded = expandedCards[person.picName] ?? false;
+                          const taskCount = person.tasks.length;
+                          const isActive = taskCount > 0;
+
+                          return (
+                            <div
+                              key={idx}
+                              className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden"
+                            >
+                              <div
+                                onClick={() => toggleAccordion(person.picName)}
+                                className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/80 transition"
+                              >
+                                <div className="flex items-center gap-2.5 flex-wrap">
+                                  <div className="w-7 h-7 rounded-lg bg-amber-600 text-white flex items-center justify-center text-xs font-bold">
+                                    <User className="w-4 h-4" />
+                                  </div>
+                                  <span className="font-semibold text-sm text-white">{person.picName}</span>
+                                  <span className="text-xs font-mono text-slate-400">({taskCount})</span>
+
+                                  <span className="px-2 py-0.5 text-[10px] font-bold rounded border bg-amber-500/15 text-amber-400 border-amber-500/30">
+                                    Outsourcing
+                                  </span>
+
+                                  {person.jabatan && (
+                                    <span className="text-[11px] text-slate-400 hidden sm:inline">
+                                      • {person.jabatan}
+                                    </span>
+                                  )}
+
+                                  <span className={`px-2 py-0.2 text-[10px] font-bold rounded ${
+                                    isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'
+                                  }`}>
+                                    {isActive ? 'Aktif' : 'Kosong'}
+                                  </span>
+                                </div>
+
+                                <div className="text-slate-400">
+                                  {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                </div>
+                              </div>
+
+                              {isExpanded && (
+                                <div className="p-3 border-t border-slate-800 bg-slate-950/40">
+                                  {taskCount > 0 ? (
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-left text-xs">
+                                        <thead>
+                                          <tr className="text-slate-400 border-b border-slate-800 font-medium">
+                                            <th className="py-2 px-2 w-8 text-center">#</th>
+                                            <th className="py-2 px-3 text-amber-400 font-mono">Kode JC</th>
+                                            <th className="py-2 px-3">Proyek</th>
+                                            <th className="py-2 px-3">Task Name</th>
+                                            <th className="py-2 px-3 text-center">Start</th>
+                                            <th className="py-2 px-3 text-center">End</th>
+                                            <th className="py-2 px-3 text-center font-mono">JO</th>
+                                            <th className="py-2 px-2 w-10 text-center">Aksi</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-800 text-slate-200">
+                                          {person.tasks.map((task, tIdx) => (
+                                            <tr key={task.id} className="hover:bg-slate-800/40">
+                                              <td className="py-2 px-2 text-center text-slate-500 font-mono">{tIdx + 1}</td>
+                                              <td className="py-2 px-3 font-mono font-semibold text-amber-300">
+                                                {task.kodeJc || <span className="text-rose-400 text-[11px]">Menunggu</span>}
+                                              </td>
+                                              <td className="py-2 px-3 text-emerald-400 font-medium">{task.project}</td>
+                                              <td className="py-2 px-3 text-slate-200">{task.taskName}</td>
+                                              <td className="py-2 px-3 text-center font-mono text-cyan-300">{task.startDate}</td>
+                                              <td className="py-2 px-3 text-center font-mono text-cyan-300">{task.endDate}</td>
+                                              <td className="py-2 px-3 text-center font-mono font-bold text-violet-300">#{task.jo}</td>
+                                              <td className="py-2 px-2 text-center">
+                                                <button
+                                                  onClick={() => handleDeleteTask(task.id, subconSelectedBiro)}
+                                                  className="p-1 text-slate-500 hover:text-rose-400 rounded cursor-pointer"
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  ) : (
+                                    <div className="py-4 text-center text-slate-500 text-xs">Belum ada tugas</div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            {person.nama}
-                          </td>
-                          <td className="py-3 px-3 font-mono text-slate-400">{person.nip}</td>
-                          <td className="py-3 px-3 text-center">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                              {person.status}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-slate-300">{person.jabatan}</td>
-                          <td className="py-3 px-3 text-slate-400">{person.dept}</td>
-                          <td className="py-3 px-3 font-medium text-cyan-300">{person.biro}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="py-12 text-center text-slate-500 text-xs">
-                    Tidak ada anggota outsourcing yang cocok dengan filter pencarian
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="py-8 text-center text-slate-500 text-xs bg-slate-900 rounded-xl">
+                        Tidak ada anggota outsourcing di biro ini
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-
-              <div className="p-3 bg-slate-950/60 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 font-mono">
-                <span>Menampilkan {filteredSubconList.length} dari {masterOutsourcingData.length} Personil</span>
-                <span className="text-amber-400 font-bold">100% Data Lengkap</span>
-              </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -1332,9 +1785,7 @@ export default function App() {
                     <form onSubmit={handleSubmitForm} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-medium text-slate-300 mb-1">
-                            Nama Personil (Organik & Outsourcing)
-                          </label>
+                          <label className="block text-xs font-medium text-slate-300 mb-1">Nama Personil</label>
                           {currentBiroMembers.length > 0 ? (
                             <select
                               value={formData.nama}
@@ -1345,7 +1796,7 @@ export default function App() {
                               <option value="">Pilih Nama Personil...</option>
                               {currentBiroMembers.map((person, idx) => (
                                 <option key={idx} value={person.nama}>
-                                  {person.nama} ({person.status}) {person.jabatan ? `— ${person.jabatan}` : ''}
+                                  {person.nama} ({person.status})
                                 </option>
                               ))}
                             </select>
@@ -1488,7 +1939,7 @@ export default function App() {
                         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                         <input
                           type="text"
-                          placeholder="Cari..."
+                          placeholder="Cari personil / tugas..."
                           value={outputSearch}
                           onChange={(e) => setOutputSearch(e.target.value)}
                           className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -1513,7 +1964,7 @@ export default function App() {
                           Tutup
                         </button>
                         <button
-                          onClick={handleClearAllBiroData}
+                          onClick={() => handleClearAllBiroData(selectedFormBiro.biroName)}
                           className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded border border-rose-800/40 cursor-pointer"
                           title="Reset Data"
                         >
@@ -1555,12 +2006,6 @@ export default function App() {
                                   }`}>
                                     {person.status}
                                   </span>
-
-                                  {person.jabatan && (
-                                    <span className="text-[11px] text-slate-400 hidden sm:inline">
-                                      • {person.jabatan}
-                                    </span>
-                                  )}
 
                                   <span className={`px-2 py-0.2 text-[10px] font-bold rounded ${
                                     isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-700 text-slate-400'
@@ -1798,7 +2243,7 @@ export default function App() {
                                   className="w-32 px-2.5 py-1 bg-slate-900 border border-slate-600 rounded text-xs font-mono text-white uppercase focus:outline-none focus:ring-1 focus:ring-amber-500"
                                 />
                                 <button
-                                  onClick={() => handleSaveKodeJcForTask(task.id, selectedFormBiro!.biroName)}
+                                  onClick={() => handleSaveKodeJcForTask(task.id, selectedFormBiro ? selectedFormBiro.biroName : subconSelectedBiro || '')}
                                   className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center gap-1 cursor-pointer"
                                 >
                                   <Check className="w-3 h-3" /> Simpan
