@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { departmentsData, monthList, Department } from './data';
 import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
@@ -36,6 +36,7 @@ import {
   RotateCcw,
   Briefcase,
   HardHat,
+  Filter,
   LucideIcon 
 } from 'lucide-react';
 
@@ -69,6 +70,15 @@ const excelGlobUrls = import.meta.glob('./*.xlsx', {
   eager: true 
 }) as Record<string, string>;
 
+export interface PersonilMember {
+  nama: string;
+  nip: string;
+  status: 'PKWTT' | 'PKWT' | 'Outsourcing' | string;
+  jabatan: string;
+  biro: string;
+  dept: string;
+}
+
 interface ExcelRow {
   nip: string;
   nama: string;
@@ -96,6 +106,8 @@ interface TaskItem {
 
 interface PersonilCardGroup {
   picName: string;
+  status: string;
+  jabatan: string;
   tasks: TaskItem[];
 }
 
@@ -166,6 +178,7 @@ export default function App() {
   const [selectedBiroPage, setSelectedBiroPage] = useState<SelectedBiroPage | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   const [formPageMode, setFormPageMode] = useState<'form' | 'output'>('form');
+  const [outputStatusFilter, setOutputStatusFilter] = useState<'ALL' | 'ORGANIK' | 'OUTSOURCING'>('ALL');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [tableSearch, setTableSearch] = useState('');
@@ -229,8 +242,10 @@ export default function App() {
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [strukturWorkbook, setStrukturWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
   const [isLoadingExcel, setIsLoadingExcel] = useState<boolean>(true);
 
+  // 1. MEMUAT FILE EXCEL (TERMASUK MASTER AKSES AKUN IM4 & STRUKTUR)
   useEffect(() => {
     async function loadAllExcelFiles() {
       try {
@@ -238,15 +253,17 @@ export default function App() {
         let kpiUrl = '';
         let jcUrl = '';
         let strukturUrl = '';
+        let im4Url = '';
 
         Object.entries(excelGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
           if (pLower.includes('kpi')) kpiUrl = url;
           else if (pLower.includes('jobcard')) jcUrl = url;
+          else if (pLower.includes('im4') || pLower.includes('akses') || pLower.includes('drawing')) im4Url = url;
           else if (pLower.includes('struktur')) strukturUrl = url;
         });
 
-        const [wbKpi, wbJc, wbStruktur] = await Promise.all([
+        const [wbKpi, wbJc, wbStruktur, wbIm4] = await Promise.all([
           fetchSafeWorkbook([kpiUrl, '/data_kpi.xlsx', './data_kpi.xlsx']),
           fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx', '/JOBCARD DESAIN.xlsx']),
           fetchSafeWorkbook([
@@ -254,12 +271,20 @@ export default function App() {
             '/Struktur_dan_Anggota_Desain_Upd_0826_(1).xlsx',
             './Struktur_dan_Anggota_Desain_Upd_0826_(1).xlsx',
             '/Struktur_dan_Anggota_Desain_Upd_0826.xlsx'
+          ]),
+          fetchSafeWorkbook([
+            im4Url,
+            '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx',
+            './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx',
+            '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL.xlsx',
+            './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL.xlsx'
           ])
         ]);
 
         if (wbKpi) setWorkbook(wbKpi);
         if (wbJc) setJobcardWorkbook(wbJc);
         if (wbStruktur) setStrukturWorkbook(wbStruktur);
+        if (wbIm4) setIm4Workbook(wbIm4);
       } catch {
         // fallback
       } finally {
@@ -269,6 +294,79 @@ export default function App() {
     loadAllExcelFiles();
     loadAllJobCards();
   }, [loadAllJobCards]);
+
+  // 2. PARSING HIERARKI OUTSOURCING & ORGANIK DARI FILE IM4
+  const allParsedPersonnel = useMemo<PersonilMember[]>(() => {
+    const targetWb = im4Workbook || strukturWorkbook;
+    if (!targetWb) return [];
+
+    const sheetName = targetWb.SheetNames.find(s => s.toLowerCase().includes('education')) || targetWb.SheetNames[0];
+    const sheet = targetWb.Sheets[sheetName];
+    if (!sheet) return [];
+
+    const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    
+    // Cari baris header
+    let headerIdx = -1;
+    for (let r = 0; r < Math.min(10, rawRows.length); r++) {
+      const rowVals = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
+      if (rowVals.includes('nama') && rowVals.includes('nip')) {
+        headerIdx = r;
+        break;
+      }
+    }
+
+    if (headerIdx === -1) return [];
+
+    const headers = rawRows[headerIdx].map(v => String(v).trim().toLowerCase());
+    const namaCol = headers.findIndex(h => h === 'nama');
+    const nipCol = headers.findIndex(h => h === 'nip');
+    const statusCol = headers.findIndex(h => h === 'status');
+    const unitCol = headers.findIndex(h => h.includes('unit'));
+    const jabatanCol = headers.findIndex(h => h.includes('jabatan'));
+
+    let currentDept = '';
+    let currentBiro = '';
+    const results: PersonilMember[] = [];
+
+    for (let r = headerIdx + 1; r < rawRows.length; r++) {
+      const row = rawRows[r];
+      if (!row) continue;
+
+      const nama = String(row[namaCol] || '').trim();
+      if (!nama || nama.toLowerCase() === 'nan' || nama.toLowerCase() === 'nama') continue;
+
+      const nip = String(row[nipCol] || '').trim();
+      const statusRaw = String(row[statusCol] || '').trim();
+      const unit = String(row[unitCol] || '').trim();
+      const jabatan = String(row[jabatanCol] || '').trim();
+
+      // Deteksi pergantian pimpinan biro / departemen
+      if (jabatan.toLowerCase().includes('kepala divisi')) {
+        currentDept = 'Div. Desain';
+        currentBiro = 'Div. Desain';
+      } else if (jabatan.toLowerCase().includes('kepala departemen') || jabatan.toLowerCase().includes('kadep')) {
+        if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
+        else currentDept = jabatan;
+        currentBiro = `Staf ${currentDept}`;
+      } else if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
+        currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').replace(/Kabiro/gi, 'Biro').trim();
+        if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
+      }
+
+      // Seluruh anggota (PKWTT, PKWT, maupun Outsourcing) otomatis mewarisi Biro aktif
+      results.push({
+        nama,
+        nip,
+        status: statusRaw || 'PKWTT',
+        jabatan,
+        biro: currentBiro,
+        dept: currentDept
+      });
+    }
+
+    return results;
+  }, [im4Workbook, strukturWorkbook]);
 
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
@@ -346,9 +444,16 @@ export default function App() {
     return timesheetMap;
   };
 
-  const getBiroMembers = (biroName: string): string[] => {
-    const members: string[] = [];
+  // 3. PENGAMBILAN ANGGOTA BIRO (ORGANIK + OUTSOURCING LENGKAP)
+  const getBiroMembers = (biroName: string): PersonilMember[] => {
+    // Jalur Utama: dari file IM4 (Otomatis membagi Organik & Outsourcing)
+    if (allParsedPersonnel.length > 0) {
+      const matched = allParsedPersonnel.filter(p => isBiroMatch(p.biro, biroName));
+      if (matched.length > 0) return matched;
+    }
 
+    // Jalur Cadangan: dari sheet CalonPers jika IM4 belum dimuat
+    const fallbackList: PersonilMember[] = [];
     if (strukturWorkbook) {
       const sheet = strukturWorkbook.Sheets['CalonPers'] || strukturWorkbook.Sheets[strukturWorkbook.SheetNames[0]];
       if (sheet) {
@@ -373,10 +478,18 @@ export default function App() {
             if (valD.toLowerCase().includes('biro')) {
               currentBiro = valD;
             } else if (currentBiro && isBiroMatch(currentBiro, biroName)) {
-              if (valD && !/^\d+$/.test(valD) && (!valN || valN.toLowerCase() === 'nan') && !valD.toLowerCase().includes('departemen') && !valD.toLowerCase().includes('personil') && !valD.toLowerCase().includes('total')) {
-                if (!members.includes(valD) && valD.toLowerCase() !== 'nan') members.push(valD);
-              } else if (valN && valN.toLowerCase() !== 'nan' && valN.toUpperCase() !== 'PERSONIL' && !valN.toLowerCase().includes('departemen')) {
-                if (!members.includes(valN)) members.push(valN);
+              const nameCandidate = valN && valN.toLowerCase() !== 'nan' && valN.toUpperCase() !== 'PERSONIL' ? valN : valD;
+              if (nameCandidate && !/^\d+$/.test(nameCandidate) && !nameCandidate.toLowerCase().includes('departemen') && !nameCandidate.toLowerCase().includes('personil') && !nameCandidate.toLowerCase().includes('total')) {
+                if (!fallbackList.some(f => f.nama === nameCandidate)) {
+                  fallbackList.push({
+                    nama: nameCandidate,
+                    nip: '',
+                    status: 'PKWTT',
+                    jabatan: 'Desainer/Drafter',
+                    biro: currentBiro,
+                    dept: ''
+                  });
+                }
               }
             }
           }
@@ -384,23 +497,7 @@ export default function App() {
       }
     }
 
-    if (members.length === 0 && workbook) {
-      workbook.SheetNames.forEach(sName => {
-        const s = workbook.Sheets[sName];
-        if (!s) return;
-        const kRows: any[][] = XLSX.utils.sheet_to_json(s, { header: 1, defval: '' });
-        kRows.forEach((r, idx) => {
-          if (idx < 1 || !r) return;
-          const bCol = String(r[7] || '').trim();
-          const namaCol = String(r[1] || '').trim();
-          if (namaCol && isBiroMatch(bCol, biroName) && !members.includes(namaCol)) {
-            members.push(namaCol);
-          }
-        });
-      });
-    }
-
-    return members.sort();
+    return fallbackList;
   };
 
   const getJobcardProjects = (): string[] => {
@@ -439,22 +536,41 @@ export default function App() {
     return Array.from(tasks).sort();
   };
 
+  // 4. MENGGABUNGKAN KARTU OUTPUT PERSONIL ORGANIK & OUTSOURCING
   const getAccordionOutputForBiro = (targetBiroName: string): PersonilCardGroup[] => {
     const biroMembers = getBiroMembers(targetBiroName);
-    const personMap = new Map<string, TaskItem[]>();
+    const personMap = new Map<string, { status: string; jabatan: string; tasks: TaskItem[] }>();
 
-    biroMembers.forEach(m => personMap.set(m, []));
+    biroMembers.forEach(m => {
+      personMap.set(m.nama, { status: m.status, jabatan: m.jabatan, tasks: [] });
+    });
+
     const biroKey = cleanText(targetBiroName);
     const tasksForThisBiro = manualTasks[biroKey] || [];
 
     tasksForThisBiro.forEach(t => {
-      let matchedName = biroMembers.find(m => cleanText(m) === cleanText(t.pic)) || t.pic;
-      if (!personMap.has(matchedName)) personMap.set(matchedName, []);
-      personMap.get(matchedName)!.push(t);
+      const matched = biroMembers.find(m => cleanText(m.nama) === cleanText(t.pic));
+      const key = matched ? matched.nama : t.pic;
+      if (!personMap.has(key)) {
+        personMap.set(key, { 
+          status: matched?.status || 'Organik', 
+          jabatan: matched?.jabatan || '', 
+          tasks: [] 
+        });
+      }
+      personMap.get(key)!.tasks.push(t);
     });
 
     const result: PersonilCardGroup[] = [];
-    personMap.forEach((tasks, picName) => result.push({ picName, tasks }));
+    personMap.forEach((val, picName) => {
+      result.push({ 
+        picName, 
+        status: val.status, 
+        jabatan: val.jabatan, 
+        tasks: val.tasks 
+      });
+    });
+
     return result.sort((a, b) => a.picName.localeCompare(b.picName));
   };
 
@@ -705,11 +821,20 @@ export default function App() {
   
   const accordionData = selectedFormBiro ? getAccordionOutputForBiro(selectedFormBiro.biroName) : [];
   const filteredAccordionData = accordionData.filter(g => {
+    // Filter status Organik vs Outsourcing
+    if (outputStatusFilter === 'ORGANIK' && g.status.toLowerCase().includes('outsourcing')) return false;
+    if (outputStatusFilter === 'OUTSOURCING' && !g.status.toLowerCase().includes('outsourcing')) return false;
+
+    // Filter teks pencarian
     const s = outputSearch.toLowerCase();
-    return g.picName.toLowerCase().includes(s) || g.tasks.some(t => t.project.toLowerCase().includes(s) || t.taskName.toLowerCase().includes(s) || (t.kodeJc || '').toLowerCase().includes(s));
+    return g.picName.toLowerCase().includes(s) || 
+           (g.status || '').toLowerCase().includes(s) || 
+           g.tasks.some(t => t.project.toLowerCase().includes(s) || t.taskName.toLowerCase().includes(s) || (t.kodeJc || '').toLowerCase().includes(s));
   });
 
   const totalPersonilCount = accordionData.length;
+  const countOutsourcing = accordionData.filter(a => a.status.toLowerCase().includes('outsourcing')).length;
+  const countOrganik = totalPersonilCount - countOutsourcing;
   const totalTasksCount = accordionData.reduce((acc, g) => acc + g.tasks.length, 0);
 
   const currentBiroKey = selectedFormBiro ? cleanText(selectedFormBiro.biroName) : '';
@@ -797,6 +922,9 @@ export default function App() {
               <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
                 Pilih Akses Portal Sistem
               </h1>
+              <p className="text-slate-400 text-sm max-w-lg mx-auto">
+                Silakan pilih kategori entitas kerja Anda untuk melanjutkan ke modul Job Card dan Rekapitulasi Kerja.
+              </p>
             </div>
 
             {/* Pilihan 2 Kartu: Organik vs Subkon */}
@@ -812,13 +940,17 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-white group-hover:text-blue-400 transition-colors">
-                      Pegawai Organik
+                      Pegawai Organik & Biro
                     </h3>
+                    <span className="text-xs text-blue-400 font-mono">Divisi Desain PT PAL (PKWTT, PKWT, Outsourcing)</span>
                   </div>
+                  <p className="text-slate-400 text-xs leading-relaxed">
+                    Akses 6 Departemen, 19 Biro, Formulir Pengajuan & Verifikasi Job Card Planner, Output Personil Organik & Outsourcing, serta Rekap KPI.
+                  </p>
                 </div>
 
                 <div className="mt-8 pt-4 border-t border-slate-800 flex items-center justify-between text-xs font-semibold text-blue-400">
-                  <span>Masuk Portal Organik</span>
+                  <span>Masuk Portal Biro</span>
                   <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
@@ -834,9 +966,13 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition-colors">
-                      Mitra / Subkon
+                      Mitra / Subkontraktor
                     </h3>
+                    <span className="text-xs text-amber-400 font-mono">Pihak Ketiga & Rekanan Kerja Eksternal</span>
                   </div>
+                  <p className="text-slate-400 text-xs leading-relaxed">
+                    Akses khusus pelaporan penugasan paket pekerjaan mitra, monitoring progres deliverable gambar kapal, dan validasi jam kerja rekanan.
+                  </p>
                 </div>
 
                 <div className="mt-8 pt-4 border-t border-slate-800 flex items-center justify-between text-xs font-semibold text-amber-400">
@@ -874,16 +1010,16 @@ export default function App() {
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
               <HardHat className="w-12 h-12 text-amber-400 mx-auto opacity-80" />
-              <h3 className="text-base font-bold text-white">Modul Subkontraktor Siap Digunakan</h3>
+              <h3 className="text-base font-bold text-white">Modul Subkontraktor Eksternal</h3>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Ruang ini siap diisi dengan daftar paket proyek subkon, monitoring checklist dokumen, atau form upload timesheet mandiri mitra kerja.
+                Ruang ini siap digunakan untuk monitoring checklist deliverable dokumen atau penugasan subkontraktor pihak ketiga.
               </p>
             </div>
           </div>
         )}
 
         {/* ========================================================================= */}
-        {/* TAMPILAN MODUL ORGANIK (HALAMAN LENGKAP YANG SUDAH BERJALAN)               */}
+        {/* TAMPILAN MODUL ORGANIK (DENGAN PEMBAGIAN OUTSOURCING PER BIRO)            */}
         {/* ========================================================================= */}
         {accessMode === 'organik' && (
           <>
@@ -893,7 +1029,7 @@ export default function App() {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <h2 className="text-xl font-bold text-white">Departemen Desain</h2>
-                    <span className="text-xs text-slate-400">Jalur Akses Pegawai Organik</span>
+                    <span className="text-xs text-slate-400">Pilih departemen untuk mengelola Job Card biro</span>
                   </div>
                   <div className="relative w-64">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
@@ -979,6 +1115,7 @@ export default function App() {
                             onClick={() => {
                               setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name });
                               setFormPageMode('output');
+                              setOutputStatusFilter('ALL');
                             }}
                             className="px-2.5 py-1 bg-blue-600/90 hover:bg-blue-600 text-white text-[11px] font-bold rounded-md transition flex items-center gap-1 cursor-pointer"
                           >
@@ -1012,7 +1149,7 @@ export default function App() {
                   <div>
                     <h2 className="text-base font-bold text-white">{selectedFormBiro.biroName}</h2>
                     <span className="text-xs text-slate-400 font-mono">
-                      {totalPersonilCount} Personil • {totalTasksCount} Tugas
+                      {totalPersonilCount} Personil ({countOrganik} Organik, {countOutsourcing} Outsourcing) • {totalTasksCount} Tugas
                     </span>
                   </div>
 
@@ -1054,13 +1191,15 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Form View */}
+                {/* FORM VIEW: DROPDOWN DILENGKAPI LABEL ORGANIK & OUTSOURCING */}
                 {formPageMode === 'form' && (
                   <div className="bg-slate-800/50 border border-slate-700/70 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-medium text-slate-300 mb-1">Nama</label>
+                          <label className="block text-xs font-medium text-slate-300 mb-1">
+                            Nama Personil (Organik & Outsourcing)
+                          </label>
                           {currentBiroMembers.length > 0 ? (
                             <select
                               value={formData.nama}
@@ -1068,9 +1207,11 @@ export default function App() {
                               required
                               className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
                             >
-                              <option value="">Pilih Nama...</option>
-                              {currentBiroMembers.map((nama, idx) => (
-                                <option key={idx} value={nama}>{nama}</option>
+                              <option value="">Pilih Nama Personil...</option>
+                              {currentBiroMembers.map((person, idx) => (
+                                <option key={idx} value={person.nama}>
+                                  {person.nama} ({person.status}) {person.jabatan ? `— ${person.jabatan}` : ''}
+                                </option>
                               ))}
                             </select>
                           ) : (
@@ -1204,22 +1345,50 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Output View */}
+                {/* OUTPUT VIEW: DENGAN BADGE STATUS & FILTER CEPAT (SEMUA / ORGANIK / OUTSOURCING) */}
                 {formPageMode === 'output' && (
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="relative flex-1 max-w-xs">
                         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                         <input
                           type="text"
-                          placeholder="Cari..."
+                          placeholder="Cari personil / tugas..."
                           value={outputSearch}
                           onChange={(e) => setOutputSearch(e.target.value)}
                           className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                         />
                       </div>
 
-                      <div className="flex items-center gap-1.5">
+                      {/* Filter Kategori Personil */}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="bg-slate-900 p-0.5 rounded-lg border border-slate-700 flex gap-0.5 text-xs">
+                          <button
+                            onClick={() => setOutputStatusFilter('ALL')}
+                            className={`px-2.5 py-1 rounded transition cursor-pointer ${
+                              outputStatusFilter === 'ALL' ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            Semua ({totalPersonilCount})
+                          </button>
+                          <button
+                            onClick={() => setOutputStatusFilter('ORGANIK')}
+                            className={`px-2.5 py-1 rounded transition cursor-pointer ${
+                              outputStatusFilter === 'ORGANIK' ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            Organik ({countOrganik})
+                          </button>
+                          <button
+                            onClick={() => setOutputStatusFilter('OUTSOURCING')}
+                            className={`px-2.5 py-1 rounded transition cursor-pointer ${
+                              outputStatusFilter === 'OUTSOURCING' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            Outsourcing ({countOutsourcing})
+                          </button>
+                        </div>
+
                         <button
                           onClick={() => {
                             const all: Record<string, boolean> = {};
@@ -1252,6 +1421,7 @@ export default function App() {
                           const isExpanded = expandedCards[person.picName] ?? false;
                           const taskCount = person.tasks.length;
                           const isActive = taskCount > 0;
+                          const isOutsourcing = person.status.toLowerCase().includes('outsourcing');
 
                           return (
                             <div
@@ -1262,14 +1432,32 @@ export default function App() {
                                 onClick={() => toggleAccordion(person.picName)}
                                 className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/80 transition"
                               >
-                                <div className="flex items-center gap-2.5">
+                                <div className="flex items-center gap-2.5 flex-wrap">
                                   <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
-                                    isActive ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-400'
+                                    isOutsourcing ? 'bg-amber-600 text-white' : isActive ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'
                                   }`}>
                                     <User className="w-4 h-4" />
                                   </div>
                                   <span className="font-semibold text-sm text-white">{person.picName}</span>
                                   <span className="text-xs font-mono text-slate-400">({taskCount})</span>
+
+                                  {/* Badge Status Pegawai */}
+                                  <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
+                                    isOutsourcing 
+                                      ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' 
+                                      : person.status.toLowerCase().includes('pkwt')
+                                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                                      : 'bg-blue-500/15 text-blue-400 border-blue-500/30'
+                                  }`}>
+                                    {person.status}
+                                  </span>
+
+                                  {person.jabatan && (
+                                    <span className="text-[11px] text-slate-400 hidden sm:inline">
+                                      • {person.jabatan}
+                                    </span>
+                                  )}
+
                                   <span className={`px-2 py-0.2 text-[10px] font-bold rounded ${
                                     isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-700 text-slate-400'
                                   }`}>
@@ -1335,7 +1523,7 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="py-8 text-center text-slate-500 text-xs bg-slate-800/30 rounded-xl">
-                        Data tidak ditemukan
+                        Data personil tidak ditemukan pada filter ini
                       </div>
                     )}
                   </div>
