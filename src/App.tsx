@@ -22,20 +22,20 @@ import {
   Search, 
   ChevronRight, 
   Building2, 
-  FileText,
-  Layers,
-  User,
-  ChevronDown,
-  ChevronUp,
-  Send,
-  Trash2,
-  Lock,
-  KeyRound,
-  X,
-  Check,
-  RotateCcw,
-  Briefcase,
-  HardHat,
+  FileText, 
+  Layers, 
+  User, 
+  ChevronDown, 
+  ChevronUp, 
+  Send, 
+  Trash2, 
+  Lock, 
+  KeyRound, 
+  X, 
+  Check, 
+  RotateCcw, 
+  Briefcase, 
+  HardHat, 
   Filter,
   LucideIcon 
 } from 'lucide-react';
@@ -70,14 +70,96 @@ const excelGlobUrls = import.meta.glob('./*.xlsx', {
   eager: true 
 }) as Record<string, string>;
 
-export interface PersonilMember {
+export interface OutsourcingMember {
+  no: number;
   nama: string;
   nip: string;
-  status: 'PKWTT' | 'PKWT' | 'Outsourcing' | string;
+  status: string;
   jabatan: string;
   biro: string;
   dept: string;
 }
+
+// 77 Data Anggota Outsourcing Riil dari file AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx
+export const masterOutsourcingData: OutsourcingMember[] = [
+  { no: 1, nama: "Agustina Indira Wati", nip: "231205011", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Dokumen dan Perencanaan", dept: "Departemen Perencanaan Desain" },
+  { no: 2, nama: "Hari Priyono", nip: "240313017", status: "Outsourcing", jabatan: "Desainer I", biro: "Biro Dokumen dan Perencanaan", dept: "Departemen Perencanaan Desain" },
+  { no: 3, nama: "Fiqih Setyo Suroso", nip: "231205010", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Dokumen dan Perencanaan", dept: "Departemen Perencanaan Desain" },
+  { no: 4, nama: "Ridho Anggoro", nip: "250325000", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Dokumen dan Perencanaan", dept: "Departemen Perencanaan Desain" },
+  { no: 5, nama: "Desty S", nip: "231114011", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Dukungan Logistik Terpadu", dept: "Departemen Perencanaan Desain" },
+  { no: 6, nama: "Surya Baskara", nip: "230904001", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Dukungan Logistik Terpadu", dept: "Departemen Perencanaan Desain" },
+  { no: 7, nama: "Bagas Syahputra", nip: "230824011", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Dukungan Logistik Terpadu", dept: "Departemen Perencanaan Desain" },
+  { no: 8, nama: "Andika Aldo Pratama", nip: "251008002", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Dukungan Administrasi", dept: "Departemen Perencanaan Desain" },
+  { no: 9, nama: "Diana Eka Putri", nip: "250915003", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Basic Desain Kapal Selam", dept: "Departemen Desain Dasar" },
+  { no: 10, nama: "Ernita Lisyiya S.", nip: "260622000", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Kapal Permukaan", dept: "Departemen Desain Dasar" },
+  { no: 11, nama: "Muhammad Irvan Bahtiar", nip: "230808011", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Struktur Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 12, nama: "Tori Ramadeni", nip: "260518000", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Struktur Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 13, nama: "Bani Nazir S", nip: "260518001", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Struktur Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 14, nama: "Masulikan", nip: "231113001", status: "Outsourcing", jabatan: "Desainer I", biro: "Biro Desain Akomodasi", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 15, nama: "Atsil Dzakwan", nip: "191210000", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Akomodasi", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 16, nama: "Nixzam Fathurrahman", nip: "190812001", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Akomodasi", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 17, nama: "Rio Nur Iqbal Krisnaini", nip: "251117005", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Akomodasi", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 18, nama: "Yoan Gunasakti", nip: "220920002", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Akomodasi", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 19, nama: "Rusdiantoro Syarif", nip: "231206000", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Akomodasi", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 20, nama: "Ali Miftakhurridlo", nip: "230829002", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Perlengkapan Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 21, nama: "Rafli Arsyan Muhammad", nip: "230808012", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Perlengkapan Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 22, nama: "Sathya Dewi Parinties", nip: "240813000", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Perlengkapan Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 23, nama: "Angger Prasojo", nip: "231220006", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Perlengkapan Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 24, nama: "Amar Zainul Fikri", nip: "231101004", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Perlengkapan Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 25, nama: "Shafiul Oktavian", nip: "240914000", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Perlengkapan Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 26, nama: "Muhammad Fa'iq Raihan", nip: "251020002", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Perlengkapan Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 27, nama: "Ahmad Taufiqurohman", nip: "230607003", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Produksi Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 28, nama: "Fauzan Abdul Hakim", nip: "230607004", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Produksi Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 29, nama: "Mahadi Dwi Januar", nip: "230824009", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Produksi Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 30, nama: "Devany Rizki Verdiana", nip: "230824001", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Produksi Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 31, nama: "M Andhika Pradana", nip: "230904002", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Produksi Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 32, nama: "Rangga Alif Putra", nip: "231129012", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Produksi Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 33, nama: "Renanda Bayu Harsi", nip: "240318001", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Produksi Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 34, nama: "Daniel Wahyu Adi Setiawan", nip: "251208011", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Produksi Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 35, nama: "Adham Agus Ariandawam", nip: "251211005", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Produksi Lambung", dept: "Departemen Struktur dan Perlengkapan Lambung" },
+  { no: 36, nama: "Slamet Sukirno", nip: "231116000", status: "Outsourcing", jabatan: "Desainer I", biro: "Biro Sistem Propulsi", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 37, nama: "Valina Destya Dharmayanti", nip: "231114017", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Propulsi", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 38, nama: "Ahmad Ahdi Fuadi", nip: "170329009", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 39, nama: "Muhammad Rifki Darmawan", nip: "200504000", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 40, nama: "Hafidh El Amien Iskandar", nip: "231114018", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 41, nama: "Rizqi Fajar Pratama", nip: "240115001", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 42, nama: "Sulton Alfarizi", nip: "230614013", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 43, nama: "Ahmad Wildani", nip: "231114009", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 44, nama: "Angga Saputra Dwi Cahyono", nip: "230614014", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 45, nama: "Alfian Mahendra Andriansyah", nip: "251124002", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 46, nama: "Dimas Choerul Aris", nip: "250228001", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 47, nama: "Fahmi Zaka Isyroqi", nip: "231129016", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 48, nama: "Muhammad Khoiron Khakim", nip: "230613002", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 49, nama: "Dafit Suprianto Pria Utama", nip: "260402000", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 50, nama: "Maulidi Hidayatullah Yasri", nip: "260408013", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Pengaturan Permesinan", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 51, nama: "Anastas Rizaly", nip: "240327002", status: "Outsourcing", jabatan: "Desainer I", biro: "Biro Sistem HVAC dan Permesinan Geladak", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 52, nama: "Muhammad Rizqi Mubaroq", nip: "231004006", status: "Outsourcing", jabatan: "Desainer II", biro: "Biro Sistem HVAC dan Permesinan Geladak", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 53, nama: "Wasis Pringgo Wibisono", nip: "241203008", status: "Outsourcing", jabatan: "Desainer I", biro: "Biro Sistem HVAC dan Permesinan Geladak", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 54, nama: "Ryzzal Archielevia Januarysta", nip: "241203007", status: "Outsourcing", jabatan: "Desainer I", biro: "Biro Sistem HVAC dan Permesinan Geladak", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 55, nama: "Muh. Faizal", nip: "230905014", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem HVAC dan Permesinan Geladak", dept: "Departemen Struktur dan Perlengkapan Permesinan" },
+  { no: 56, nama: "Rafli Setiawan Zulkifli", nip: "230911008", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 57, nama: "Muhamad Faisal Ramadhan", nip: "230911005", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 58, nama: "Ikhwannul Yahya Zhakaria", nip: "230911007", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 59, nama: "Muhammad Rizal Zaini", nip: "231129006", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 60, nama: "Muhammad Shalahuddin Al Misbah", nip: "231129005", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 61, nama: "Arfandi Eko Saputro", nip: "231129014", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 62, nama: "Fortunaviaza Habib Ainudin", nip: "250311004", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 63, nama: "Latho Iful Ikhsan", nip: "220921000", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 64, nama: "Muhammad Rizal Afandhi", nip: "231129017", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 65, nama: "Yusuf Eko Subandrio", nip: "260304014", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 66, nama: "Satrya Ramadhani", nip: "260309001", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 67, nama: "Isfar Ali Ramdan", nip: "260304003", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 68, nama: "Muhammad Zukha Alfinaz", nip: "251030007", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Sistem Kelistrikan", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 69, nama: "Suparno Fathurroji", nip: "23112907", status: "Outsourcing", jabatan: "Desainer I", biro: "Biro Kontrol & Otomasi", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 70, nama: "Muhammad Farid Rizal Basofi", nip: "231129019", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Kontrol & Otomasi", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 71, nama: "Nurissabiqoh Binta Bayu", nip: "260113000", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Kontrol & Otomasi", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 72, nama: "Maulana Hirwa Asrory", nip: "260113001", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Kontrol & Otomasi", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 73, nama: "Duviky Erison", nip: "241209015", status: "Outsourcing", jabatan: "Desainer I", biro: "Biro Desain Sistem Elektronika", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 74, nama: "Fahrul Rosikin", nip: "240115007", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Sistem Elektronika", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 75, nama: "Abdul Wahid Safiudin", nip: "250311006", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Sistem Elektronika", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 76, nama: "Andino Kharis Juniawan", nip: "260309000", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Sistem Elektronika", dept: "Departemen Perlengkapan Listrik dan Elektronika" },
+  { no: 77, nama: "Lifan Gusjianto", nip: "260423013", status: "Outsourcing", jabatan: "Drafter", biro: "Biro Desain Sistem Elektronika", dept: "Departemen Perlengkapan Listrik dan Elektronika" }
+];
 
 interface ExcelRow {
   nip: string;
@@ -127,8 +209,8 @@ function cleanText(str: string): string {
 }
 
 function isBiroMatch(biro1: string, biro2: string): boolean {
-  const b1 = (biro1 || '').toLowerCase().trim();
-  const b2 = (biro2 || '').toLowerCase().trim();
+  const b1 = (biro1 || '').toLowerCase().replace('&', ' dan ').trim();
+  const b2 = (biro2 || '').toLowerCase().replace('&', ' dan ').trim();
   if (!b1 || !b2) return false;
   if (b1 === b2) return true;
 
@@ -143,8 +225,8 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
     (b2.includes('kapal permukaan') || b2.includes('surface'))
   ) return true;
 
-  const c1 = cleanText(b1.replace(/biro|departemen|dept|divisi/gi, ''));
-  const c2 = cleanText(b2.replace(/biro|departemen|dept|divisi/gi, ''));
+  const c1 = cleanText(b1.replace(/biro|departemen|dept|divisi|dan/gi, ''));
+  const c2 = cleanText(b2.replace(/biro|departemen|dept|divisi|dan/gi, ''));
   if (c1 && c2) {
     return c1 === c2 || c1.includes(c2) || c2.includes(c1);
   }
@@ -171,14 +253,17 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
 }
 
 export default function App() {
-  // State Akses Portal Utama: 'landing' (Halaman Pertama) | 'organik' | 'subkon'
   const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
+
+  // Filter khusus halaman Subkontraktor
+  const [subconSearch, setSubconSearch] = useState('');
+  const [subconDeptFilter, setSubconDeptFilter] = useState('ALL');
+  const [subconBiroFilter, setSubconBiroFilter] = useState('ALL');
 
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedBiroPage, setSelectedBiroPage] = useState<SelectedBiroPage | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   const [formPageMode, setFormPageMode] = useState<'form' | 'output'>('form');
-  const [outputStatusFilter, setOutputStatusFilter] = useState<'ALL' | 'ORGANIK' | 'OUTSOURCING'>('ALL');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [tableSearch, setTableSearch] = useState('');
@@ -242,10 +327,8 @@ export default function App() {
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [strukturWorkbook, setStrukturWorkbook] = useState<XLSX.WorkBook | null>(null);
-  const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
   const [isLoadingExcel, setIsLoadingExcel] = useState<boolean>(true);
 
-  // 1. MEMUAT FILE EXCEL (TERMASUK MASTER AKSES AKUN IM4 & STRUKTUR)
   useEffect(() => {
     async function loadAllExcelFiles() {
       try {
@@ -253,17 +336,15 @@ export default function App() {
         let kpiUrl = '';
         let jcUrl = '';
         let strukturUrl = '';
-        let im4Url = '';
 
         Object.entries(excelGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
           if (pLower.includes('kpi')) kpiUrl = url;
           else if (pLower.includes('jobcard')) jcUrl = url;
-          else if (pLower.includes('im4') || pLower.includes('akses') || pLower.includes('drawing')) im4Url = url;
           else if (pLower.includes('struktur')) strukturUrl = url;
         });
 
-        const [wbKpi, wbJc, wbStruktur, wbIm4] = await Promise.all([
+        const [wbKpi, wbJc, wbStruktur] = await Promise.all([
           fetchSafeWorkbook([kpiUrl, '/data_kpi.xlsx', './data_kpi.xlsx']),
           fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx', '/JOBCARD DESAIN.xlsx']),
           fetchSafeWorkbook([
@@ -271,20 +352,12 @@ export default function App() {
             '/Struktur_dan_Anggota_Desain_Upd_0826_(1).xlsx',
             './Struktur_dan_Anggota_Desain_Upd_0826_(1).xlsx',
             '/Struktur_dan_Anggota_Desain_Upd_0826.xlsx'
-          ]),
-          fetchSafeWorkbook([
-            im4Url,
-            '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx',
-            './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx',
-            '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL.xlsx',
-            './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL.xlsx'
           ])
         ]);
 
         if (wbKpi) setWorkbook(wbKpi);
         if (wbJc) setJobcardWorkbook(wbJc);
         if (wbStruktur) setStrukturWorkbook(wbStruktur);
-        if (wbIm4) setIm4Workbook(wbIm4);
       } catch {
         // fallback
       } finally {
@@ -295,78 +368,33 @@ export default function App() {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
-  // 2. PARSING HIERARKI OUTSOURCING & ORGANIK DARI FILE IM4
-  const allParsedPersonnel = useMemo<PersonilMember[]>(() => {
-    const targetWb = im4Workbook || strukturWorkbook;
-    if (!targetWb) return [];
+  // Filter Data Outsourcing pada Halaman Subkon
+  const filteredSubconList = useMemo(() => {
+    return masterOutsourcingData.filter(item => {
+      const matchSearch = subconSearch === '' || 
+        item.nama.toLowerCase().includes(subconSearch.toLowerCase()) ||
+        item.nip.includes(subconSearch) ||
+        item.jabatan.toLowerCase().includes(subconSearch.toLowerCase()) ||
+        item.biro.toLowerCase().includes(subconSearch.toLowerCase());
 
-    const sheetName = targetWb.SheetNames.find(s => s.toLowerCase().includes('education')) || targetWb.SheetNames[0];
-    const sheet = targetWb.Sheets[sheetName];
-    if (!sheet) return [];
+      const matchDept = subconDeptFilter === 'ALL' || item.dept === subconDeptFilter;
+      const matchBiro = subconBiroFilter === 'ALL' || item.biro === subconBiroFilter;
 
-    const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-    
-    // Cari baris header
-    let headerIdx = -1;
-    for (let r = 0; r < Math.min(10, rawRows.length); r++) {
-      const rowVals = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
-      if (rowVals.includes('nama') && rowVals.includes('nip')) {
-        headerIdx = r;
-        break;
-      }
-    }
+      return matchSearch && matchDept && matchBiro;
+    });
+  }, [subconSearch, subconDeptFilter, subconBiroFilter]);
 
-    if (headerIdx === -1) return [];
+  // Daftar unik departemen & biro untuk dropdown filter
+  const uniqueSubconDepts = useMemo(() => {
+    return Array.from(new Set(masterOutsourcingData.map(m => m.dept))).sort();
+  }, []);
 
-    const headers = rawRows[headerIdx].map(v => String(v).trim().toLowerCase());
-    const namaCol = headers.findIndex(h => h === 'nama');
-    const nipCol = headers.findIndex(h => h === 'nip');
-    const statusCol = headers.findIndex(h => h === 'status');
-    const unitCol = headers.findIndex(h => h.includes('unit'));
-    const jabatanCol = headers.findIndex(h => h.includes('jabatan'));
-
-    let currentDept = '';
-    let currentBiro = '';
-    const results: PersonilMember[] = [];
-
-    for (let r = headerIdx + 1; r < rawRows.length; r++) {
-      const row = rawRows[r];
-      if (!row) continue;
-
-      const nama = String(row[namaCol] || '').trim();
-      if (!nama || nama.toLowerCase() === 'nan' || nama.toLowerCase() === 'nama') continue;
-
-      const nip = String(row[nipCol] || '').trim();
-      const statusRaw = String(row[statusCol] || '').trim();
-      const unit = String(row[unitCol] || '').trim();
-      const jabatan = String(row[jabatanCol] || '').trim();
-
-      // Deteksi pergantian pimpinan biro / departemen
-      if (jabatan.toLowerCase().includes('kepala divisi')) {
-        currentDept = 'Div. Desain';
-        currentBiro = 'Div. Desain';
-      } else if (jabatan.toLowerCase().includes('kepala departemen') || jabatan.toLowerCase().includes('kadep')) {
-        if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
-        else currentDept = jabatan;
-        currentBiro = `Staf ${currentDept}`;
-      } else if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
-        currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').replace(/Kabiro/gi, 'Biro').trim();
-        if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
-      }
-
-      // Seluruh anggota (PKWTT, PKWT, maupun Outsourcing) otomatis mewarisi Biro aktif
-      results.push({
-        nama,
-        nip,
-        status: statusRaw || 'PKWTT',
-        jabatan,
-        biro: currentBiro,
-        dept: currentDept
-      });
-    }
-
-    return results;
-  }, [im4Workbook, strukturWorkbook]);
+  const uniqueSubconBiros = useMemo(() => {
+    const list = subconDeptFilter === 'ALL' 
+      ? masterOutsourcingData 
+      : masterOutsourcingData.filter(m => m.dept === subconDeptFilter);
+    return Array.from(new Set(list.map(m => m.biro))).sort();
+  }, [subconDeptFilter]);
 
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
@@ -444,16 +472,17 @@ export default function App() {
     return timesheetMap;
   };
 
-  // 3. PENGAMBILAN ANGGOTA BIRO (ORGANIK + OUTSOURCING LENGKAP)
-  const getBiroMembers = (biroName: string): PersonilMember[] => {
-    // Jalur Utama: dari file IM4 (Otomatis membagi Organik & Outsourcing)
-    if (allParsedPersonnel.length > 0) {
-      const matched = allParsedPersonnel.filter(p => isBiroMatch(p.biro, biroName));
-      if (matched.length > 0) return matched;
-    }
+  const getBiroMembers = (biroName: string): { nama: string; status: string; jabatan: string }[] => {
+    const members: { nama: string; status: string; jabatan: string }[] = [];
 
-    // Jalur Cadangan: dari sheet CalonPers jika IM4 belum dimuat
-    const fallbackList: PersonilMember[] = [];
+    // 1. Masukkan Anggota Outsourcing yang cocok dengan biro ini
+    masterOutsourcingData.forEach(os => {
+      if (isBiroMatch(os.biro, biroName)) {
+        members.push({ nama: os.nama, status: 'Outsourcing', jabatan: os.jabatan });
+      }
+    });
+
+    // 2. Masukkan Anggota Organik dari file Struktur
     if (strukturWorkbook) {
       const sheet = strukturWorkbook.Sheets['CalonPers'] || strukturWorkbook.Sheets[strukturWorkbook.SheetNames[0]];
       if (sheet) {
@@ -478,17 +507,10 @@ export default function App() {
             if (valD.toLowerCase().includes('biro')) {
               currentBiro = valD;
             } else if (currentBiro && isBiroMatch(currentBiro, biroName)) {
-              const nameCandidate = valN && valN.toLowerCase() !== 'nan' && valN.toUpperCase() !== 'PERSONIL' ? valN : valD;
-              if (nameCandidate && !/^\d+$/.test(nameCandidate) && !nameCandidate.toLowerCase().includes('departemen') && !nameCandidate.toLowerCase().includes('personil') && !nameCandidate.toLowerCase().includes('total')) {
-                if (!fallbackList.some(f => f.nama === nameCandidate)) {
-                  fallbackList.push({
-                    nama: nameCandidate,
-                    nip: '',
-                    status: 'PKWTT',
-                    jabatan: 'Desainer/Drafter',
-                    biro: currentBiro,
-                    dept: ''
-                  });
+              const cand = valN && valN.toLowerCase() !== 'nan' && valN.toUpperCase() !== 'PERSONIL' ? valN : valD;
+              if (cand && !/^\d+$/.test(cand) && !cand.toLowerCase().includes('departemen') && !cand.toLowerCase().includes('personil') && !cand.toLowerCase().includes('total')) {
+                if (!members.some(m => cleanText(m.nama) === cleanText(cand))) {
+                  members.push({ nama: cand, status: 'Organik', jabatan: 'Desainer/Drafter' });
                 }
               }
             }
@@ -497,7 +519,7 @@ export default function App() {
       }
     }
 
-    return fallbackList;
+    return members.sort((a, b) => a.nama.localeCompare(b.nama));
   };
 
   const getJobcardProjects = (): string[] => {
@@ -536,7 +558,6 @@ export default function App() {
     return Array.from(tasks).sort();
   };
 
-  // 4. MENGGABUNGKAN KARTU OUTPUT PERSONIL ORGANIK & OUTSOURCING
   const getAccordionOutputForBiro = (targetBiroName: string): PersonilCardGroup[] => {
     const biroMembers = getBiroMembers(targetBiroName);
     const personMap = new Map<string, { status: string; jabatan: string; tasks: TaskItem[] }>();
@@ -821,11 +842,6 @@ export default function App() {
   
   const accordionData = selectedFormBiro ? getAccordionOutputForBiro(selectedFormBiro.biroName) : [];
   const filteredAccordionData = accordionData.filter(g => {
-    // Filter status Organik vs Outsourcing
-    if (outputStatusFilter === 'ORGANIK' && g.status.toLowerCase().includes('outsourcing')) return false;
-    if (outputStatusFilter === 'OUTSOURCING' && !g.status.toLowerCase().includes('outsourcing')) return false;
-
-    // Filter teks pencarian
     const s = outputSearch.toLowerCase();
     return g.picName.toLowerCase().includes(s) || 
            (g.status || '').toLowerCase().includes(s) || 
@@ -861,7 +877,7 @@ export default function App() {
             <div>
               <span className="font-bold text-sm tracking-wide text-white block leading-tight">DIVISI DESAIN</span>
               <span className="text-[10px] text-slate-400">
-                {accessMode === 'landing' ? 'Portal Sistem PT PAL' : accessMode === 'organik' ? 'Portal Pegawai Organik' : 'Portal Subkontraktor'}
+                {accessMode === 'landing' ? 'Portal Sistem PT PAL' : accessMode === 'organik' ? 'Portal Pegawai Organik' : 'Portal Rekanan & Subkontraktor'}
               </span>
             </div>
           </div>
@@ -940,17 +956,17 @@ export default function App() {
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-white group-hover:text-blue-400 transition-colors">
-                      Pegawai Organik & Biro
+                      Pegawai Organik
                     </h3>
-                    <span className="text-xs text-blue-400 font-mono">Divisi Desain PT PAL (PKWTT, PKWT, Outsourcing)</span>
+                    <span className="text-xs text-blue-400 font-mono">Divisi Desain PT PAL</span>
                   </div>
                   <p className="text-slate-400 text-xs leading-relaxed">
-                    Akses 6 Departemen, 19 Biro, Formulir Pengajuan & Verifikasi Job Card Planner, Output Personil Organik & Outsourcing, serta Rekap KPI.
+                    Akses 6 Departemen, 19 Biro, Formulir Pengajuan & Verifikasi Job Card Planner, Output Rekapitulasi Personil, serta Evaluasi KPI Bulanan.
                   </p>
                 </div>
 
                 <div className="mt-8 pt-4 border-t border-slate-800 flex items-center justify-between text-xs font-semibold text-blue-400">
-                  <span>Masuk Portal Biro</span>
+                  <span>Masuk Portal Organik</span>
                   <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
@@ -968,10 +984,10 @@ export default function App() {
                     <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition-colors">
                       Mitra / Subkontraktor
                     </h3>
-                    <span className="text-xs text-amber-400 font-mono">Pihak Ketiga & Rekanan Kerja Eksternal</span>
+                    <span className="text-xs text-amber-400 font-mono">Daftar Anggota Outsourcing per Biro</span>
                   </div>
                   <p className="text-slate-400 text-xs leading-relaxed">
-                    Akses khusus pelaporan penugasan paket pekerjaan mitra, monitoring progres deliverable gambar kapal, dan validasi jam kerja rekanan.
+                    Akses lengkap 77 personel Outsourcing terdistribusi per Biro dan Departemen berdasarkan berkas AKSES AKUN IM4 MENU DRAWING CONTROL.
                   </p>
                 </div>
 
@@ -985,18 +1001,21 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* TAMPILAN MODUL SUBKON                                                     */}
+        {/* TAMPILAN MODUL SUBKON: 77 ANGGOTA OUTSOURCING LENGKAP                     */}
         {/* ========================================================================= */}
         {accessMode === 'subkon' && (
           <div className="space-y-6 animate-fadeIn">
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            {/* Header Portal Subkon */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl">
                   <HardHat className="w-6 h-6" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-white">Portal Rekanan & Subkontraktor</h2>
-                  <span className="text-xs text-slate-400">Pengelolaan Paket Kerja & Deliverable Desain Pihak Ketiga</span>
+                  <h2 className="text-lg font-bold text-white">Daftar Anggota Outsourcing Divisi Desain</h2>
+                  <span className="text-xs text-slate-400 font-mono">
+                    Sumber: AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL • Terbagi Rinci per Biro
+                  </span>
                 </div>
               </div>
 
@@ -1008,18 +1027,135 @@ export default function App() {
               </button>
             </div>
 
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-12 text-center space-y-3">
-              <HardHat className="w-12 h-12 text-amber-400 mx-auto opacity-80" />
-              <h3 className="text-base font-bold text-white">Modul Subkontraktor Eksternal</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Ruang ini siap digunakan untuk monitoring checklist deliverable dokumen atau penugasan subkontraktor pihak ketiga.
-              </p>
+            {/* Ringkasan Kartu Metrik Outsourcing */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                <span className="text-[11px] text-slate-400 font-medium block">Total Personil Outsourcing</span>
+                <span className="text-2xl font-black font-mono text-amber-400">{masterOutsourcingData.length}</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Pegawai Rekanan</span>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                <span className="text-[11px] text-slate-400 font-medium block">Jumlah Biro Penempatan</span>
+                <span className="text-2xl font-black font-mono text-blue-400">15</span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Biro Desain</span>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                <span className="text-[11px] text-slate-400 font-medium block">Jumlah Drafter</span>
+                <span className="text-2xl font-black font-mono text-emerald-400">
+                  {masterOutsourcingData.filter(o => o.jabatan.toLowerCase().includes('drafter')).length}
+                </span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Jalur Drafting</span>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                <span className="text-[11px] text-slate-400 font-medium block">Jumlah Desainer</span>
+                <span className="text-2xl font-black font-mono text-purple-400">
+                  {masterOutsourcingData.filter(o => o.jabatan.toLowerCase().includes('desainer')).length}
+                </span>
+                <span className="text-[10px] text-slate-500 block mt-0.5">Desainer I / II</span>
+              </div>
+            </div>
+
+            {/* Panel Tabel & Filter Personel Outsourcing */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="relative w-64">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Cari nama, NIP, atau jabatan..."
+                      value={subconSearch}
+                      onChange={(e) => setSubconSearch(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Filter Departemen */}
+                  <select
+                    value={subconDeptFilter}
+                    onChange={(e) => {
+                      setSubconDeptFilter(e.target.value);
+                      setSubconBiroFilter('ALL');
+                    }}
+                    className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                  >
+                    <option value="ALL">Semua Departemen</option>
+                    {uniqueSubconDepts.map((d, i) => (
+                      <option key={i} value={d}>{d}</option>
+                    ))}
+                  </select>
+
+                  {/* Filter Biro */}
+                  <select
+                    value={subconBiroFilter}
+                    onChange={(e) => setSubconBiroFilter(e.target.value)}
+                    className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                  >
+                    <option value="ALL">Semua Biro</option>
+                    {uniqueSubconBiros.map((b, i) => (
+                      <option key={i} value={b}>{b}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Tabel Daftar Outsourcing */}
+              <div className="overflow-x-auto">
+                {filteredSubconList.length > 0 ? (
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-800/80 text-slate-300 border-b border-slate-700 font-semibold">
+                      <tr>
+                        <th className="py-3 px-3 text-center w-12">#</th>
+                        <th className="py-3 px-3">Nama Lengkap</th>
+                        <th className="py-3 px-3 font-mono">NIP</th>
+                        <th className="py-3 px-3 text-center">Status</th>
+                        <th className="py-3 px-3">Jabatan</th>
+                        <th className="py-3 px-3">Departemen</th>
+                        <th className="py-3 px-3">Biro Penempatan</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800 text-slate-200">
+                      {filteredSubconList.map((person, idx) => (
+                        <tr key={idx} className="hover:bg-slate-800/40">
+                          <td className="py-3 px-3 text-center text-slate-500 font-mono">{idx + 1}</td>
+                          <td className="py-3 px-3 font-medium text-white flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-[10px]">
+                              {person.nama.charAt(0)}
+                            </div>
+                            {person.nama}
+                          </td>
+                          <td className="py-3 px-3 font-mono text-slate-400">{person.nip}</td>
+                          <td className="py-3 px-3 text-center">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                              {person.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-slate-300">{person.jabatan}</td>
+                          <td className="py-3 px-3 text-slate-400">{person.dept}</td>
+                          <td className="py-3 px-3 font-medium text-cyan-300">{person.biro}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="py-12 text-center text-slate-500 text-xs">
+                    Tidak ada anggota outsourcing yang cocok dengan filter pencarian
+                  </div>
+                )}
+              </div>
+
+              <div className="p-3 bg-slate-950/60 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 font-mono">
+                <span>Menampilkan {filteredSubconList.length} dari {masterOutsourcingData.length} Personil</span>
+                <span className="text-amber-400 font-bold">100% Data Lengkap</span>
+              </div>
             </div>
           </div>
         )}
 
         {/* ========================================================================= */}
-        {/* TAMPILAN MODUL ORGANIK (DENGAN PEMBAGIAN OUTSOURCING PER BIRO)            */}
+        {/* TAMPILAN MODUL ORGANIK (HALAMAN LEVEL 1, LEVEL 2, FORM & OUTPUT)          */}
         {/* ========================================================================= */}
         {accessMode === 'organik' && (
           <>
@@ -1115,7 +1251,6 @@ export default function App() {
                             onClick={() => {
                               setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name });
                               setFormPageMode('output');
-                              setOutputStatusFilter('ALL');
                             }}
                             className="px-2.5 py-1 bg-blue-600/90 hover:bg-blue-600 text-white text-[11px] font-bold rounded-md transition flex items-center gap-1 cursor-pointer"
                           >
@@ -1191,7 +1326,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* FORM VIEW: DROPDOWN DILENGKAPI LABEL ORGANIK & OUTSOURCING */}
+                {/* Form View */}
                 {formPageMode === 'form' && (
                   <div className="bg-slate-800/50 border border-slate-700/70 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
@@ -1345,50 +1480,22 @@ export default function App() {
                   </div>
                 )}
 
-                {/* OUTPUT VIEW: DENGAN BADGE STATUS & FILTER CEPAT (SEMUA / ORGANIK / OUTSOURCING) */}
+                {/* Output View */}
                 {formPageMode === 'output' && (
                   <div className="space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3">
                       <div className="relative flex-1 max-w-xs">
                         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                         <input
                           type="text"
-                          placeholder="Cari personil / tugas..."
+                          placeholder="Cari..."
                           value={outputSearch}
                           onChange={(e) => setOutputSearch(e.target.value)}
                           className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                         />
                       </div>
 
-                      {/* Filter Kategori Personil */}
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <div className="bg-slate-900 p-0.5 rounded-lg border border-slate-700 flex gap-0.5 text-xs">
-                          <button
-                            onClick={() => setOutputStatusFilter('ALL')}
-                            className={`px-2.5 py-1 rounded transition cursor-pointer ${
-                              outputStatusFilter === 'ALL' ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            Semua ({totalPersonilCount})
-                          </button>
-                          <button
-                            onClick={() => setOutputStatusFilter('ORGANIK')}
-                            className={`px-2.5 py-1 rounded transition cursor-pointer ${
-                              outputStatusFilter === 'ORGANIK' ? 'bg-blue-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            Organik ({countOrganik})
-                          </button>
-                          <button
-                            onClick={() => setOutputStatusFilter('OUTSOURCING')}
-                            className={`px-2.5 py-1 rounded transition cursor-pointer ${
-                              outputStatusFilter === 'OUTSOURCING' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            Outsourcing ({countOutsourcing})
-                          </button>
-                        </div>
-
+                      <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => {
                             const all: Record<string, boolean> = {};
@@ -1441,12 +1548,9 @@ export default function App() {
                                   <span className="font-semibold text-sm text-white">{person.picName}</span>
                                   <span className="text-xs font-mono text-slate-400">({taskCount})</span>
 
-                                  {/* Badge Status Pegawai */}
                                   <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
                                     isOutsourcing 
                                       ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' 
-                                      : person.status.toLowerCase().includes('pkwt')
-                                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
                                       : 'bg-blue-500/15 text-blue-400 border-blue-500/30'
                                   }`}>
                                     {person.status}
@@ -1523,7 +1627,7 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="py-8 text-center text-slate-500 text-xs bg-slate-800/30 rounded-xl">
-                        Data personil tidak ditemukan pada filter ini
+                        Data tidak ditemukan
                       </div>
                     )}
                   </div>
