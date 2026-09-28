@@ -65,6 +65,7 @@ const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', {
   eager: true 
 }) as Record<string, string>;
 
+// Hanya membaca 3 file Excel utama
 const excelGlobUrls = import.meta.glob('./*.xlsx', { 
   query: '?url', 
   import: 'default', 
@@ -245,39 +246,30 @@ export default function App() {
   const PLANNER_PIN = '2026';
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
-  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
-  const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
-  const [strukturWorkbook, setStrukturWorkbook] = useState<XLSX.WorkBook | null>(null);
-  const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
+  // HANYA 3 WORKBOOK UTAMA (FILE NOMOR 4 SUDAH DIHAPUS)
+  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);          // data_kpi.xlsx
+  const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);  // JOBCARD_DESAIN.xlsx
+  const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);          // AKSES AKUN IM4...xlsx
   const [isLoadingExcel, setIsLoadingExcel] = useState<boolean>(true);
 
-  // MEMUAT SELURUH FILE EXCEL OTOMATIS
   useEffect(() => {
     async function loadAllExcelFiles() {
       try {
         setIsLoadingExcel(true);
         let kpiUrl = '';
         let jcUrl = '';
-        let strukturUrl = '';
         let im4Url = '';
 
         Object.entries(excelGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
           if (pLower.includes('kpi')) kpiUrl = url;
           else if (pLower.includes('jobcard')) jcUrl = url;
-          else if (pLower.includes('struktur')) strukturUrl = url;
           else if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
         });
 
-        const [wbKpi, wbJc, wbStruktur, wbIm4] = await Promise.all([
+        const [wbKpi, wbJc, wbIm4] = await Promise.all([
           fetchSafeWorkbook([kpiUrl, '/data_kpi.xlsx', './data_kpi.xlsx']),
           fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx', '/JOBCARD DESAIN.xlsx']),
-          fetchSafeWorkbook([
-            strukturUrl, 
-            '/Struktur_dan_Anggota_Desain_Upd_0826_(1).xlsx',
-            './Struktur_dan_Anggota_Desain_Upd_0826_(1).xlsx',
-            '/Struktur_dan_Anggota_Desain_Upd_0826.xlsx'
-          ]),
           fetchSafeWorkbook([
             im4Url,
             '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx',
@@ -289,7 +281,6 @@ export default function App() {
 
         if (wbKpi) setWorkbook(wbKpi);
         if (wbJc) setJobcardWorkbook(wbJc);
-        if (wbStruktur) setStrukturWorkbook(wbStruktur);
         if (wbIm4) setIm4Workbook(wbIm4);
       } catch {
         // fallback
@@ -301,7 +292,6 @@ export default function App() {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
-  // Handler Upload Manual bila file belum berada di public/
   const handleManualUploadExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -311,7 +301,7 @@ export default function App() {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary' });
         setIm4Workbook(wb);
-        alert(`File ${file.name} berhasil dibaca! Anggota outsourcing langsung terkelompokkan per biro.`);
+        alert(`File ${file.name} berhasil dibaca! Anggota outsourcing dan organik langsung diperbarui.`);
       } catch {
         alert('Gagal membaca berkas Excel. Pastikan format file .xlsx');
       }
@@ -320,19 +310,17 @@ export default function App() {
   };
 
   // =========================================================================
-  // PARSER DINAMIS: MEMBACA 100% LANGSUNG DARI FILE EXCEL TANPA ARRAY MANUAL
+  // PARSER DINAMIS DARI FILE IM4 (MEMBACA SELURUH 197 ANGGOTA SECARA OTOMATIS)
   // =========================================================================
   const allParsedFromExcel = useMemo<ParsedMember[]>(() => {
-    const targetWb = im4Workbook || strukturWorkbook;
-    if (!targetWb) return [];
+    if (!im4Workbook) return [];
 
-    const sheetName = targetWb.SheetNames.find(s => s.toLowerCase().includes('education')) || targetWb.SheetNames[0];
-    const sheet = targetWb.Sheets[sheetName];
+    const sheetName = im4Workbook.SheetNames.find(s => s.toLowerCase().includes('education')) || im4Workbook.SheetNames[0];
+    const sheet = im4Workbook.Sheets[sheetName];
     if (!sheet) return [];
 
     const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     
-    // Cari baris header kolom
     let headerIdx = -1;
     for (let r = 0; r < Math.min(15, rawRows.length); r++) {
       const rowVals = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
@@ -367,7 +355,6 @@ export default function App() {
       const unit = String(row[unitCol] || '').trim();
       const jabatan = String(row[jabatanCol] || '').trim();
 
-      // Penelusuran hierarki jabatan pimpinan untuk mendeteksi biro & departemen aktif
       if (jabatan.toLowerCase().includes('kepala divisi')) {
         currentDept = 'Div. Desain';
         currentBiro = 'Div. Desain';
@@ -391,19 +378,17 @@ export default function App() {
     }
 
     return results;
-  }, [im4Workbook, strukturWorkbook]);
+  }, [im4Workbook]);
 
-  // Daftar Anggota Khusus Outsourcing yang diperoleh langsung dari file Excel
+  // Saring Anggota Khusus Outsourcing
   const dynamicOutsourcingList = useMemo(() => {
     return allParsedFromExcel.filter(p => p.status.toLowerCase().includes('outsourcing'));
   }, [allParsedFromExcel]);
 
-  // Fungsi Pembantu: Mengambil anggota outsourcing khusus untuk biro tertentu
   const getSubconMembersForBiro = useCallback((biroName: string) => {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.biro, biroName));
   }, [dynamicOutsourcingList]);
 
-  // Fungsi Pembantu: Mengambil total anggota outsourcing untuk suatu departemen
   const getSubconCountForDept = useCallback((deptName: string) => {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.dept, deptName)).length;
   }, [dynamicOutsourcingList]);
@@ -484,8 +469,8 @@ export default function App() {
     return timesheetMap;
   };
 
+  // Mengambil anggota biro (PKWTT, PKWT, Outsourcing) langsung dari file IM4
   const getBiroMembers = (biroName: string): { nama: string; status: string; jabatan: string }[] => {
-    // Ambil langsung dari hasil parsing file Excel
     const members = allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName));
     if (members.length > 0) {
       return members.map(m => ({ nama: m.nama, status: m.status, jabatan: m.jabatan }));
@@ -834,7 +819,7 @@ export default function App() {
   const currentBiroSubmittedTasks = manualTasks[currentBiroKey] || [];
   const pendingTasksCount = currentBiroSubmittedTasks.filter(t => !t.kodeJc).length;
 
-  // DATA KHUSUS BIRO SUBCON TERPILIH (100% DINAMIS DARI HASIL PARSING EXCEL)
+  // DATA KHUSUS BIRO SUBCON TERPILIH
   const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
   const activeSubconKey = subconSelectedBiro ? cleanText(subconSelectedBiro) : '';
   const activeSubconSubmittedTasks = manualTasks[activeSubconKey] || [];
@@ -1014,7 +999,7 @@ export default function App() {
                     <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition-colors">
                       Mitra / Subkontraktor
                     </h3>
-                    <span className="text-xs text-amber-400 font-mono">Pembagian per Departemen & Biro (Otomatis dari Excel)</span>
+                    <span className="text-xs text-amber-400 font-mono">Daftar Anggota Outsourcing per Departemen & Biro</span>
                   </div>
                   <p className="text-slate-400 text-xs leading-relaxed">
                     Akses terkelompok per Departemen dan Biro untuk seluruh personel Outsourcing (Drafter & Desainer) dibaca dinamis dari file Excel IM4.
@@ -1031,7 +1016,7 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* TAMPILAN MODUL SUBKON: 100% DINAMIS DARI FILE EXCEL                       */}
+        {/* TAMPILAN MODUL SUBKON: DIKELOMPOKKAN PER DEPARTEMEN -> BIRO -> ANGGOTA   */}
         {/* ========================================================================= */}
         {accessMode === 'subkon' && (
           <div className="space-y-6 animate-fadeIn">
@@ -1045,12 +1030,11 @@ export default function App() {
                       Departemen Desain (Portal Subkontraktor)
                     </h2>
                     <span className="text-xs text-slate-400">
-                      Data {dynamicOutsourcingList.length} personel outsourcing otomatis terurai dari berkas Excel
+                      Data {dynamicOutsourcingList.length} personel outsourcing otomatis terurai dari file AKSES AKUN IM4
                     </span>
                   </div>
 
                   <div className="flex items-center gap-3">
-                    {/* Tombol Input File Cadangan jika belum terbaca otomatis */}
                     <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center gap-1.5 cursor-pointer">
                       <Upload className="w-3.5 h-3.5 text-amber-400" />
                       <span>{dynamicOutsourcingList.length > 0 ? 'Ganti File Excel' : 'Pilih File Excel IM4'}</span>
@@ -1079,7 +1063,7 @@ export default function App() {
                   <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <FileSpreadsheet className="w-4 h-4 text-amber-400" />
-                      <span>File Excel IM4 belum terbaca otomatis. Klik tombol "Pilih File Excel IM4" di pojok kanan atas untuk memuat berkas.</span>
+                      <span>File Excel IM4 belum terbaca otomatis. Silakan klik tombol "Pilih File Excel IM4" untuk memuat berkas.</span>
                     </div>
                   </div>
                 )}
