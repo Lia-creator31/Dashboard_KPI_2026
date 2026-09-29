@@ -572,7 +572,7 @@ export default function App() {
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook]);
 
-  // Submit Form: Fleksibel menyimpan kolom rev
+  // Submit Form: Tanpa PIC manual (otomatis nama personil yang dipilih)
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeBiro = currentActiveBiroName;
@@ -606,7 +606,7 @@ export default function App() {
         task_name: formData.taskName,
         start_date: formData.startDate,
         end_date: formData.endDate,
-        pic: formData.nama,
+        pic: formData.nama, // PIC otomatis nama personel yang dipilih
         jo: formData.jo,
         kode_jc: autoKode,
         status: accessMode === 'subkon' ? 'approved' : 'pending',
@@ -624,7 +624,6 @@ export default function App() {
         .single();
 
       if (error) {
-        // Jika schema supabase belum punya kolom rev, retry tanpa rev
         if (error.message?.includes('rev') || (error as any).details?.includes('rev')) {
           delete insertPayload.rev;
           const { data: retryData, error: retryError } = await supabase
@@ -809,10 +808,6 @@ export default function App() {
               <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                 <ArrowLeft className="w-3.5 h-3.5" /> Biro
               </button>
-            ) : accessMode === 'organik' && selectedBiroPage ? (
-              <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                <ArrowLeft className="w-3.5 h-3.5" /> Biro
-              </button>
             ) : accessMode === 'organik' && selectedDept ? (
               <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                 <ArrowLeft className="w-3.5 h-3.5" /> Dept
@@ -969,7 +964,6 @@ export default function App() {
             {/* Step 3: Halaman Biro Subkon */}
             {subconSelectedBiro && (
               <div className="space-y-4">
-                {/* Header & Tab Menu Simpel */}
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3>
@@ -1000,7 +994,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA DENGAN DROPDOWN TABEL (SUBKON) */}
+                {/* TAB 1: ANGGOTA SUBKON */}
                 {subconPageMode === 'members' && (
                   <div className="space-y-2.5">
                     {activeSubconMembers.length > 0 ? (
@@ -1015,7 +1009,6 @@ export default function App() {
                             key={idx} 
                             className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden transition-all duration-200"
                           >
-                            {/* Baris Nama Personel (Header Dropdown) */}
                             <div 
                               onClick={() => toggleAccordion(person.nama)}
                               className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/40 transition"
@@ -1037,16 +1030,11 @@ export default function App() {
                                   {personTasks.length} Tugas
                                 </span>
                                 <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-amber-400' : ''}`}>
-                                  {isExpanded ? (
-                                    <ChevronUp className="w-4 h-4" />
-                                  ) : (
-                                    <ChevronDown className="w-4 h-4" />
-                                  )}
+                                  {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                                 </div>
                               </div>
                             </div>
 
-                            {/* Konten Dropdown: Tabel Kolom Rapi */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1123,12 +1111,11 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 2: FORM PENUGASAN (DEDUKLIPASI KODE PROYEK, DESKRIPSI, IKON KALENDER PUTIH) */}
+                {/* TAB 2: FORM SUBKON */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                        {/* 1. Nama Drafter */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Nama Drafter / Personel</label>
                           <select
@@ -1144,7 +1131,6 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* 2. Kode Proyek (Bebas Duplikat) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Kode Proyek</label>
                           <select
@@ -1160,7 +1146,6 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* 3. Nomor JO */}
                         <div>
                           <label className="block text-slate-400 mb-1">Nomor JO</label>
                           <input
@@ -1174,7 +1159,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 4. Deskripsi (Bebas Duplikat) */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <select
@@ -1190,7 +1174,6 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* 5. Tanggal Mulai (Ikon Kalender Putih Terang) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
                           <div className="relative">
@@ -1209,7 +1192,6 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* 6. Tanggal Selesai (Ikon Kalender Putih Terang) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
                           <div className="relative">
@@ -1241,7 +1223,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 3: WORK ORDER */}
+                {/* TAB 3: WORK ORDER SUBKON */}
                 {subconPageMode === 'release' && (
                   <div className="space-y-3">
                     {subconWorkOrders.length > 0 ? (
@@ -1320,7 +1302,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 2: Biro Organik (Tombol Hasil Resmi Diganti "Anggota") */}
+            {/* Step 2: Biro Organik */}
             {selectedDept && !selectedBiroPage && !selectedFormBiro && (
               <div className="space-y-4">
                 <div className="border-b border-slate-800 pb-2">
@@ -1390,7 +1372,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK DENGAN OUTPUT TABEL (KOLOM: REV, PLAN START, PLAN FINISH, DESKRIPSI) */}
+                {/* TAB 1: ANGGOTA ORGANIK (TABEL KOLOM: REV, PLAN START, PLAN FINISH, PLAN JO, DESKRIPSI) */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
@@ -1424,16 +1406,12 @@ export default function App() {
                                   {personTasks.length} Tugas
                                 </span>
                                 <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-blue-400' : ''}`}>
-                                  {isExpanded ? (
-                                    <ChevronUp className="w-4 h-4" />
-                                  ) : (
-                                    <ChevronDown className="w-4 h-4" />
-                                  )}
+                                  {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                                 </div>
                               </div>
                             </div>
 
-                            {/* OUTPUT TABEL BERKOLOM: REV, PLAN START, PLAN FINISH, DESKRIPSI */}
+                            {/* OUTPUT TABEL BERKOLOM */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1448,7 +1426,7 @@ export default function App() {
                                           <th className="py-2 px-2.5 text-center font-mono">Rev</th>
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
-                                          <th className="py-2 px-2.5 font-mono">JO</th>
+                                          <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
                                           <th className="py-2 px-2.5 text-center w-12">Aksi</th>
                                         </tr>
                                       </thead>
@@ -1517,7 +1495,7 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  /* TAB 2: FORM ORGANIK (PLAN START & PLAN FINISH) */
+                  /* TAB 2: FORM ORGANIK (TANPA PIC, LABEL: PLAN JO) */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1551,8 +1529,9 @@ export default function App() {
                           </select>
                         </div>
 
+                        {/* Nomor JO diganti dengan Plan JO */}
                         <div>
-                          <label className="block text-slate-400 mb-1">Nomor JO</label>
+                          <label className="block text-slate-400 mb-1">Plan JO</label>
                           <input
                             type="text"
                             inputMode="numeric"
@@ -1564,7 +1543,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Task Name -> Deskripsi */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <select
@@ -1580,7 +1558,6 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* Input Revisi */}
                         <div>
                           <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
                           <input
@@ -1592,18 +1569,8 @@ export default function App() {
                           />
                         </div>
 
-                        <div>
-                          <label className="block text-slate-400 mb-1">PIC</label>
-                          <input 
-                            type="text" 
-                            value={formData.pic} 
-                            onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))} 
-                            required 
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" 
-                          />
-                        </div>
+                        {/* Kolom PIC telah dihapus sesuai instruksi */}
 
-                        {/* Plan Start */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan Start</label>
                           <div className="relative">
@@ -1622,7 +1589,6 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* Plan Finish */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan Finish</label>
                           <div className="relative">
