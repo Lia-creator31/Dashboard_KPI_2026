@@ -102,6 +102,7 @@ interface TaskItem {
   jo: string;
   kodeJc: string;
   rev?: string;
+  realJo?: string;
 }
 
 interface SelectedBiroPage {
@@ -243,6 +244,7 @@ export default function App() {
     pic: '',
     jo: '',
     rev: '0',
+    realJo: '',
   });
 
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>({});
@@ -273,6 +275,7 @@ export default function App() {
             jo: row.jo || '',
             kodeJc: row.kode_jc || '',
             rev: row.rev || '0',
+            realJo: row.real_jo || row.realJo || '',
           });
         });
         setManualTasks(grouped);
@@ -615,6 +618,9 @@ export default function App() {
       if (formData.rev) {
         insertPayload.rev = formData.rev;
       }
+      if (formData.realJo) {
+        insertPayload.real_jo = formData.realJo;
+      }
 
       let insertedRow: any = null;
       const { data: resData, error } = await supabase
@@ -624,8 +630,9 @@ export default function App() {
         .single();
 
       if (error) {
-        if (error.message?.includes('rev') || (error as any).details?.includes('rev')) {
+        if (error.message?.includes('real_jo') || error.message?.includes('rev') || (error as any).details?.includes('real_jo') || (error as any).details?.includes('rev')) {
           delete insertPayload.rev;
+          delete insertPayload.real_jo;
           const { data: retryData, error: retryError } = await supabase
             .from('job_cards')
             .insert(insertPayload)
@@ -655,12 +662,13 @@ export default function App() {
         jo: formData.jo,
         kode_jc: autoKode,
         rev: formData.rev || '0',
+        realJo: formData.realJo || '',
       };
 
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
 
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
-      setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0' });
+      setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '' });
 
       if (accessMode === 'subkon') {
         alert(`Tugas tersimpan! Work Order "${autoKode}" langsung terbit dan dapat dilihat di bawah nama personil.`);
@@ -806,6 +814,10 @@ export default function App() {
               </button>
             ) : accessMode === 'organik' && selectedFormBiro ? (
               <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                <ArrowLeft className="w-3.5 h-3.5" /> Biro
+              </button>
+            ) : accessMode === 'organik' && selectedBiroPage ? (
+              <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                 <ArrowLeft className="w-3.5 h-3.5" /> Biro
               </button>
             ) : accessMode === 'organik' && selectedDept ? (
@@ -1302,7 +1314,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 2: Biro Organik */}
+            {/* Step 2: Biro Organik (Tombol Hasil Resmi Diganti "Anggota") */}
             {selectedDept && !selectedBiroPage && !selectedFormBiro && (
               <div className="space-y-4">
                 <div className="border-b border-slate-800 pb-2">
@@ -1372,7 +1384,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK (TABEL KOLOM: REV, PLAN START, PLAN FINISH, PLAN JO, DESKRIPSI) */}
+                {/* TAB 1: ANGGOTA ORGANIK DENGAN OUTPUT TABEL (PLAN JO & REAL JO) */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
@@ -1406,12 +1418,16 @@ export default function App() {
                                   {personTasks.length} Tugas
                                 </span>
                                 <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-blue-400' : ''}`}>
-                                  {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                  {isExpanded ? (
+                                    <ChevronUp className="w-4 h-4" />
+                                  ) : (
+                                    <ChevronDown className="w-4 h-4" />
+                                  )}
                                 </div>
                               </div>
                             </div>
 
-                            {/* OUTPUT TABEL BERKOLOM */}
+                            {/* OUTPUT TABEL BERKOLOM LENGKAP: PLAN JO & REAL JO */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1427,6 +1443,7 @@ export default function App() {
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
                                           <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
+                                          <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
                                           <th className="py-2 px-2.5 text-center w-12">Aksi</th>
                                         </tr>
                                       </thead>
@@ -1460,6 +1477,9 @@ export default function App() {
                                                 {task.endDate}
                                               </td>
                                               <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
+                                              <td className="py-2 px-2.5 font-mono text-emerald-400">
+                                                {task.realJo ? (task.realJo.startsWith('#') ? task.realJo : `#${task.realJo}`) : '-'}
+                                              </td>
                                               <td className="py-2 px-2.5 text-center">
                                                 <button 
                                                   onClick={(e) => {
@@ -1495,7 +1515,7 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  /* TAB 2: FORM ORGANIK (TANPA PIC, LABEL: PLAN JO) */
+                  /* TAB 2: FORM ORGANIK (TANPA PIC, LABEL: PLAN JO & REAL JO) */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1529,7 +1549,7 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* Nomor JO diganti dengan Plan JO */}
+                        {/* Plan JO */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan JO</label>
                           <input
@@ -1569,7 +1589,20 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Kolom PIC telah dihapus sesuai instruksi */}
+                        {/* Real JO */}
+                        <div>
+                          <label className="block text-slate-400 mb-1">Real JO</label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={formData.realJo}
+                            onChange={(e) => setFormData(prev => ({ ...prev, realJo: e.target.value.replace(/[^0-9]/g, '') }))}
+                            placeholder="Opsional, Contoh: 300428"
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                          />
+                        </div>
+
+                        {/* PIC Dihapus */}
 
                         <div>
                           <label className="block text-slate-400 mb-1">Plan Start</label>
