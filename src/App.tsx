@@ -434,10 +434,7 @@ export default function App() {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.dept, deptName)).length;
   }, [dynamicOutsourcingList]);
 
-  // =========================================================================
-  // KHUSUS ORGANIK: HANYA MENGAMBIL PEGAWAI ORGANIK (PKWTT & PKWT)
-  // OUTSOURCING TIDAK DIMASUKKAN KE PORTAL ORGANIK
-  // =========================================================================
+  // HANYA MENGAMBIL PEGAWAI ORGANIK (PKWTT & PKWT)
   const getBiroMembers = useCallback((biroName: string): { nama: string; status: string; jabatan: string }[] => {
     const members = allParsedFromExcel.filter(
       p => isBiroMatch(p.biro, biroName) && !p.status.toLowerCase().includes('outsourcing')
@@ -471,82 +468,6 @@ export default function App() {
       packageTitle: `${prefix}${idx + 1}`
     }));
   }, [subconSelectedBiro, currentActiveBiroTasks]);
-
-  const parseValToNumber = (val: any): number => {
-    if (val === null || val === undefined || val === '') return 0;
-    if (typeof val === 'number') return isNaN(val) ? 0 : val;
-    const str = String(val).trim().replace('%', '').replace(',', '.');
-    const num = parseFloat(str);
-    return isNaN(num) ? 0 : num;
-  };
-
-  const parseAbsensiCSV = (csvContent: string): Map<string, { terlambat: number; sakit: number; ipm: number }> => {
-    const absensiMap = new Map<string, { terlambat: number; sakit: number; ipm: number }>();
-    if (!csvContent) return absensiMap;
-
-    const lines = csvContent.split(/\r?\n/);
-    lines.forEach((line, index) => {
-      if (index === 0 || !line.trim()) return;
-      const parts = line.split(',');
-      if (parts.length >= 6) {
-        const rawNama = parts[1] ? parts[1].trim() : '';
-        const cleanNameKey = cleanText(rawNama);
-
-        const terlambatVal = parseValToNumber(parts[parts.length - 3] ?? parts[4]);
-        const sakitVal = parseValToNumber(parts[parts.length - 2] ?? parts[5]);
-        const ipmVal = parseValToNumber(parts[parts.length - 1] ?? parts[6]);
-
-        if (cleanNameKey) {
-          absensiMap.set(cleanNameKey, { terlambat: terlambatVal, sakit: sakitVal, ipm: ipmVal });
-        }
-      }
-    });
-
-    return absensiMap;
-  };
-
-  const parseTimesheetFolder = (targetMonth: string): Map<string, { reguler: number; overtime: number }> => {
-    const timesheetMap = new Map<string, { reguler: number; overtime: number }>();
-    const monthLower = targetMonth.toLowerCase().trim();
-    const monthPrefix = monthLower.slice(0, 3);
-
-    Object.entries(allCsvFiles).forEach(([filePath, content]) => {
-      const pathLower = filePath.toLowerCase();
-      if (pathLower.includes('absensi_')) return;
-
-      const isTargetMonthFile = pathLower.includes(`/${monthLower}/`) || 
-                                pathLower.includes(`/${monthPrefix}/`) ||
-                                pathLower.includes(`\\${monthLower}\\`) ||
-                                pathLower.includes(`\\${monthPrefix}\\`);
-
-      if (isTargetMonthFile && content) {
-        const isOvertimeFile = pathLower.includes('overtime') || 
-                               pathLower.includes('lembur') || 
-                               content.toLowerCase().includes('total overtime hours');
-
-        const lines = content.split(/\r?\n/);
-        lines.forEach((line, lineIdx) => {
-          if (lineIdx === 0 || !line.trim()) return;
-          const parts = line.split(',');
-          if (parts.length >= 3) {
-            const rawNama = parts[2] ? parts[2].replace(/"/g, '').trim() : '';
-            const cleanNameKey = cleanText(rawNama);
-            const rawLastVal = parts[parts.length - 1] ? parts[parts.length - 1].replace(/"/g, '').trim() : '0';
-            const numVal = parseValToNumber(rawLastVal);
-
-            if (cleanNameKey) {
-              const current = timesheetMap.get(cleanNameKey) || { reguler: 0, overtime: 0 };
-              if (isOvertimeFile) current.overtime += numVal;
-              else current.reguler += numVal;
-              timesheetMap.set(cleanNameKey, current);
-            }
-          }
-        });
-      }
-    });
-
-    return timesheetMap;
-  };
 
   // Deduplikasi Ketat Kode Proyek
   const projectOptions = useMemo((): string[] => {
@@ -648,7 +569,7 @@ export default function App() {
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook]);
 
-  // Submit Form: Tanpa PIC & Auto-Release Work Order untuk Subkon
+  // Submit Form
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeBiro = currentActiveBiroName;
@@ -794,7 +715,7 @@ export default function App() {
   const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
   const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
 
-  // Tugas Khusus Organik (Hanya tugas yang dimiliki personel Organik)
+  // Tugas Khusus Organik
   const organicBiroTasks = useMemo(() => {
     return currentActiveBiroTasks.filter(t => 
       currentBiroMembers.some(m => cleanText(m.nama) === cleanText(t.pic))
@@ -1051,7 +972,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA DENGAN DROPDOWN ANAK PANAH */}
+                {/* TAB 1: ANGGOTA DENGAN DROPDOWN TABEL (SUBKON) */}
                 {subconPageMode === 'members' && (
                   <div className="space-y-2.5">
                     {activeSubconMembers.length > 0 ? (
@@ -1097,7 +1018,7 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Hasil Pekerjaan di Bawah Nama */}
+                            {/* Konten Dropdown: Tabel Kolom Rapi */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1174,12 +1095,11 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 2: FORM PENUGASAN (DEDUKLIPASI KODE PROYEK, DESKRIPSI, IKON KALENDER PUTIH) */}
+                {/* TAB 2: FORM PENUGASAN */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                        {/* 1. Nama Drafter */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Nama Drafter / Personel</label>
                           <select
@@ -1195,7 +1115,6 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* 2. Kode Proyek (Bebas Duplikat) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Kode Proyek</label>
                           <select
@@ -1211,7 +1130,6 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* 3. Nomor JO */}
                         <div>
                           <label className="block text-slate-400 mb-1">Nomor JO</label>
                           <input
@@ -1225,7 +1143,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 4. Deskripsi (Bebas Duplikat) */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <select
@@ -1241,7 +1158,6 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* 5. Tanggal Mulai (Ikon Kalender Putih Terang) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
                           <div className="relative">
@@ -1260,7 +1176,6 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* 6. Tanggal Selesai (Ikon Kalender Putih Terang) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
                           <div className="relative">
@@ -1371,7 +1286,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 2: Biro Organik (Tombol Hasil Diganti "Anggota") */}
+            {/* Step 2: Biro Organik (Tombol Hasil Resmi Diganti "Anggota") */}
             {selectedDept && !selectedBiroPage && !selectedFormBiro && (
               <div className="space-y-4">
                 <div className="border-b border-slate-800 pb-2">
@@ -1388,7 +1303,6 @@ export default function App() {
                       <span className="font-semibold text-white text-sm">{biro.name}</span>
 
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {/* Tombol Anggota menggantikan tombol Hasil */}
                         <button
                           onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('members'); }}
                           className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer"
@@ -1408,7 +1322,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 3: Halaman Detail Biro Organik (Hanya Pegawai PKWTT & PKWT) */}
+            {/* Step 3: Halaman Detail Biro Organik */}
             {selectedFormBiro && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
@@ -1419,7 +1333,6 @@ export default function App() {
 
                   <div className="flex items-center gap-2">
                     <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-                      {/* Tombol Hasil Diganti "Anggota" */}
                       <button
                         onClick={() => setFormPageMode('members')}
                         className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'members' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
@@ -1443,45 +1356,112 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK (OUTSOURCING SUDAH DIHAPUS) */}
+                {/* TAB 1: ANGGOTA ORGANIK DENGAN OUTPUT FORMAT TABEL BERKOLOM */}
                 {formPageMode === 'members' ? (
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
                       currentBiroMembers.map((person, idx) => {
                         const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
                         const isExpanded = !!expandedCards[person.nama];
 
                         return (
-                          <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                          <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden transition-all duration-200">
+                            {/* Baris Nama Personel (Header Dropdown) */}
                             <div 
                               onClick={() => toggleAccordion(person.nama)}
-                              className="p-3 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/40 transition"
+                              className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/40 transition"
                             >
-                              <div className="font-semibold text-white text-sm">
-                                {person.nama} <span className="text-xs font-mono text-cyan-400">({person.status})</span>
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">
+                                  {person.nama.charAt(0)}
+                                </div>
+                                <div>
+                                  <div className="font-semibold text-white text-sm">
+                                    {person.nama} <span className="text-xs font-mono text-cyan-400 font-normal">({person.status})</span>
+                                  </div>
+                                  <div className="text-xs text-slate-400 font-mono">
+                                    NIP: {person.nip || '-'} • <span className="text-slate-400">{person.jabatan}</span>
+                                  </div>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-slate-400 font-mono">{personTasks.length} Tugas</span>
-                                {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-mono text-slate-400 hidden sm:inline">
+                                  {personTasks.length} Tugas
+                                </span>
+                                <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-blue-400' : ''}`}>
+                                  {isExpanded ? (
+                                    <ChevronUp className="w-4 h-4" />
+                                  ) : (
+                                    <ChevronDown className="w-4 h-4" />
+                                  )}
+                                </div>
                               </div>
                             </div>
 
+                            {/* OUTPUT TABEL BERKOLOM (PENGGANTI FORMAT TEKS TUMPUK) */}
                             {isExpanded && (
-                              <div className="p-3 border-t border-slate-800 bg-slate-950/60 animate-fadeIn">
+                              <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
-                                  <div className="text-xs text-slate-300 space-y-1">
-                                    {personTasks.map((t, i) => (
-                                      <div key={i} className="flex justify-between items-center border-b border-slate-900 pb-1">
-                                        <div>
-                                          <div className="text-white font-medium">{t.taskName}</div>
-                                          <div className="text-[11px] text-emerald-400 font-mono">{t.project} • #{t.jo}</div>
-                                        </div>
-                                        <span className="font-mono text-amber-400 font-bold">{t.kodeJc || 'Menunggu Planner'}</span>
-                                      </div>
-                                    ))}
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-xs">
+                                      <thead>
+                                        <tr className="text-slate-400 border-b border-slate-800">
+                                          <th className="py-2 px-2.5 w-8">#</th>
+                                          <th className="py-2 px-2.5 font-mono text-amber-400">Kode JC</th>
+                                          <th className="py-2 px-2.5">Proyek</th>
+                                          <th className="py-2 px-2.5">Task Name</th>
+                                          <th className="py-2 px-2.5 font-mono">Jadwal</th>
+                                          <th className="py-2 px-2.5 font-mono">JO</th>
+                                          <th className="py-2 px-2.5 text-center w-12">Aksi</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-800 text-slate-300">
+                                        {personTasks.map((task, tIdx) => {
+                                          const isSameProjectAsAbove = tIdx > 0 && task.project === personTasks[tIdx - 1].project;
+
+                                          return (
+                                            <tr key={task.id} className="hover:bg-slate-900/40">
+                                              <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
+                                              <td className="py-2 px-2.5 font-mono font-bold text-amber-300">
+                                                {task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}
+                                              </td>
+                                              <td className="py-2 px-2.5 font-medium">
+                                                {isSameProjectAsAbove ? (
+                                                  <span className="text-slate-500 font-mono text-[11px]" title={task.project}>
+                                                    — s.d.a —
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-emerald-400">{task.project}</span>
+                                                )}
+                                              </td>
+                                              <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
+                                              <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
+                                                {task.startDate} s/d {task.endDate}
+                                              </td>
+                                              <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
+                                              <td className="py-2 px-2.5 text-center">
+                                                <button 
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteTask(task.id);
+                                                  }} 
+                                                  className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
+                                                  title="Hapus Tugas"
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
                                   </div>
                                 ) : (
-                                  <div className="text-xs text-slate-500 italic py-1">Belum ada tugas</div>
+                                  <div className="text-xs text-slate-500 py-3 text-center italic">
+                                    Belum ada tugas. Buka tab <b>Form</b> di atas untuk menambahkan penugasan.
+                                  </div>
                                 )}
                               </div>
                             )}
