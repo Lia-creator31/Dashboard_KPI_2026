@@ -19,17 +19,13 @@ import {
   Search, 
   ChevronRight, 
   FileText, 
-  Layers, 
   User, 
-  ChevronDown, 
-  ChevronUp, 
   Send, 
   Trash2, 
   Lock, 
   KeyRound, 
   X, 
   Check, 
-  RotateCcw, 
   Upload,
   Printer, 
   Calendar, 
@@ -67,7 +63,6 @@ const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', {
   eager: true 
 }) as Record<string, string>;
 
-// 3 file Excel utama
 const excelGlobUrls = import.meta.glob('./*.xlsx', { 
   query: '?url', 
   import: 'default', 
@@ -106,13 +101,6 @@ interface TaskItem {
   pic: string;
   jo: string;
   kodeJc: string;
-}
-
-interface PersonilCardGroup {
-  picName: string;
-  status: string;
-  jabatan: string;
-  tasks: TaskItem[];
 }
 
 interface SelectedBiroPage {
@@ -177,10 +165,10 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
 export default function App() {
   const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
 
-  // Subkon Navigation State
+  // Subkon Navigation State: Cukup 3 Mode (members, form, release)
   const [subconSelectedDept, setSubconSelectedDept] = useState<Department | null>(null);
   const [subconSelectedBiro, setSubconSelectedBiro] = useState<string | null>(null);
-  const [subconPageMode, setSubconPageMode] = useState<'members' | 'form' | 'output' | 'release'>('members');
+  const [subconPageMode, setSubconPageMode] = useState<'members' | 'form' | 'release'>('members');
   const [subconSearch, setSubconSearch] = useState('');
 
   // Organik Navigation State
@@ -191,7 +179,6 @@ export default function App() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [tableSearch, setTableSearch] = useState('');
-  const [outputSearch, setOutputSearch] = useState('');
   
   const [formData, setFormData] = useState({
     nama: '',
@@ -247,7 +234,6 @@ export default function App() {
   const [plannerScope, setPlannerScope] = useState<'current' | 'all'>('current');
 
   const PLANNER_PIN = '2026';
-  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   // 3 File Excel Utama
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
@@ -538,34 +524,6 @@ export default function App() {
     return Array.from(tasks).sort();
   };
 
-  const getAccordionOutputForBiro = (targetBiroName: string): PersonilCardGroup[] => {
-    const biroMembers = getBiroMembers(targetBiroName);
-    const personMap = new Map<string, { status: string; jabatan: string; tasks: TaskItem[] }>();
-
-    biroMembers.forEach(m => {
-      personMap.set(m.nama, { status: m.status, jabatan: m.jabatan, tasks: [] });
-    });
-
-    const biroKey = cleanText(targetBiroName);
-    const tasksForThisBiro = manualTasks[biroKey] || [];
-
-    tasksForThisBiro.forEach(t => {
-      const matched = biroMembers.find(m => cleanText(m.nama) === cleanText(t.pic));
-      const key = matched ? matched.nama : t.pic;
-      if (!personMap.has(key)) {
-        personMap.set(key, { status: matched?.status || 'Organik', jabatan: matched?.jabatan || '', tasks: [] });
-      }
-      personMap.get(key)!.tasks.push(t);
-    });
-
-    const result: PersonilCardGroup[] = [];
-    personMap.forEach((val, picName) => {
-      result.push({ picName, status: val.status, jabatan: val.jabatan, tasks: val.tasks });
-    });
-
-    return result.sort((a, b) => a.picName.localeCompare(b.picName));
-  };
-
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeBiro = currentActiveBiroName;
@@ -620,10 +578,9 @@ export default function App() {
       const currentList = manualTasks[biroKey] || [];
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
 
-      setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
       setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '' });
 
-      alert('Tugas tersimpan! Masukkan Kode JC di menu Planner untuk menerbitkan Work Order.');
+      alert('Tugas tersimpan! Hasilnya langsung muncul di bawah nama personil.');
       loadAllJobCards();
     } catch {
       alert('Koneksi database bermasalah.');
@@ -686,20 +643,6 @@ export default function App() {
       });
       loadAllJobCards();
     }
-  };
-
-  const handleClearAllBiroData = async (targetBiroName: string) => {
-    if (!targetBiroName) return;
-    if (window.confirm(`Kosongkan semua tugas di ${targetBiroName}?`)) {
-      await supabase.from('job_cards').delete().eq('biro_name', targetBiroName);
-      const biroKey = cleanText(targetBiroName);
-      setManualTasks({ ...manualTasks, [biroKey]: [] });
-      loadAllJobCards();
-    }
-  };
-
-  const toggleAccordion = (picName: string) => {
-    setExpandedCards(prev => ({ ...prev, [picName]: !prev[picName] }));
   };
 
   const handleMonthClick = (biroName: string, month: string) => {
@@ -789,12 +732,6 @@ export default function App() {
   const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
   const projectOptions = getJobcardProjects();
   const taskOptions = getJobcardTasks();
-  
-  const accordionData = selectedFormBiro ? getAccordionOutputForBiro(selectedFormBiro.biroName) : [];
-  const filteredAccordionData = accordionData.filter(g => {
-    const s = outputSearch.toLowerCase();
-    return g.picName.toLowerCase().includes(s) || g.tasks.some(t => t.project.toLowerCase().includes(s) || t.taskName.toLowerCase().includes(s) || (t.kodeJc || '').toLowerCase().includes(s));
-  });
 
   const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
   const activeSubconPendingCount = currentActiveBiroTasks.filter(t => !t.kodeJc).length;
@@ -808,31 +745,6 @@ export default function App() {
         packageTitle: `AA${idx + 1}`
       }));
   }, [currentActiveBiroTasks]);
-
-  const subconAccordionData = useMemo(() => {
-    if (!subconSelectedBiro) return [];
-    const members = getSubconMembersForBiro(subconSelectedBiro);
-    const pMap = new Map<string, { status: string; jabatan: string; tasks: TaskItem[] }>();
-
-    members.forEach(m => {
-      pMap.set(m.nama, { status: 'Outsourcing', jabatan: m.jabatan, tasks: [] });
-    });
-
-    currentActiveBiroTasks.forEach(t => {
-      const found = members.find(m => cleanText(m.nama) === cleanText(t.pic));
-      const key = found ? found.nama : t.pic;
-      if (!pMap.has(key)) {
-        pMap.set(key, { status: 'Outsourcing', jabatan: '', tasks: [] });
-      }
-      pMap.get(key)!.tasks.push(t);
-    });
-
-    const res: PersonilCardGroup[] = [];
-    pMap.forEach((v, picName) => {
-      res.push({ picName, status: v.status, jabatan: v.jabatan, tasks: v.tasks });
-    });
-    return res.sort((a, b) => a.picName.localeCompare(b.picName));
-  }, [subconSelectedBiro, getSubconMembersForBiro, currentActiveBiroTasks]);
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
@@ -952,7 +864,7 @@ export default function App() {
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                   <div>
                     <h2 className="text-lg font-bold text-white">Pilih Departemen</h2>
-                    <span className="text-xs text-slate-400">Total {dynamicOutsourcingList.length} Personel Outsourcing</span>
+                    <span className="text-xs text-slate-400">Total {dynamicOutsourcingList.length} Personel</span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -1037,12 +949,6 @@ export default function App() {
                             Form
                           </button>
                           <button
-                            onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('output'); }}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer"
-                          >
-                            Hasil
-                          </button>
-                          <button
                             onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('release'); }}
                             className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer"
                           >
@@ -1056,14 +962,14 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 3: Halaman Detail Biro Subkon */}
+            {/* Step 3: Halaman Biro Subkon (Anggota + Hasil Langsung di Bawah Nama) */}
             {subconSelectedBiro && (
               <div className="space-y-4">
-                {/* Header & Switcher Tab */}
+                {/* Header & Tab Menu Simpel (Hanya 3 Pilihan) */}
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3>
-                    <span className="text-xs text-slate-400 font-mono">{activeSubconMembers.length} Personel Outsourcing</span>
+                    <span className="text-xs text-slate-400 font-mono">{activeSubconMembers.length} Personel</span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -1079,12 +985,6 @@ export default function App() {
                         className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
                       >
                         Form
-                      </button>
-                      <button
-                        onClick={() => setSubconPageMode('output')}
-                        className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        Hasil ({currentActiveBiroTasks.length})
                       </button>
                       <button
                         onClick={() => setSubconPageMode('release')}
@@ -1108,45 +1008,103 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Tab 1: Anggota Outsourcing */}
+                {/* TAB 1: DAFTAR ANGGOTA + HASIL LANGSUNG DI BAWAH NAMA (STATUS OUTSOURCING DIHAPUS) */}
                 {subconPageMode === 'members' && (
-                  <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-800 text-slate-300 border-b border-slate-700">
-                        <tr>
-                          <th className="py-2.5 px-3 text-center w-10">#</th>
-                          <th className="py-2.5 px-3">Nama</th>
-                          <th className="py-2.5 px-3 font-mono">NIP</th>
-                          <th className="py-2.5 px-3">Jabatan</th>
-                          <th className="py-2.5 px-3 text-center">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800 text-slate-200">
-                        {activeSubconMembers.map((person, idx) => (
-                          <tr key={idx} className="hover:bg-slate-800/40">
-                            <td className="py-2 px-3 text-center text-slate-500 font-mono">{idx + 1}</td>
-                            <td className="py-2 px-3 font-semibold text-white">{person.nama}</td>
-                            <td className="py-2 px-3 font-mono text-slate-400">{person.nip}</td>
-                            <td className="py-2 px-3 text-cyan-300">{person.jabatan}</td>
-                            <td className="py-2 px-3 text-center">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                                Outsourcing
+                  <div className="space-y-3">
+                    {activeSubconMembers.length > 0 ? (
+                      activeSubconMembers.map((person, idx) => {
+                        const personTasks = currentActiveBiroTasks.filter(
+                          t => cleanText(t.pic) === cleanText(person.nama)
+                        );
+
+                        return (
+                          <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+                            {/* Baris Informasi Personil: Nama, NIP, Jabatan (Status Outsourcing Dihapus) */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-800/80 pb-2.5">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">
+                                  {person.nama.charAt(0)}
+                                </div>
+                                <div>
+                                  <div className="font-bold text-white text-sm">{person.nama}</div>
+                                  <div className="text-xs text-slate-400 font-mono">
+                                    NIP: {person.nip || '-'} • <span className="text-cyan-400">{person.jabatan}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <span className="text-xs font-mono text-slate-500 self-end sm:self-auto">
+                                {personTasks.length} Hasil Penugasan
                               </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                            </div>
+
+                            {/* HASIL PEKERJAAN LANGSUNG DITAMPILKAN DI BAWAH NAMA */}
+                            <div className="bg-slate-950 rounded-lg p-2.5 border border-slate-800/60">
+                              {personTasks.length > 0 ? (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-left text-xs">
+                                    <thead>
+                                      <tr className="text-slate-400 border-b border-slate-800">
+                                        <th className="py-1.5 px-2 w-8">#</th>
+                                        <th className="py-1.5 px-2 font-mono text-amber-400">Kode JC</th>
+                                        <th className="py-1.5 px-2">Proyek</th>
+                                        <th className="py-1.5 px-2">Uraian Tugas / Task</th>
+                                        <th className="py-1.5 px-2 font-mono">Jadwal</th>
+                                        <th className="py-1.5 px-2 font-mono">JO</th>
+                                        <th className="py-1.5 px-2 text-center w-10">Aksi</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-900 text-slate-300">
+                                      {personTasks.map((task, tIdx) => (
+                                        <tr key={task.id} className="hover:bg-slate-900/50">
+                                          <td className="py-2 px-2 text-slate-500 font-mono">{tIdx + 1}</td>
+                                          <td className="py-2 px-2 font-mono font-bold text-amber-300">
+                                            {task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}
+                                          </td>
+                                          <td className="py-2 px-2 text-emerald-400 font-medium">{task.project}</td>
+                                          <td className="py-2 px-2 text-slate-200">{task.taskName}</td>
+                                          <td className="py-2 px-2 font-mono text-[11px] text-slate-400">
+                                            {task.startDate} s/d {task.endDate}
+                                          </td>
+                                          <td className="py-2 px-2 font-mono text-violet-300">#{task.jo}</td>
+                                          <td className="py-2 px-2 text-center">
+                                            <button 
+                                              onClick={() => handleDeleteTask(task.id)} 
+                                              className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
+                                              title="Hapus Tugas"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <div className="text-xs text-slate-500 py-2 text-center italic">
+                                  Belum ada hasil penugasan. Klik tab "Form" di atas untuk menambahkan tugas.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
+                        Tidak ada anggota di biro ini
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* Tab 2: Formulir Penugasan */}
+                {/* TAB 2: FORM PENUGASAN */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                         <div className="md:col-span-2">
-                          <label className="block text-slate-400 mb-1">Nama Drafter / PIC</label>
+                          <label className="block text-slate-400 mb-1">Nama Drafter / Personel</label>
                           <select
                             value={formData.nama}
                             onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
@@ -1226,7 +1184,7 @@ export default function App() {
                         </div>
 
                         <div className="md:col-span-2">
-                          <label className="block text-slate-400 mb-1">PIC Subkon</label>
+                          <label className="block text-slate-400 mb-1">PIC</label>
                           <input
                             type="text"
                             value={formData.pic}
@@ -1238,7 +1196,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
+                      <div className="pt-3 border-t border-slate-800 flex justify-end">
                         <button
                           type="submit"
                           className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-lg transition cursor-pointer"
@@ -1250,73 +1208,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Tab 3: Hasil Tugas */}
-                {subconPageMode === 'output' && (
-                  <div className="space-y-2">
-                    {subconAccordionData.map((person, idx) => {
-                      const isExpanded = expandedCards[person.picName] ?? false;
-                      const taskCount = person.tasks.length;
-
-                      return (
-                        <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                          <div
-                            onClick={() => toggleAccordion(person.picName)}
-                            className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-800/60"
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-white text-sm">{person.picName}</span>
-                              <span className="text-xs text-slate-400 font-mono">({taskCount} tugas)</span>
-                            </div>
-                            <div className="text-slate-400">
-                              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                            </div>
-                          </div>
-
-                          {isExpanded && (
-                            <div className="p-3 border-t border-slate-800 bg-slate-950/40">
-                              {taskCount > 0 ? (
-                                <table className="w-full text-left text-xs">
-                                  <thead>
-                                    <tr className="text-slate-400 border-b border-slate-800">
-                                      <th className="py-2 px-2">#</th>
-                                      <th className="py-2 px-2 font-mono text-amber-400">Kode JC</th>
-                                      <th className="py-2 px-2">Proyek</th>
-                                      <th className="py-2 px-2">Task</th>
-                                      <th className="py-2 px-2 font-mono">JO</th>
-                                      <th className="py-2 px-2 text-center">Aksi</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-800 text-slate-300">
-                                    {person.tasks.map((task, tIdx) => (
-                                      <tr key={task.id}>
-                                        <td className="py-2 px-2 text-slate-500">{tIdx + 1}</td>
-                                        <td className="py-2 px-2 font-mono font-bold text-amber-300">
-                                          {task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}
-                                        </td>
-                                        <td className="py-2 px-2 text-emerald-400">{task.project}</td>
-                                        <td className="py-2 px-2">{task.taskName}</td>
-                                        <td className="py-2 px-2 font-mono">#{task.jo}</td>
-                                        <td className="py-2 px-2 text-center">
-                                          <button onClick={() => handleDeleteTask(task.id)} className="text-slate-500 hover:text-rose-400 p-1">
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                          </button>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              ) : (
-                                <div className="text-xs text-slate-500 py-2">Belum ada tugas</div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Tab 4: Work Order (AA1, AA2...) */}
+                {/* TAB 3: WORK ORDER (AA1, AA2...) */}
                 {subconPageMode === 'release' && (
                   <div className="space-y-3">
                     {approvedSubconPackages.length > 0 ? (
@@ -1549,21 +1441,26 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {filteredAccordionData.map((person, idx) => (
-                      <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl p-3">
-                        <div className="font-semibold text-white text-sm mb-1">{person.picName} ({person.tasks.length} tugas)</div>
-                        {person.tasks.length > 0 && (
-                          <div className="text-xs text-slate-400 space-y-1 pt-1">
-                            {person.tasks.map((t, i) => (
-                              <div key={i} className="flex justify-between border-t border-slate-800/80 pt-1">
-                                <span>{t.taskName} ({t.project})</span>
-                                <span className="font-mono text-amber-400">{t.kodeJc || 'Pending'}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                    {currentBiroMembers.map((person, idx) => {
+                      const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
+                      return (
+                        <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
+                          <div className="font-semibold text-white text-sm">{person.nama} ({person.status})</div>
+                          {personTasks.length > 0 ? (
+                            <div className="text-xs text-slate-400 space-y-1 bg-slate-950 p-2 rounded">
+                              {personTasks.map((t, i) => (
+                                <div key={i} className="flex justify-between border-b border-slate-900 pb-1">
+                                  <span>{t.taskName} ({t.project})</span>
+                                  <span className="font-mono text-amber-400">{t.kodeJc || 'Pending'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-500 italic">Belum ada tugas</div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1608,7 +1505,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= MODAL PLANNER (VERIFIKASI KODE JC) ================= */}
+        {/* ================= MODAL PLANNER ================= */}
         {isPlannerModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
