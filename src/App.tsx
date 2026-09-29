@@ -101,6 +101,7 @@ interface TaskItem {
   pic: string;
   jo: string;
   kodeJc: string;
+  rev?: string;
 }
 
 interface SelectedBiroPage {
@@ -240,7 +241,8 @@ export default function App() {
     startDate: '',
     endDate: '',
     pic: '',
-    jo: ''
+    jo: '',
+    rev: '0',
   });
 
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>({});
@@ -270,6 +272,7 @@ export default function App() {
             pic: row.pic || '',
             jo: row.jo || '',
             kodeJc: row.kode_jc || '',
+            rev: row.rev || '0',
           });
         });
         setManualTasks(grouped);
@@ -569,7 +572,7 @@ export default function App() {
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook]);
 
-  // Submit Form
+  // Submit Form: Fleksibel menyimpan kolom rev
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeBiro = currentActiveBiroName;
@@ -594,28 +597,52 @@ export default function App() {
         autoKode = `${prefix}${currentList.length + 1}`;
       }
 
-      const { data: insertedRow, error } = await supabase
+      const insertPayload: any = {
+        biro_id: validBiroId,
+        biro_name: activeBiro,
+        personil_name: formData.nama,
+        project_code: formData.kodeProyek,
+        project: formData.kodeProyek,
+        task_name: formData.taskName,
+        start_date: formData.startDate,
+        end_date: formData.endDate,
+        pic: formData.nama,
+        jo: formData.jo,
+        kode_jc: autoKode,
+        status: accessMode === 'subkon' ? 'approved' : 'pending',
+      };
+
+      if (formData.rev) {
+        insertPayload.rev = formData.rev;
+      }
+
+      let insertedRow: any = null;
+      const { data: resData, error } = await supabase
         .from('job_cards')
-        .insert({
-          biro_id: validBiroId,
-          biro_name: activeBiro,
-          personil_name: formData.nama,
-          project_code: formData.kodeProyek,
-          project: formData.kodeProyek,
-          task_name: formData.taskName,
-          start_date: formData.startDate,
-          end_date: formData.endDate,
-          pic: formData.nama,
-          jo: formData.jo,
-          kode_jc: autoKode,
-          status: accessMode === 'subkon' ? 'approved' : 'pending',
-        })
+        .insert(insertPayload)
         .select()
         .single();
 
       if (error) {
-        alert('Gagal simpan: ' + error.message);
-        return;
+        // Jika schema supabase belum punya kolom rev, retry tanpa rev
+        if (error.message?.includes('rev') || (error as any).details?.includes('rev')) {
+          delete insertPayload.rev;
+          const { data: retryData, error: retryError } = await supabase
+            .from('job_cards')
+            .insert(insertPayload)
+            .select()
+            .single();
+          if (retryError) {
+            alert('Gagal simpan: ' + retryError.message);
+            return;
+          }
+          insertedRow = retryData;
+        } else {
+          alert('Gagal simpan: ' + error.message);
+          return;
+        }
+      } else {
+        insertedRow = resData;
       }
 
       const newTask: TaskItem = {
@@ -628,12 +655,13 @@ export default function App() {
         pic: formData.nama,
         jo: formData.jo,
         kode_jc: autoKode,
+        rev: formData.rev || '0',
       };
 
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
 
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
-      setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '' });
+      setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0' });
 
       if (accessMode === 'subkon') {
         alert(`Tugas tersimpan! Work Order "${autoKode}" langsung terbit dan dapat dilihat di bawah nama personil.`);
@@ -1362,7 +1390,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK DENGAN OUTPUT FORMAT TABEL BERKOLOM (TASK NAME DIGANTI DESKRIPSI) */}
+                {/* TAB 1: ANGGOTA ORGANIK DENGAN OUTPUT TABEL (KOLOM: REV, PLAN START, PLAN FINISH, DESKRIPSI) */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
@@ -1405,7 +1433,7 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* OUTPUT TABEL BERKOLOM: TASK NAME RESMI DIGANTI DESKRIPSI */}
+                            {/* OUTPUT TABEL BERKOLOM: REV, PLAN START, PLAN FINISH, DESKRIPSI */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1417,7 +1445,9 @@ export default function App() {
                                           <th className="py-2 px-2.5 font-mono text-amber-400">Kode JC</th>
                                           <th className="py-2 px-2.5">Proyek</th>
                                           <th className="py-2 px-2.5">Deskripsi</th>
-                                          <th className="py-2 px-2.5 font-mono">Jadwal</th>
+                                          <th className="py-2 px-2.5 text-center font-mono">Rev</th>
+                                          <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
+                                          <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
                                           <th className="py-2 px-2.5 font-mono">JO</th>
                                           <th className="py-2 px-2.5 text-center w-12">Aksi</th>
                                         </tr>
@@ -1442,8 +1472,14 @@ export default function App() {
                                                 )}
                                               </td>
                                               <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
-                                              <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
-                                                {task.startDate} s/d {task.endDate}
+                                              <td className="py-2 px-2.5 text-center font-mono text-slate-300">
+                                                {task.rev || '0'}
+                                              </td>
+                                              <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">
+                                                {task.startDate}
+                                              </td>
+                                              <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">
+                                                {task.endDate}
                                               </td>
                                               <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
                                               <td className="py-2 px-2.5 text-center">
@@ -1481,7 +1517,7 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  /* TAB 2: FORM ORGANIK (TASK NAME DIGANTI MENJADI DESKRIPSI) */
+                  /* TAB 2: FORM ORGANIK (PLAN START & PLAN FINISH) */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1501,7 +1537,7 @@ export default function App() {
                         </div>
 
                         <div>
-                          <label className="block text-slate-400 mb-1">Proyek</label>
+                          <label className="block text-slate-400 mb-1">Kode Proyek</label>
                           <select
                             value={formData.kodeProyek}
                             onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
@@ -1528,7 +1564,7 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Task Name diubah menjadi Deskripsi */}
+                        {/* Task Name -> Deskripsi */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <select
@@ -1544,8 +1580,32 @@ export default function App() {
                           </select>
                         </div>
 
+                        {/* Input Revisi */}
                         <div>
-                          <label className="block text-slate-400 mb-1">Mulai</label>
+                          <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
+                          <input
+                            type="text"
+                            value={formData.rev}
+                            onChange={(e) => setFormData(prev => ({ ...prev, rev: e.target.value }))}
+                            placeholder="0"
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-slate-400 mb-1">PIC</label>
+                          <input 
+                            type="text" 
+                            value={formData.pic} 
+                            onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))} 
+                            required 
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" 
+                          />
+                        </div>
+
+                        {/* Plan Start */}
+                        <div>
+                          <label className="block text-slate-400 mb-1">Plan Start</label>
                           <div className="relative">
                             <input 
                               type="date" 
@@ -1561,8 +1621,10 @@ export default function App() {
                             <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white pointer-events-none" />
                           </div>
                         </div>
+
+                        {/* Plan Finish */}
                         <div>
-                          <label className="block text-slate-400 mb-1">Selesai</label>
+                          <label className="block text-slate-400 mb-1">Plan Finish</label>
                           <div className="relative">
                             <input 
                               type="date" 
@@ -1578,16 +1640,11 @@ export default function App() {
                             <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white pointer-events-none" />
                           </div>
                         </div>
-
-                        <div className="md:col-span-2">
-                          <label className="block text-slate-400 mb-1">PIC</label>
-                          <input type="text" value={formData.pic} onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" />
-                        </div>
                       </div>
 
                       <div className="flex justify-end pt-2">
                         <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer">
-                          Simpan
+                          Simpan Tugas
                         </button>
                       </div>
                     </form>
@@ -1642,7 +1699,10 @@ export default function App() {
                         organicBiroTasks.map((task, idx) => (
                           <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
                             <div className="min-w-0">
-                              <div className="font-semibold text-white truncate">{task.pic} <span className="font-mono text-slate-500 font-normal">#{idx + 1}</span></div>
+                              <div className="font-semibold text-white truncate">
+                                {task.pic} <span className="font-mono text-slate-500 font-normal">#{idx + 1}</span>
+                                {task.rev && <span className="ml-2 font-mono text-[10px] text-cyan-400">Rev.{task.rev}</span>}
+                              </div>
                               <div className="text-slate-400 text-[11px] truncate">{task.taskName}</div>
                               <div className="text-emerald-400 font-mono text-[10px]">{task.project} • {task.biroName}</div>
                             </div>
