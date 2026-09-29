@@ -1095,11 +1095,12 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 2: FORM PENUGASAN */}
+                {/* TAB 2: FORM PENUGASAN (DEDUKLIPASI KODE PROYEK, DESKRIPSI, IKON KALENDER PUTIH) */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                        {/* 1. Nama Drafter */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Nama Drafter / Personel</label>
                           <select
@@ -1115,6 +1116,7 @@ export default function App() {
                           </select>
                         </div>
 
+                        {/* 2. Kode Proyek (Bebas Duplikat) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Kode Proyek</label>
                           <select
@@ -1130,6 +1132,7 @@ export default function App() {
                           </select>
                         </div>
 
+                        {/* 3. Nomor JO */}
                         <div>
                           <label className="block text-slate-400 mb-1">Nomor JO</label>
                           <input
@@ -1143,6 +1146,7 @@ export default function App() {
                           />
                         </div>
 
+                        {/* 4. Deskripsi (Bebas Duplikat) */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <select
@@ -1158,6 +1162,7 @@ export default function App() {
                           </select>
                         </div>
 
+                        {/* 5. Tanggal Mulai (Ikon Kalender Putih Terang) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
                           <div className="relative">
@@ -1176,6 +1181,7 @@ export default function App() {
                           </div>
                         </div>
 
+                        {/* 6. Tanggal Selesai (Ikon Kalender Putih Terang) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
                           <div className="relative">
@@ -1356,7 +1362,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK DENGAN OUTPUT FORMAT TABEL BERKOLOM */}
+                {/* TAB 1: ANGGOTA ORGANIK DENGAN OUTPUT FORMAT TABEL BERKOLOM (TASK NAME DIGANTI DESKRIPSI) */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
@@ -1399,7 +1405,7 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* OUTPUT TABEL BERKOLOM (PENGGANTI FORMAT TEKS TUMPUK) */}
+                            {/* OUTPUT TABEL BERKOLOM: TASK NAME RESMI DIGANTI DESKRIPSI */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1410,7 +1416,7 @@ export default function App() {
                                           <th className="py-2 px-2.5 w-8">#</th>
                                           <th className="py-2 px-2.5 font-mono text-amber-400">Kode JC</th>
                                           <th className="py-2 px-2.5">Proyek</th>
-                                          <th className="py-2 px-2.5">Task Name</th>
+                                          <th className="py-2 px-2.5">Deskripsi</th>
                                           <th className="py-2 px-2.5 font-mono">Jadwal</th>
                                           <th className="py-2 px-2.5 font-mono">JO</th>
                                           <th className="py-2 px-2.5 text-center w-12">Aksi</th>
@@ -1475,7 +1481,7 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  /* TAB 2: FORM ORGANIK (HANYA MEMILIH PERSONEL ORGANIK) */
+                  /* TAB 2: FORM ORGANIK (TASK NAME DIGANTI MENJADI DESKRIPSI) */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1516,20 +1522,22 @@ export default function App() {
                             inputMode="numeric"
                             value={formData.jo}
                             onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9]/g, '') }))}
+                            placeholder="Contoh: 300426"
                             required
                             className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                           />
                         </div>
 
+                        {/* Task Name diubah menjadi Deskripsi */}
                         <div className="md:col-span-2">
-                          <label className="block text-slate-400 mb-1">Task Name</label>
+                          <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <select
                             value={formData.taskName}
                             onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
                             required
                             className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
                           >
-                            <option value="">Pilih Task...</option>
+                            <option value="">Pilih Deskripsi Pekerjaan...</option>
                             {taskOptions.map((t, i) => (
                               <option key={i} value={t}>{t}</option>
                             ))}
