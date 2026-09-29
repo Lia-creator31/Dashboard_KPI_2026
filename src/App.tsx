@@ -3,7 +3,7 @@ import { departmentsData, monthList, Department } from './data';
 import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
 
-// Import 6 File CSV Absensi
+// Import File CSV Absensi
 import csvJan from './absensi_januari.csv?raw';
 import csvFeb from './absensi_februari.csv?raw';
 import csvMar from './absensi_maret.csv?raw';
@@ -12,16 +12,12 @@ import csvMei from './absensi_mei.csv?raw';
 import csvJun from './absensi_juni.csv?raw';
 
 import { 
-  Wrench, 
-  CircleDollarSign, 
-  Users, 
-  Truck, 
-  ShieldCheck, 
-  Laptop, 
+  Building2, 
+  Briefcase, 
+  HardHat, 
   ArrowLeft, 
   Search, 
   ChevronRight, 
-  Building2, 
   FileText, 
   Layers, 
   User, 
@@ -34,13 +30,16 @@ import {
   X, 
   Check, 
   RotateCcw, 
-  Briefcase, 
-  HardHat, 
   Upload,
-  FileSpreadsheet,
-  Printer,
-  Calendar,
+  Printer, 
+  Calendar, 
   Sparkles,
+  Users,
+  Wrench,
+  CircleDollarSign,
+  Truck,
+  ShieldCheck,
+  Laptop,
   LucideIcon 
 } from 'lucide-react';
 
@@ -68,7 +67,6 @@ const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', {
   eager: true 
 }) as Record<string, string>;
 
-// Hanya membaca 3 file Excel utama
 const excelGlobUrls = import.meta.glob('./*.xlsx', { 
   query: '?url', 
   import: 'default', 
@@ -178,13 +176,13 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
 export default function App() {
   const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
 
-  // ================= STATE KHUSUS SUBKON =================
+  // Subkon Navigation State
   const [subconSelectedDept, setSubconSelectedDept] = useState<Department | null>(null);
   const [subconSelectedBiro, setSubconSelectedBiro] = useState<string | null>(null);
   const [subconPageMode, setSubconPageMode] = useState<'members' | 'form' | 'output' | 'release'>('members');
-  const [subconSearchQuery, setSubconSearchQuery] = useState('');
+  const [subconSearch, setSubconSearch] = useState('');
 
-  // ================= STATE KHUSUS ORGANIK =================
+  // Organik Navigation State
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedBiroPage, setSelectedBiroPage] = useState<SelectedBiroPage | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
@@ -250,7 +248,7 @@ export default function App() {
   const PLANNER_PIN = '2026';
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
-  // 3 FILE EXCEL UTAMA
+  // 3 File Excel Utama
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);          // data_kpi.xlsx
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);  // JOBCARD_DESAIN.xlsx
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);          // AKSES AKUN IM4...
@@ -305,15 +303,15 @@ export default function App() {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary' });
         setIm4Workbook(wb);
-        alert(`File ${file.name} berhasil dibaca! Anggota outsourcing dan biro langsung terurai.`);
+        alert(`File ${file.name} berhasil dibaca.`);
       } catch {
-        alert('Gagal membaca berkas Excel. Pastikan format file .xlsx');
+        alert('Gagal membaca file Excel.');
       }
     };
     reader.readAsBinaryString(file);
   };
 
-  // PARSER DINAMIS DARI FILE IM4 (120 Organik + 77 Outsourcing)
+  // Parser Master Anggota dari Excel IM4
   const allParsedFromExcel = useMemo<ParsedMember[]>(() => {
     if (!im4Workbook) return [];
 
@@ -394,9 +392,7 @@ export default function App() {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.dept, deptName)).length;
   }, [dynamicOutsourcingList]);
 
-  // =========================================================================
-  // DETEKSI BIRO AKTIF (MENDUKUNG SUBKON MAUPUN ORGANIK)
-  // =========================================================================
+  // Deteksi Nama & Key Biro Aktif
   const currentActiveBiroName = useMemo(() => {
     if (accessMode === 'subkon') return subconSelectedBiro || '';
     return selectedFormBiro?.biroName || '';
@@ -406,21 +402,16 @@ export default function App() {
     return cleanText(currentActiveBiroName);
   }, [currentActiveBiroName]);
 
-  // Daftar tugas biro yang sedang dibuka
   const currentActiveBiroTasks = useMemo(() => {
     return manualTasks[currentActiveBiroKey] || [];
   }, [manualTasks, currentActiveBiroKey]);
 
-  // Seluruh tugas dari semua biro (untuk mempermudah review Planner)
   const allSubmittedTasksList = useMemo(() => {
     const list: TaskItem[] = [];
-    Object.values(manualTasks).forEach(arr => {
-      list.push(...arr);
-    });
+    Object.values(manualTasks).forEach(arr => list.push(...arr));
     return list;
   }, [manualTasks]);
 
-  // Tugas yang ditampilkan di Planner Modal
   const plannerTasksToShow = useMemo(() => {
     if (plannerScope === 'all') return allSubmittedTasksList;
     return currentActiveBiroTasks;
@@ -520,7 +511,7 @@ export default function App() {
       rows.forEach((row, idx) => {
         if (idx < 2 || !row) return;
         const p = String(row[2] || '').trim();
-        if (p && p.toLowerCase() !== 'nan' && !p.toLowerCase().includes('kode proyek') && !p.toLowerCase().includes('project')) {
+        if (p && p.toLowerCase() !== 'nan' && !p.toLowerCase().includes('kode proyek')) {
           projects.add(p);
         }
       });
@@ -538,7 +529,7 @@ export default function App() {
       rows.forEach((row, idx) => {
         if (idx < 2 || !row) return;
         const t = String(row[3] || '').trim();
-        if (t && t.toLowerCase() !== 'nan' && !t.toLowerCase().includes('desc pekerjaan') && !t.toLowerCase().includes('task') && !t.toLowerCase().includes('uraian')) {
+        if (t && t.toLowerCase() !== 'nan' && !t.toLowerCase().includes('desc pekerjaan')) {
           tasks.add(t);
         }
       });
@@ -561,23 +552,14 @@ export default function App() {
       const matched = biroMembers.find(m => cleanText(m.nama) === cleanText(t.pic));
       const key = matched ? matched.nama : t.pic;
       if (!personMap.has(key)) {
-        personMap.set(key, { 
-          status: matched?.status || 'Organik', 
-          jabatan: matched?.jabatan || '', 
-          tasks: [] 
-        });
+        personMap.set(key, { status: matched?.status || 'Organik', jabatan: matched?.jabatan || '', tasks: [] });
       }
       personMap.get(key)!.tasks.push(t);
     });
 
     const result: PersonilCardGroup[] = [];
     personMap.forEach((val, picName) => {
-      result.push({ 
-        picName, 
-        status: val.status, 
-        jabatan: val.jabatan, 
-        tasks: val.tasks 
-      });
+      result.push({ picName, status: val.status, jabatan: val.jabatan, tasks: val.tasks });
     });
 
     return result.sort((a, b) => a.picName.localeCompare(b.picName));
@@ -586,10 +568,7 @@ export default function App() {
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeBiro = currentActiveBiroName;
-    if (!activeBiro) {
-      alert('Pilih Biro terlebih dahulu.');
-      return;
-    }
+    if (!activeBiro) return;
 
     try {
       let validBiroId: string | null = null;
@@ -620,7 +599,7 @@ export default function App() {
         .single();
 
       if (error) {
-        alert('Gagal menyimpan ke database: ' + error.message);
+        alert('Gagal simpan: ' + error.message);
         return;
       }
 
@@ -641,20 +620,12 @@ export default function App() {
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
 
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
-      setFormData({
-        nama: '',
-        kodeProyek: '',
-        taskName: '',
-        startDate: '',
-        endDate: '',
-        pic: '',
-        jo: ''
-      });
+      setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '' });
 
-      alert('Job Card berhasil tersimpan! Segera buka menu Planner untuk memasukkan Kode JC agar paket AA otomatis terbit.');
+      alert('Tugas tersimpan! Masukkan Kode JC di menu Planner untuk menerbitkan Paket AA.');
       loadAllJobCards();
     } catch {
-      alert('Terjadi kesalahan koneksi database.');
+      alert('Koneksi database bermasalah.');
     }
   };
 
@@ -669,7 +640,7 @@ export default function App() {
     }
   };
 
-  const handleSaveKodeJcForTask = async (taskId: string, targetBiroName: string) => {
+  const handleSaveKodeJcForTask = async (taskId: string) => {
     const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase();
     if (!inputVal) return;
 
@@ -679,11 +650,10 @@ export default function App() {
       .eq('id', taskId);
 
     if (error) {
-      alert('Gagal update kode JC: ' + error.message);
+      alert('Gagal simpan kode: ' + error.message);
       return;
     }
 
-    // Update state manualTasks secara menyeluruh
     setManualTasks(prev => {
       const updated = { ...prev };
       Object.keys(updated).forEach(k => {
@@ -698,21 +668,13 @@ export default function App() {
       return next;
     });
 
-    alert(`Kode JC "${inputVal}" berhasil disimpan! Paket AA otomatis terbit.`);
     loadAllJobCards();
   };
 
-  const handleDeleteTask = async (taskId: string, biroName: string) => {
+  const handleDeleteTask = async (taskId: string) => {
     if (window.confirm('Hapus tugas ini?')) {
-      const { error } = await supabase
-        .from('job_cards')
-        .delete()
-        .eq('id', taskId);
-
-      if (error) {
-        alert('Gagal menghapus: ' + error.message);
-        return;
-      }
+      const { error } = await supabase.from('job_cards').delete().eq('id', taskId);
+      if (error) return;
 
       setManualTasks(prev => {
         const updated = { ...prev };
@@ -721,24 +683,14 @@ export default function App() {
         });
         return updated;
       });
-
       loadAllJobCards();
     }
   };
 
   const handleClearAllBiroData = async (targetBiroName: string) => {
     if (!targetBiroName) return;
-    if (window.confirm(`Kosongkan semua data tugas di ${targetBiroName}?`)) {
-      const { error } = await supabase
-        .from('job_cards')
-        .delete()
-        .eq('biro_name', targetBiroName);
-
-      if (error) {
-        alert('Gagal mengosongkan data: ' + error.message);
-        return;
-      }
-
+    if (window.confirm(`Kosongkan semua tugas di ${targetBiroName}?`)) {
+      await supabase.from('job_cards').delete().eq('biro_name', targetBiroName);
       const biroKey = cleanText(targetBiroName);
       setManualTasks({ ...manualTasks, [biroKey]: [] });
       loadAllJobCards();
@@ -750,10 +702,7 @@ export default function App() {
   };
 
   const handleMonthClick = (biroName: string, month: string) => {
-    if (!workbook) {
-      alert('File data_kpi.xlsx belum terbaca.');
-      return;
-    }
+    if (!workbook) return;
 
     const monthPrefix = month.toLowerCase().slice(0, 3);
     const targetSheetName = workbook.SheetNames.find(sheet => {
@@ -761,10 +710,7 @@ export default function App() {
       return sLower.includes(month.toLowerCase()) || sLower.includes(monthPrefix);
     });
 
-    if (!targetSheetName) {
-      alert(`Sheet bulan ${month} tidak ditemukan.`);
-      return;
-    }
+    if (!targetSheetName) return;
 
     const rawCsvData = csvMonthMap[month.toLowerCase()] || '';
     const absensiDataMap = parseAbsensiCSV(rawCsvData);
@@ -826,14 +772,12 @@ export default function App() {
     setSelectedBiroPage({ biroName, month, data: formattedData });
   };
 
-  const filteredDepartments = (departmentsData || []).filter((dept) => 
-    dept.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (dept.description || '').toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredDepartments = (departmentsData || []).filter(dept => 
+    dept.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const filteredSubconDepartments = (departmentsData || []).filter((dept) => 
-    dept.name.toLowerCase().includes(subconSearchQuery.toLowerCase()) ||
-    (dept.description || '').toLowerCase().includes(subconSearchQuery.toLowerCase())
+  const filteredSubconDepartments = (departmentsData || []).filter(dept => 
+    dept.name.toLowerCase().includes(subconSearch.toLowerCase())
   );
 
   const filteredTableData = (selectedBiroPage?.data || []).filter(item => 
@@ -848,21 +792,13 @@ export default function App() {
   const accordionData = selectedFormBiro ? getAccordionOutputForBiro(selectedFormBiro.biroName) : [];
   const filteredAccordionData = accordionData.filter(g => {
     const s = outputSearch.toLowerCase();
-    return g.picName.toLowerCase().includes(s) || 
-           (g.status || '').toLowerCase().includes(s) || 
-           g.tasks.some(t => t.project.toLowerCase().includes(s) || t.taskName.toLowerCase().includes(s) || (t.kodeJc || '').toLowerCase().includes(s));
+    return g.picName.toLowerCase().includes(s) || g.tasks.some(t => t.project.toLowerCase().includes(s) || t.taskName.toLowerCase().includes(s) || (t.kodeJc || '').toLowerCase().includes(s));
   });
 
-  const totalPersonilCount = accordionData.length;
-  const countOutsourcing = accordionData.filter(a => a.status.toLowerCase().includes('outsourcing')).length;
-  const countOrganik = totalPersonilCount - countOutsourcing;
-  const totalTasksCount = accordionData.reduce((acc, g) => acc + g.tasks.length, 0);
-
-  // DATA KHUSUS BIRO SUBCON TERPILIH
   const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
   const activeSubconPendingCount = currentActiveBiroTasks.filter(t => !t.kodeJc).length;
 
-  // LOGIKA AUTO-NUMBERING PAKET TERBIT SUBKON: AA1, AA2, AA3... PER BIRO
+  // Auto-Numbering Paket AA1, AA2... per Biro
   const approvedSubconPackages = useMemo(() => {
     return currentActiveBiroTasks
       .filter(t => t.kodeJc && t.kodeJc.trim() !== '')
@@ -898,12 +834,12 @@ export default function App() {
   }, [subconSelectedBiro, getSubconMembersForBiro, currentActiveBiroTasks]);
 
   return (
-    <div className="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
+    <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
       {/* Top Navbar */}
       <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
           <div 
-            className="flex items-center gap-3 cursor-pointer select-none" 
+            className="flex items-center gap-2.5 cursor-pointer" 
             onClick={() => {
               setAccessMode('landing');
               setSelectedFormBiro(null);
@@ -916,11 +852,13 @@ export default function App() {
             <div className="p-1.5 bg-blue-600 rounded-lg text-white">
               <Building2 className="w-4 h-4" />
             </div>
-            <div>
-              <span className="font-bold text-sm tracking-wide text-white block leading-tight">DIVISI DESAIN</span>
-              <span className="text-[10px] text-slate-400">
-                {accessMode === 'landing' ? 'Portal Sistem PT PAL' : accessMode === 'organik' ? 'Portal Pegawai Organik' : 'Portal Rekanan & Subkontraktor'}
-              </span>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-sm text-white">DIVISI DESAIN</span>
+              {accessMode !== 'landing' && (
+                <span className="text-xs px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-300 border border-slate-700">
+                  {accessMode === 'organik' ? 'Organik' : 'Subkontraktor'}
+                </span>
+              )}
             </div>
           </div>
 
@@ -935,217 +873,120 @@ export default function App() {
                   setSubconSelectedBiro(null);
                   setSubconSelectedDept(null);
                 }}
-                className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
+                className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer"
               >
-                Ganti Akses
+                Ganti Portal
               </button>
             )}
 
-            {/* Tombol Back Dinamis untuk Subkon */}
+            {/* Tombol Kembali Dinamis */}
             {accessMode === 'subkon' && subconSelectedBiro ? (
-              <button
-                onClick={() => setSubconSelectedBiro(null)}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
-              >
+              <button onClick={() => setSubconSelectedBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                 <ArrowLeft className="w-3.5 h-3.5" /> Biro
               </button>
             ) : accessMode === 'subkon' && subconSelectedDept ? (
-              <button
-                onClick={() => setSubconSelectedDept(null)}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" /> Departemen
+              <button onClick={() => setSubconSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                <ArrowLeft className="w-3.5 h-3.5" /> Dept
               </button>
-            ) : null}
-
-            {/* Tombol Back Dinamis untuk Organik */}
-            {accessMode === 'organik' && selectedFormBiro ? (
-              <button
-                onClick={() => setSelectedFormBiro(null)}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
-              >
+            ) : accessMode === 'organik' && selectedFormBiro ? (
+              <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                 <ArrowLeft className="w-3.5 h-3.5" /> Biro
               </button>
             ) : accessMode === 'organik' && selectedBiroPage ? (
-              <button
-                onClick={() => setSelectedBiroPage(null)}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
-              >
+              <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                 <ArrowLeft className="w-3.5 h-3.5" /> Biro
               </button>
             ) : accessMode === 'organik' && selectedDept ? (
-              <button
-                onClick={() => setSelectedDept(null)}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition cursor-pointer"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" /> Departemen
+              <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                <ArrowLeft className="w-3.5 h-3.5" /> Dept
               </button>
             ) : null}
           </div>
         </div>
       </header>
 
-      {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Main Content */}
+      <main className="max-w-6xl mx-auto px-4 py-8">
 
-        {/* ========================================================================= */}
-        {/* TAMPILAN 0: HALAMAN PERTAMA (PORTAL PEMILIHAN AKSES SUBKON & ORGANIK)      */}
-        {/* ========================================================================= */}
+        {/* ================= 1. PORTAL DEPAN (LANDING) ================= */}
         {accessMode === 'landing' && (
-          <div className="max-w-4xl mx-auto py-12 space-y-10 animate-fadeIn">
-            <div className="text-center space-y-3">
-              <span className="px-3 py-1 bg-blue-500/10 text-blue-400 text-xs font-semibold rounded-full border border-blue-500/20">
-                PT PAL INDONESIA • DIVISI DESAIN 2026
-              </span>
-              <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-                Pilih Akses Portal Sistem
-              </h1>
-              <p className="text-slate-400 text-sm max-w-lg mx-auto">
-                Silakan pilih kategori entitas kerja Anda untuk melanjutkan ke modul Job Card dan Rekapitulasi Kerja.
-              </p>
+          <div className="max-w-2xl mx-auto text-center space-y-8 pt-8">
+            <div className="space-y-2">
+              <h1 className="text-2xl sm:text-3xl font-bold text-white">Sistem Penugasan Job Card</h1>
+              <p className="text-slate-400 text-sm">Pilih portal akses kerja Anda</p>
             </div>
 
-            {/* Pilihan 2 Kartu: Organik vs Subkon */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-              {/* Opsi 1: Organik */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div
                 onClick={() => setAccessMode('organik')}
-                className="group relative bg-slate-900 border border-slate-800 hover:border-blue-500/60 rounded-2xl p-7 cursor-pointer transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/10 flex flex-col justify-between"
+                className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-2xl p-6 cursor-pointer text-left transition hover:bg-slate-900/80 group"
               >
-                <div className="space-y-4">
-                  <div className="w-14 h-14 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:bg-blue-600 group-hover:text-white transition-all duration-300">
-                    <Briefcase className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-white group-hover:text-blue-400 transition-colors">
-                      Pegawai Organik
-                    </h3>
-                    <span className="text-xs text-blue-400 font-mono">Divisi Desain PT PAL (PKWTT, PKWT)</span>
-                  </div>
-                  <p className="text-slate-400 text-xs leading-relaxed">
-                    Akses 6 Departemen, 19 Biro, Formulir Pengajuan & Verifikasi Job Card Planner, Output Rekapitulasi Personil Organik, serta Evaluasi KPI Bulanan.
-                  </p>
+                <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl w-fit mb-4 group-hover:bg-blue-600 group-hover:text-white transition">
+                  <Briefcase className="w-6 h-6" />
                 </div>
-
-                <div className="mt-8 pt-4 border-t border-slate-800 flex items-center justify-between text-xs font-semibold text-blue-400">
-                  <span>Masuk Portal Organik</span>
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </div>
+                <h3 className="text-lg font-bold text-white">Pegawai Organik</h3>
+                <span className="text-xs text-slate-400">Pegawai PKWTT & PKWT Divisi Desain</span>
               </div>
 
-              {/* Opsi 2: Subkon */}
               <div
                 onClick={() => setAccessMode('subkon')}
-                className="group relative bg-slate-900 border border-slate-800 hover:border-amber-500/60 rounded-2xl p-7 cursor-pointer transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/10 flex flex-col justify-between"
+                className="bg-slate-900 border border-slate-800 hover:border-amber-500 rounded-2xl p-6 cursor-pointer text-left transition hover:bg-slate-900/80 group"
               >
-                <div className="space-y-4">
-                  <div className="w-14 h-14 rounded-xl bg-amber-600/10 border border-amber-500/20 flex items-center justify-center text-amber-400 group-hover:bg-amber-600 group-hover:text-white transition-all duration-300">
-                    <HardHat className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-white group-hover:text-amber-400 transition-colors">
-                      Mitra / Subkontraktor
-                    </h3>
-                    <span className="text-xs text-amber-400 font-mono">Pembagian per Departemen & Biro (Dinamis dari Excel)</span>
-                  </div>
-                  <p className="text-slate-400 text-xs leading-relaxed">
-                    Akses terkelompok per Departemen & Biro untuk personel Outsourcing, penerbitan paket kerja otomatis (AA1, AA2..), dan Job Card resmi.
-                  </p>
+                <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl w-fit mb-4 group-hover:bg-amber-600 group-hover:text-white transition">
+                  <HardHat className="w-6 h-6" />
                 </div>
-
-                <div className="mt-8 pt-4 border-t border-slate-800 flex items-center justify-between text-xs font-semibold text-amber-400">
-                  <span>Masuk Portal Subkon</span>
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </div>
+                <h3 className="text-lg font-bold text-white">Mitra / Subkon</h3>
+                <span className="text-xs text-slate-400">Personil Outsourcing & Paket Rilis (AA)</span>
               </div>
             </div>
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* TAMPILAN MODUL SUBKON: DEPARTEMEN -> BIRO -> (ANGGOTA, FORM, OUTPUT, AA..) */}
-        {/* ========================================================================= */}
+        {/* ================= 2. PORTAL SUBKONTRAKTOR ================= */}
         {accessMode === 'subkon' && (
-          <div className="space-y-6 animate-fadeIn">
-            {/* SUBKON LEVEL 1: PILIH DEPARTEMEN */}
+          <div className="space-y-6">
+            {/* Step 1: Pilih Departemen */}
             {!subconSelectedDept && !subconSelectedBiro && (
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+              <div className="space-y-5">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                   <div>
-                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                      <HardHat className="w-5 h-5 text-amber-400" />
-                      Departemen Desain (Portal Subkontraktor)
-                    </h2>
-                    <span className="text-xs text-slate-400">
-                      Data {dynamicOutsourcingList.length} personel outsourcing otomatis terurai dari file AKSES AKUN IM4
-                    </span>
+                    <h2 className="text-lg font-bold text-white">Pilih Departemen</h2>
+                    <span className="text-xs text-slate-400">Total {dynamicOutsourcingList.length} Personel Outsourcing</span>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <label className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center gap-1.5 cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <Upload className="w-3.5 h-3.5 text-amber-400" />
-                      <span>{dynamicOutsourcingList.length > 0 ? 'Ganti File Excel' : 'Pilih File Excel IM4'}</span>
-                      <input 
-                        type="file" 
-                        accept=".xlsx, .xls" 
-                        onChange={handleManualUploadExcel}
-                        className="hidden" 
-                      />
+                      <span>{dynamicOutsourcingList.length > 0 ? 'Update Excel' : 'Upload IM4'}</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadExcel} className="hidden" />
                     </label>
 
-                    <div className="relative w-64">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                      <input
-                        type="text"
-                        placeholder="Cari departemen..."
-                        value={subconSearchQuery}
-                        onChange={(e) => setSubconSearchQuery(e.target.value)}
-                        className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    </div>
+                    <input
+                      type="text"
+                      placeholder="Cari..."
+                      value={subconSearch}
+                      onChange={(e) => setSubconSearch(e.target.value)}
+                      className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44"
+                    />
                   </div>
                 </div>
 
-                {dynamicOutsourcingList.length === 0 && !isLoadingExcel && (
-                  <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <FileSpreadsheet className="w-4 h-4 text-amber-400" />
-                      <span>File Excel IM4 belum terbaca otomatis. Klik tombol "Pilih File Excel IM4" untuk memuat berkas.</span>
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {filteredSubconDepartments.map((dept) => {
-                    const IconComponent = iconMap[dept.icon] || Building2;
-                    const countSubcon = getSubconCountForDept(dept.name);
-
+                    const count = getSubconCountForDept(dept.name);
                     return (
                       <div
                         key={dept.id}
                         onClick={() => setSubconSelectedDept(dept)}
-                        className="bg-slate-900 border border-slate-800 hover:border-amber-500/60 rounded-xl p-5 cursor-pointer transition flex flex-col justify-between hover:shadow-lg hover:shadow-amber-500/5 group"
+                        className="bg-slate-900 border border-slate-800 hover:border-amber-500/60 rounded-xl p-4 cursor-pointer transition flex items-center justify-between"
                       >
                         <div>
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-lg group-hover:bg-amber-500 group-hover:text-slate-950 transition-colors">
-                              <IconComponent className="w-5 h-5" />
-                            </div>
-                            <span className="text-[10px] font-mono px-2 py-0.5 bg-slate-800 text-amber-400 rounded border border-amber-500/20 font-bold">
-                              {countSubcon} Subkon
-                            </span>
-                          </div>
-                          <h3 className="font-semibold text-white text-base group-hover:text-amber-400 transition-colors">
-                            {dept.name}
-                          </h3>
+                          <h4 className="font-semibold text-white text-sm">{dept.name}</h4>
+                          <span className="text-xs text-slate-400">{dept.biros.length} Biro</span>
                         </div>
-
-                        <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-                          <span>{dept.biros.length} Biro</span>
-                          <span className="text-amber-400 flex items-center gap-0.5 font-medium group-hover:translate-x-1 transition-transform">
-                            Buka Biro <ChevronRight className="w-3.5 h-3.5" />
-                          </span>
-                        </div>
+                        <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded font-bold text-xs">
+                          {count}
+                        </span>
                       </div>
                     );
                   })}
@@ -1153,88 +994,58 @@ export default function App() {
               </div>
             )}
 
-            {/* SUBKON LEVEL 2: DAFTAR BIRO DI BAWAH DEPARTEMEN TERPILIH */}
+            {/* Step 2: Pilih Biro */}
             {subconSelectedDept && !subconSelectedBiro && (
-              <div className="space-y-5 animate-fadeIn">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <div>
-                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                      <Building2 className="w-5 h-5 text-amber-400" />
-                      {subconSelectedDept.name}
-                    </h2>
-                    <span className="text-xs text-slate-400">
-                      {subconSelectedDept.biros.length} Biro Terdaftar • Total {getSubconCountForDept(subconSelectedDept.name)} Personel Outsourcing
-                    </span>
-                  </div>
+              <div className="space-y-4">
+                <div className="border-b border-slate-800 pb-2">
+                  <h2 className="text-base font-bold text-white">{subconSelectedDept.name}</h2>
+                  <span className="text-xs text-slate-400">Pilih biro penugasan</span>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {subconSelectedDept.biros.map((biro) => {
-                    const biroSubconMembers = getSubconMembersForBiro(biro.name);
-                    const countInBiro = biroSubconMembers.length;
-                    const bKey = cleanText(biro.name);
-                    const releaseCount = (manualTasks[bKey] || []).filter(t => t.kodeJc).length;
+                    const countInBiro = getSubconMembersForBiro(biro.name).length;
+                    const releaseCount = (manualTasks[cleanText(biro.name)] || []).filter(t => t.kodeJc).length;
 
                     return (
                       <div
                         key={biro.id}
-                        className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-slate-700 transition"
+                        className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                       >
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <h4 className="text-sm font-semibold text-white">{biro.name}</h4>
-                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
-                            countInBiro > 0 
-                              ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' 
-                              : 'bg-slate-800 text-slate-500 border-slate-700'
-                          }`}>
-                            {countInBiro} Anggota Outsourcing
-                          </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-white text-sm">{biro.name}</span>
+                          <span className="text-xs text-amber-400 font-mono">({countInBiro} Org)</span>
                           {releaseCount > 0 && (
-                            <span className="px-2 py-0.5 text-[10px] font-bold rounded border bg-purple-500/15 text-purple-400 border-purple-500/30 flex items-center gap-1">
-                              <Sparkles className="w-3 h-3" /> {releaseCount} Paket (AA)
+                            <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded text-[10px] font-bold">
+                              {releaseCount} Paket AA
                             </span>
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 self-end sm:self-auto">
                           <button
-                            onClick={() => {
-                              setSubconSelectedBiro(biro.name);
-                              setSubconPageMode('members');
-                            }}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg border border-slate-700 transition flex items-center gap-1.5 cursor-pointer"
+                            onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('members'); }}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-xs rounded border border-slate-700 cursor-pointer"
                           >
-                            <Users className="w-3.5 h-3.5 text-amber-400" /> ANGGOTA ({countInBiro})
+                            Anggota
                           </button>
-
                           <button
-                            onClick={() => {
-                              setSubconSelectedBiro(biro.name);
-                              setSubconPageMode('form');
-                            }}
-                            className="px-3 py-1.5 bg-emerald-600/90 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer"
+                            onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('form'); }}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer"
                           >
-                            <FileText className="w-3.5 h-3.5" /> FORM
+                            Form
                           </button>
-
                           <button
-                            onClick={() => {
-                              setSubconSelectedBiro(biro.name);
-                              setSubconPageMode('output');
-                            }}
-                            className="px-3 py-1.5 bg-blue-600/90 hover:bg-blue-600 text-white text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer"
+                            onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('output'); }}
+                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer"
                           >
-                            <Layers className="w-3.5 h-3.5" /> OUTPUT
+                            Output
                           </button>
-
                           <button
-                            onClick={() => {
-                              setSubconSelectedBiro(biro.name);
-                              setSubconPageMode('release');
-                            }}
-                            className="px-3 py-1.5 bg-purple-600/90 hover:bg-purple-600 text-white text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer"
+                            onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('release'); }}
+                            className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer"
                           >
-                            <Sparkles className="w-3 h-3 text-amber-300" /> PAKET AA ({releaseCount})
+                            Paket AA
                           </button>
                         </div>
                       </div>
@@ -1244,64 +1055,47 @@ export default function App() {
               </div>
             )}
 
-            {/* SUBKON LEVEL 3: HALAMAN BIRO (TABEL ANGGOTA / FORM / OUTPUT / PAKET AA) */}
+            {/* Step 3: Halaman Detail Biro Subkon */}
             {subconSelectedBiro && (
-              <div className="space-y-4 animate-fadeIn">
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-4">
+                {/* Header & Switcher Tab */}
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-base font-bold text-white flex items-center gap-2">
-                      <HardHat className="w-4 h-4 text-amber-400" />
-                      {subconSelectedBiro}
-                    </h2>
-                    <span className="text-xs text-slate-400 font-mono">
-                      {subconSelectedDept?.name} • {activeSubconMembers.length} Outsourcing • {approvedSubconPackages.length} Paket Rilis
-                    </span>
+                    <h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3>
+                    <span className="text-xs text-slate-400 font-mono">{activeSubconMembers.length} Personel Outsourcing</span>
                   </div>
 
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1">
+                  <div className="flex items-center gap-2">
+                    <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
                       <button
                         onClick={() => setSubconPageMode('members')}
-                        className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
-                          subconPageMode === 'members' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'
-                        }`}
+                        className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'members' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}
                       >
-                        Anggota ({activeSubconMembers.length})
+                        Anggota
                       </button>
                       <button
                         onClick={() => setSubconPageMode('form')}
-                        className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
-                          subconPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-                        }`}
+                        className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
                       >
                         Form
                       </button>
                       <button
                         onClick={() => setSubconPageMode('output')}
-                        className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
-                          subconPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-                        }`}
+                        className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
                       >
                         Output ({currentActiveBiroTasks.length})
                       </button>
                       <button
                         onClick={() => setSubconPageMode('release')}
-                        className={`px-3 py-1 text-xs font-bold rounded-md transition cursor-pointer flex items-center gap-1 ${
-                          subconPageMode === 'release' ? 'bg-purple-600 text-white' : 'text-purple-300 hover:text-white'
-                        }`}
+                        className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${subconPageMode === 'release' ? 'bg-purple-600 text-white' : 'text-purple-300 hover:text-white'}`}
                       >
-                        <Sparkles className="w-3 h-3 text-amber-300" />
-                        Paket AA ({approvedSubconPackages.length})
+                        <Sparkles className="w-3 h-3 text-amber-300" /> Paket AA ({approvedSubconPackages.length})
                       </button>
                     </div>
 
                     <button
-                      type="button"
-                      onClick={() => {
-                        setIsPlannerModalOpen(true);
-                        setPinError(false);
-                      }}
-                      className="px-2.5 py-1 bg-amber-600/90 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                      onClick={() => setIsPlannerModalOpen(true)}
+                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
                     >
                       <Lock className="w-3 h-3" /> Planner
                       {activeSubconPendingCount > 0 && (
@@ -1313,126 +1107,75 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* VIEW 1: TABEL DAFTAR ANGGOTA OUTSOURCING DI BIRO INI */}
+                {/* Tab 1: Anggota Outsourcing */}
                 {subconPageMode === 'members' && (
-                  <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
-                    <div className="p-3.5 border-b border-slate-800 flex items-center justify-between">
-                      <span className="text-xs font-bold text-white flex items-center gap-2">
-                        <Users className="w-4 h-4 text-amber-400" />
-                        Daftar Anggota Outsourcing {subconSelectedBiro} (Hasil Baca Excel)
-                      </span>
-                      <span className="text-xs font-mono text-slate-400">
-                        {activeSubconMembers.length} Personel Terdaftar
-                      </span>
-                    </div>
-
-                    <div className="overflow-x-auto">
-                      {activeSubconMembers.length > 0 ? (
-                        <table className="w-full text-left text-xs">
-                          <thead className="bg-slate-800/80 text-slate-300 border-b border-slate-700 font-semibold">
-                            <tr>
-                              <th className="py-2.5 px-3 text-center w-12">#</th>
-                              <th className="py-2.5 px-3">Nama Personil</th>
-                              <th className="py-2.5 px-3 font-mono">NIP</th>
-                              <th className="py-2.5 px-3 text-center">Status</th>
-                              <th className="py-2.5 px-3">Jabatan</th>
-                              <th className="py-2.5 px-3">Biro Penempatan</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-800 text-slate-200">
-                            {activeSubconMembers.map((person, idx) => (
-                              <tr key={idx} className="hover:bg-slate-800/40">
-                                <td className="py-2.5 px-3 text-center text-slate-500 font-mono">{idx + 1}</td>
-                                <td className="py-2.5 px-3 font-medium text-white flex items-center gap-2">
-                                  <div className="w-6 h-6 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-[10px]">
-                                    {person.nama.charAt(0)}
-                                  </div>
-                                  {person.nama}
-                                </td>
-                                <td className="py-2.5 px-3 font-mono text-slate-400">{person.nip}</td>
-                                <td className="py-2.5 px-3 text-center">
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                                    {person.status}
-                                  </span>
-                                </td>
-                                <td className="py-2.5 px-3 text-cyan-300">{person.jabatan}</td>
-                                <td className="py-2.5 px-3 text-slate-300 font-medium">{person.biro}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      ) : (
-                        <div className="py-12 text-center text-slate-500 text-xs">
-                          Biro ini belum memiliki personel outsourcing terdaftar pada file master Excel
-                        </div>
-                      )}
-                    </div>
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-800 text-slate-300 border-b border-slate-700">
+                        <tr>
+                          <th className="py-2.5 px-3 text-center w-10">#</th>
+                          <th className="py-2.5 px-3">Nama</th>
+                          <th className="py-2.5 px-3 font-mono">NIP</th>
+                          <th className="py-2.5 px-3">Jabatan</th>
+                          <th className="py-2.5 px-3 text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800 text-slate-200">
+                        {activeSubconMembers.map((person, idx) => (
+                          <tr key={idx} className="hover:bg-slate-800/40">
+                            <td className="py-2 px-3 text-center text-slate-500 font-mono">{idx + 1}</td>
+                            <td className="py-2 px-3 font-semibold text-white">{person.nama}</td>
+                            <td className="py-2 px-3 font-mono text-slate-400">{person.nip}</td>
+                            <td className="py-2 px-3 text-cyan-300">{person.jabatan}</td>
+                            <td className="py-2 px-3 text-center">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                Outsourcing
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
 
-                {/* VIEW 2: FORMULIR JOB CARD KHUSUS ANGGOTA OUTSOURCING BIRO INI */}
+                {/* Tab 2: Formulir Penugasan */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-medium text-slate-300 mb-1">
-                            Nama Personil Outsourcing ({subconSelectedBiro})
-                          </label>
-                          {activeSubconMembers.length > 0 ? (
-                            <select
-                              value={formData.nama}
-                              onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
-                              required
-                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
-                            >
-                              <option value="">Pilih Nama Personil...</option>
-                              {activeSubconMembers.map((person, idx) => (
-                                <option key={idx} value={person.nama}>
-                                  {person.nama} ({person.jabatan})
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              type="text"
-                              value={formData.nama}
-                              onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
-                              placeholder="Ketik Nama Personil Outsourcing..."
-                              required
-                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
-                            />
-                          )}
+                          <label className="block text-slate-400 mb-1">Nama Drafter / PIC</label>
+                          <select
+                            value={formData.nama}
+                            onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
+                            required
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
+                          >
+                            <option value="">Pilih Personel...</option>
+                            {activeSubconMembers.map((p, i) => (
+                              <option key={i} value={p.nama}>{p.nama} ({p.jabatan})</option>
+                            ))}
+                          </select>
                         </div>
 
                         <div>
-                          <label className="block text-xs font-medium text-slate-300 mb-1">Proyek</label>
-                          {projectOptions.length > 0 ? (
-                            <select
-                              value={formData.kodeProyek}
-                              onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
-                              required
-                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
-                            >
-                              <option value="">Pilih Proyek...</option>
-                              {projectOptions.map((proj, idx) => (
-                                <option key={idx} value={proj}>{proj}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              type="text"
-                              value={formData.kodeProyek}
-                              onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
-                              placeholder="Kode Proyek..."
-                              required
-                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
-                            />
-                          )}
+                          <label className="block text-slate-400 mb-1">Kode Proyek</label>
+                          <select
+                            value={formData.kodeProyek}
+                            onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
+                            required
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
+                          >
+                            <option value="">Pilih Proyek...</option>
+                            {projectOptions.map((p, i) => (
+                              <option key={i} value={p}>{p}</option>
+                            ))}
+                          </select>
                         </div>
 
                         <div>
-                          <label className="block text-xs font-medium text-slate-300 mb-1">JO (Angka)</label>
+                          <label className="block text-slate-400 mb-1">Nomor JO</label>
                           <input
                             type="text"
                             inputMode="numeric"
@@ -1440,455 +1183,254 @@ export default function App() {
                             onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9]/g, '') }))}
                             placeholder="Contoh: 300426"
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono focus:outline-none"
                           />
                         </div>
 
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-medium text-slate-300 mb-1">Task Name / Uraian Gambar</label>
-                          {taskOptions.length > 0 ? (
-                            <select
-                              value={formData.taskName}
-                              onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                              required
-                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
-                            >
-                              <option value="">Pilih Task...</option>
-                              {taskOptions.map((task, idx) => (
-                                <option key={idx} value={task}>{task}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              type="text"
-                              value={formData.taskName}
-                              onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                              placeholder="Uraian Pekerjaan / Task Name..."
-                              required
-                              className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
-                            />
-                          )}
+                          <label className="block text-slate-400 mb-1">Uraian Tugas / Task Name</label>
+                          <select
+                            value={formData.taskName}
+                            onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                            required
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
+                          >
+                            <option value="">Pilih Task...</option>
+                            {taskOptions.map((t, i) => (
+                              <option key={i} value={t}>{t}</option>
+                            ))}
+                          </select>
                         </div>
 
                         <div>
-                          <label className="block text-xs font-medium text-slate-300 mb-1">Start Date</label>
+                          <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
                           <input
                             type="date"
                             value={formData.startDate}
                             onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-xs font-medium text-slate-300 mb-1">End Date</label>
+                          <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
                           <input
                             type="date"
                             value={formData.endDate}
                             onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
                           />
                         </div>
 
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-medium text-slate-300 mb-1">PIC Subkon</label>
+                          <label className="block text-slate-400 mb-1">PIC Subkon</label>
                           <input
                             type="text"
                             value={formData.pic}
                             onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))}
-                            placeholder="Nama PIC Subkon..."
+                            placeholder="Nama PIC..."
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
                           />
                         </div>
                       </div>
 
                       <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
                         <button
-                          type="button"
-                          onClick={() => setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '' })}
-                          className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg transition cursor-pointer"
-                        >
-                          Reset
-                        </button>
-                        <button
                           type="submit"
-                          className="px-5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer"
+                          className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-lg transition cursor-pointer"
                         >
-                          <Send className="w-3.5 h-3.5" /> Simpan Tugas Subkon
+                          Simpan Tugas
                         </button>
                       </div>
                     </form>
                   </div>
                 )}
 
-                {/* VIEW 3: OUTPUT REKAPITULASI UMUM (STATUS SEMUA TUGAS) */}
+                {/* Tab 3: Output Tugas */}
                 {subconPageMode === 'output' && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="relative flex-1 max-w-xs">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                        <input
-                          type="text"
-                          placeholder="Cari tugas subkon..."
-                          value={outputSearch}
-                          onChange={(e) => setOutputSearch(e.target.value)}
-                          className="w-full pl-8 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
-                        />
-                      </div>
+                  <div className="space-y-2">
+                    {subconAccordionData.map((person, idx) => {
+                      const isExpanded = expandedCards[person.picName] ?? false;
+                      const taskCount = person.tasks.length;
 
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => {
-                            const all: Record<string, boolean> = {};
-                            subconAccordionData.forEach(g => { all[g.picName] = true; });
-                            setExpandedCards(all);
-                          }}
-                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700 cursor-pointer"
-                        >
-                          Buka
-                        </button>
-                        <button
-                          onClick={() => setExpandedCards({})}
-                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700 cursor-pointer"
-                        >
-                          Tutup
-                        </button>
-                        <button
-                          onClick={() => handleClearAllBiroData(subconSelectedBiro)}
-                          className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded border border-rose-800/40 cursor-pointer"
-                          title="Reset Data"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
+                      return (
+                        <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                          <div
+                            onClick={() => toggleAccordion(person.picName)}
+                            className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-800/60"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-white text-sm">{person.picName}</span>
+                              <span className="text-xs text-slate-400 font-mono">({taskCount} tugas)</span>
+                            </div>
+                            <div className="text-slate-400">
+                              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            </div>
+                          </div>
 
-                    {subconAccordionData.length > 0 ? (
-                      <div className="space-y-2">
-                        {subconAccordionData.map((person, idx) => {
-                          const isExpanded = expandedCards[person.picName] ?? false;
-                          const taskCount = person.tasks.length;
-                          const isActive = taskCount > 0;
-
-                          return (
-                            <div
-                              key={idx}
-                              className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden"
-                            >
-                              <div
-                                onClick={() => toggleAccordion(person.picName)}
-                                className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/80 transition"
-                              >
-                                <div className="flex items-center gap-2.5 flex-wrap">
-                                  <div className="w-7 h-7 rounded-lg bg-amber-600 text-white flex items-center justify-center text-xs font-bold">
-                                    <User className="w-4 h-4" />
-                                  </div>
-                                  <span className="font-semibold text-sm text-white">{person.picName}</span>
-                                  <span className="text-xs font-mono text-slate-400">({taskCount})</span>
-
-                                  <span className="px-2 py-0.5 text-[10px] font-bold rounded border bg-amber-500/15 text-amber-400 border-amber-500/30">
-                                    Outsourcing
-                                  </span>
-
-                                  {person.jabatan && (
-                                    <span className="text-[11px] text-slate-400 hidden sm:inline">
-                                      • {person.jabatan}
-                                    </span>
-                                  )}
-
-                                  <span className={`px-2 py-0.2 text-[10px] font-bold rounded ${
-                                    isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'
-                                  }`}>
-                                    {isActive ? 'Aktif' : 'Kosong'}
-                                  </span>
-                                </div>
-
-                                <div className="text-slate-400">
-                                  {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                                </div>
-                              </div>
-
-                              {isExpanded && (
-                                <div className="p-3 border-t border-slate-800 bg-slate-950/40">
-                                  {taskCount > 0 ? (
-                                    <div className="overflow-x-auto">
-                                      <table className="w-full text-left text-xs">
-                                        <thead>
-                                          <tr className="text-slate-400 border-b border-slate-800 font-medium">
-                                            <th className="py-2 px-2 w-8 text-center">#</th>
-                                            <th className="py-2 px-3 text-amber-400 font-mono">Kode JC</th>
-                                            <th className="py-2 px-3">Proyek</th>
-                                            <th className="py-2 px-3">Task Name</th>
-                                            <th className="py-2 px-3 text-center">Start</th>
-                                            <th className="py-2 px-3 text-center">End</th>
-                                            <th className="py-2 px-3 text-center font-mono">JO</th>
-                                            <th className="py-2 px-2 w-10 text-center">Aksi</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-800 text-slate-200">
-                                          {person.tasks.map((task, tIdx) => (
-                                            <tr key={task.id} className="hover:bg-slate-800/40">
-                                              <td className="py-2 px-2 text-center text-slate-500 font-mono">{tIdx + 1}</td>
-                                              <td className="py-2 px-3 font-mono font-semibold text-amber-300">
-                                                {task.kodeJc || <span className="text-rose-400 text-[11px]">Menunggu Planner</span>}
-                                              </td>
-                                              <td className="py-2 px-3 text-emerald-400 font-medium">{task.project}</td>
-                                              <td className="py-2 px-3 text-slate-200">{task.taskName}</td>
-                                              <td className="py-2 px-3 text-center font-mono text-cyan-300">{task.startDate}</td>
-                                              <td className="py-2 px-3 text-center font-mono text-cyan-300">{task.endDate}</td>
-                                              <td className="py-2 px-3 text-center font-mono font-bold text-violet-300">#{task.jo}</td>
-                                              <td className="py-2 px-2 text-center">
-                                                <button
-                                                  onClick={() => handleDeleteTask(task.id, subconSelectedBiro)}
-                                                  className="p-1 text-slate-500 hover:text-rose-400 rounded cursor-pointer"
-                                                >
-                                                  <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
-                                              </td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  ) : (
-                                    <div className="py-4 text-center text-slate-500 text-xs">Belum ada tugas</div>
-                                  )}
-                                </div>
+                          {isExpanded && (
+                            <div className="p-3 border-t border-slate-800 bg-slate-950/40">
+                              {taskCount > 0 ? (
+                                <table className="w-full text-left text-xs">
+                                  <thead>
+                                    <tr className="text-slate-400 border-b border-slate-800">
+                                      <th className="py-2 px-2">#</th>
+                                      <th className="py-2 px-2 font-mono text-amber-400">Kode JC</th>
+                                      <th className="py-2 px-2">Proyek</th>
+                                      <th className="py-2 px-2">Task</th>
+                                      <th className="py-2 px-2 font-mono">JO</th>
+                                      <th className="py-2 px-2 text-center">Aksi</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-800 text-slate-300">
+                                    {person.tasks.map((task, tIdx) => (
+                                      <tr key={task.id}>
+                                        <td className="py-2 px-2 text-slate-500">{tIdx + 1}</td>
+                                        <td className="py-2 px-2 font-mono font-bold text-amber-300">
+                                          {task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}
+                                        </td>
+                                        <td className="py-2 px-2 text-emerald-400">{task.project}</td>
+                                        <td className="py-2 px-2">{task.taskName}</td>
+                                        <td className="py-2 px-2 font-mono">#{task.jo}</td>
+                                        <td className="py-2 px-2 text-center">
+                                          <button onClick={() => handleDeleteTask(task.id)} className="text-slate-500 hover:text-rose-400 p-1">
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              ) : (
+                                <div className="text-xs text-slate-500 py-2">Belum ada tugas</div>
                               )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="py-8 text-center text-slate-500 text-xs bg-slate-900 rounded-xl">
-                        Tidak ada anggota outsourcing di biro ini
-                      </div>
-                    )}
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 
-                {/* VIEW 4: HALAMAN PAKET JC TERBIT (AA1, AA2, AA3...) */}
+                {/* Tab 4: Paket Rilis AA1, AA2... */}
                 {subconPageMode === 'release' && (
-                  <div className="space-y-4">
-                    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div>
-                        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                          <Sparkles className="w-4 h-4 text-purple-400" />
-                          Daftar Paket Job Card Terbit ({subconSelectedBiro})
-                        </h3>
-                        <span className="text-xs text-slate-400">
-                          Penugasan resmi yang telah divalidasi Kode JC oleh Planner dan berpenomoran urut otomatis (AA1, AA2..)
-                        </span>
-                      </div>
-
-                      <span className="px-3 py-1 bg-purple-500/15 text-purple-300 font-mono font-bold text-xs rounded-lg border border-purple-500/30">
-                        {approvedSubconPackages.length} Paket Rilis
-                      </span>
-                    </div>
-
+                  <div className="space-y-3">
                     {approvedSubconPackages.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {approvedSubconPackages.map((pkg) => (
-                          <div 
-                            key={pkg.id} 
-                            className="bg-slate-900 border border-slate-800 hover:border-purple-500/60 rounded-xl p-5 shadow-sm transition-all flex flex-col justify-between group"
-                          >
-                            <div className="space-y-3">
-                              {/* Header Kartu: Judul AA1/AA2 + Badge Kode JC */}
-                              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                                <div className="flex items-center gap-2">
-                                  <div className="px-2.5 py-1 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg text-white font-black font-mono text-base tracking-wider shadow-sm">
-                                    {pkg.packageTitle}
-                                  </div>
-                                  <span className="text-[11px] font-mono text-slate-400">Paket Resmi</span>
-                                </div>
-
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Kode JC:</span>
-                                  <span className="px-2 py-0.5 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded font-mono font-bold text-xs">
-                                    {pkg.kodeJc}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* Informasi Rinci Tugas */}
-                              <div className="space-y-1.5 text-xs">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-slate-400">Drafter / PIC Subkon:</span>
-                                  <span className="font-semibold text-white flex items-center gap-1">
-                                    <User className="w-3.5 h-3.5 text-amber-400" />
-                                    {pkg.pic}
-                                  </span>
-                                </div>
-
-                                <div className="flex items-center justify-between">
-                                  <span className="text-slate-400">Proyek Kapal:</span>
-                                  <span className="font-mono font-medium text-emerald-400">{pkg.project}</span>
-                                </div>
-
-                                <div className="flex items-center justify-between">
-                                  <span className="text-slate-400">Nomor JO:</span>
-                                  <span className="font-mono font-bold text-violet-300">#{pkg.jo}</span>
-                                </div>
-
-                                <div className="pt-2 border-t border-slate-800/80">
-                                  <span className="text-slate-400 block mb-0.5">Uraian Pekerjaan / Drawing:</span>
-                                  <p className="text-slate-200 font-medium bg-slate-950 p-2.5 rounded-lg border border-slate-800/80 leading-relaxed">
-                                    {pkg.taskName}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Footer Kartu: Tanggal & Cetak */}
-                            <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 font-mono">
-                              <span className="flex items-center gap-1 text-[11px]">
-                                <Calendar className="w-3.5 h-3.5 text-cyan-400" />
-                                {pkg.startDate} s/d {pkg.endDate}
+                          <div key={pkg.id} className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+                            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                              <span className="px-2 py-0.5 bg-purple-600 rounded text-white font-mono font-bold text-sm">
+                                {pkg.packageTitle}
                               </span>
-
-                              <button
-                                onClick={() => alert(`Mencetak Lembar Job Card Resmi ${pkg.packageTitle} (${pkg.kodeJc}) untuk ${pkg.pic}...`)}
-                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md border border-slate-700 text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer"
-                              >
-                                <Printer className="w-3 h-3 text-amber-400" /> Cetak Lembar
+                              <span className="font-mono text-xs text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                                {pkg.kodeJc}
+                              </span>
+                            </div>
+                            <div className="text-xs space-y-1">
+                              <div className="text-white font-semibold">{pkg.pic}</div>
+                              <div className="text-emerald-400 font-mono">{pkg.project} • #{pkg.jo}</div>
+                              <div className="text-slate-300 text-[11px] bg-slate-950 p-2 rounded border border-slate-800">{pkg.taskName}</div>
+                            </div>
+                            <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-800 flex justify-between font-mono">
+                              <span>{pkg.startDate} s/d {pkg.endDate}</span>
+                              <button onClick={() => alert(`Cetak paket ${pkg.packageTitle}`)} className="text-amber-400 hover:underline">
+                                Cetak
                               </button>
                             </div>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div className="bg-slate-900 border border-slate-800 rounded-xl p-12 text-center space-y-3">
-                        <Sparkles className="w-10 h-10 text-purple-400 mx-auto opacity-70" />
-                        <h4 className="text-sm font-bold text-white">Belum Ada Paket JC Terbit di Biro Ini</h4>
-                        <p className="text-xs text-slate-400 max-w-md mx-auto">
-                          Ajukan penugasan melalui tab <b>Form</b> terlebih dahulu, kemudian buka menu <b>Planner</b> untuk mengisi Kode JC agar otomatis terbit nomor paket AA1, AA2, dst.
-                        </p>
+                      <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-xs text-slate-500">
+                        Belum ada tugas dengan Kode JC di biro ini.
                       </div>
                     )}
                   </div>
                 )}
-
               </div>
             )}
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* TAMPILAN MODUL ORGANIK (HALAMAN LEVEL 1, LEVEL 2, FORM & OUTPUT)          */}
-        {/* ========================================================================= */}
+        {/* ================= 3. PORTAL ORGANIK ================= */}
         {accessMode === 'organik' && (
-          <>
-            {/* LEVEL 1: 6 DEPARTEMEN */}
+          <div className="space-y-6">
+            {/* Step 1: Departemen Organik */}
             {!selectedDept && !selectedBiroPage && !selectedFormBiro && (
-              <div className="space-y-6 animate-fadeIn">
-                <div className="flex items-center justify-between gap-4">
+              <div className="space-y-5">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                   <div>
-                    <h2 className="text-xl font-bold text-white">Departemen Desain</h2>
-                    <span className="text-xs text-slate-400">Pilih departemen untuk mengelola Job Card biro</span>
+                    <h2 className="text-lg font-bold text-white">Departemen Desain</h2>
+                    <span className="text-xs text-slate-400">Akses Pegawai Organik</span>
                   </div>
-                  <div className="relative w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Cari..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    placeholder="Cari..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44"
+                  />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredDepartments.map((dept) => {
-                    const IconComponent = iconMap[dept.icon] || Building2;
-                    return (
-                      <div
-                        key={dept.id}
-                        onClick={() => setSelectedDept(dept)}
-                        className="bg-slate-800/60 border border-slate-700/60 hover:border-blue-500/50 hover:bg-slate-800 rounded-xl p-5 cursor-pointer transition flex flex-col justify-between"
-                      >
-                        <div>
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-lg">
-                              <IconComponent className="w-5 h-5" />
-                            </div>
-                            {dept.code && (
-                              <span className="text-[10px] font-mono px-2 py-0.5 bg-slate-700 text-slate-300 rounded border border-slate-600">
-                                {dept.code}
-                              </span>
-                            )}
-                          </div>
-                          <h3 className="font-semibold text-white text-base">
-                            {dept.name}
-                          </h3>
-                        </div>
-
-                        <div className="mt-4 pt-3 border-t border-slate-700/40 flex items-center justify-between text-xs text-slate-400">
-                          <span>{dept.biros.length} Biro</span>
-                          <span className="text-blue-400 flex items-center gap-0.5 font-medium">
-                            Buka <ChevronRight className="w-3.5 h-3.5" />
-                          </span>
-                        </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {filteredDepartments.map((dept) => (
+                    <div
+                      key={dept.id}
+                      onClick={() => setSelectedDept(dept)}
+                      className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-xl p-4 cursor-pointer transition flex items-center justify-between"
+                    >
+                      <div>
+                        <h4 className="font-semibold text-white text-sm">{dept.name}</h4>
+                        <span className="text-xs text-slate-400">{dept.biros.length} Biro</span>
                       </div>
-                    );
-                  })}
+                      <ChevronRight className="w-4 h-4 text-slate-500" />
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
 
-            {/* LEVEL 2: DAFTAR BIRO */}
+            {/* Step 2: Biro Organik */}
             {selectedDept && !selectedBiroPage && !selectedFormBiro && (
-              <div className="space-y-5 animate-fadeIn">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                  <div>
-                    <h2 className="text-lg font-bold text-white">{selectedDept.name}</h2>
-                    <span className="text-xs text-slate-400">{selectedDept.biros.length} Biro Terdaftar</span>
-                  </div>
+              <div className="space-y-4">
+                <div className="border-b border-slate-800 pb-2">
+                  <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
+                  <span className="text-xs text-slate-400">Daftar Biro & Rekap Bulanan</span>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {selectedDept.biros.map((biro) => (
                     <div
                       key={biro.id}
-                      className="bg-slate-800/60 border border-slate-700/70 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                     >
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="text-sm font-semibold text-white">{biro.name}</h4>
-
-                        <div className="flex items-center gap-1.5 ml-2">
-                          <button
-                            onClick={() => {
-                              setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name });
-                              setFormPageMode('form');
-                            }}
-                            className="px-2.5 py-1 bg-emerald-600/90 hover:bg-emerald-600 text-white text-[11px] font-bold rounded-md transition flex items-center gap-1 cursor-pointer"
-                          >
-                            <FileText className="w-3 h-3" /> FORM
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name });
-                              setFormPageMode('output');
-                            }}
-                            className="px-2.5 py-1 bg-blue-600/90 hover:bg-blue-600 text-white text-[11px] font-bold rounded-md transition flex items-center gap-1 cursor-pointer"
-                          >
-                            <Layers className="w-3 h-3" /> OUTPUT
-                          </button>
-                        </div>
-                      </div>
+                      <span className="font-semibold text-white text-sm">{biro.name}</span>
 
                       <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }}
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer"
+                        >
+                          Form
+                        </button>
+                        <button
+                          onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('output'); }}
+                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer"
+                        >
+                          Output
+                        </button>
+
+                        <div className="h-4 w-px bg-slate-800 mx-1 hidden sm:block" />
+
                         {monthList.map((month) => (
                           <button
                             key={month}
                             onClick={() => handleMonthClick(biro.name, month)}
-                            disabled={isLoadingExcel}
-                            className="px-2.5 py-1 rounded text-xs bg-slate-800 hover:bg-blue-600 text-slate-300 hover:text-white border border-slate-700 transition cursor-pointer"
+                            className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] rounded border border-slate-700 cursor-pointer"
                           >
                             {month.slice(0, 3)}
                           </button>
@@ -1900,458 +1442,188 @@ export default function App() {
               </div>
             )}
 
-            {/* LEVEL FORM vs OUTPUT */}
+            {/* Step 3: Form/Output Organik */}
             {selectedFormBiro && (
-              <div className="space-y-4 animate-fadeIn">
-                <div className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-base font-bold text-white">{selectedFormBiro.biroName}</h2>
-                    <span className="text-xs text-slate-400 font-mono">
-                      {totalPersonilCount} Personil ({countOrganik} Organik, {countOutsourcing} Outsourcing) • {totalTasksCount} Tugas
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <div className="bg-slate-900 p-1 rounded-lg border border-slate-700 flex gap-1">
-                      <button
-                        onClick={() => setFormPageMode('form')}
-                        className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
-                          formPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        Form
-                      </button>
-                      <button
-                        onClick={() => setFormPageMode('output')}
-                        className={`px-3 py-1 text-xs font-semibold rounded-md transition cursor-pointer ${
-                          formPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-                        }`}
-                      >
-                        Output ({totalTasksCount})
-                      </button>
-                    </div>
-
+              <div className="space-y-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
+                  <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
+                  <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
                     <button
-                      type="button"
-                      onClick={() => {
-                        setIsPlannerModalOpen(true);
-                        setPinError(false);
-                      }}
-                      className="px-2.5 py-1 bg-amber-600/90 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                      onClick={() => setFormPageMode('form')}
+                      className={`px-3 py-1 rounded ${formPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
                     >
-                      <Lock className="w-3 h-3" /> Planner
-                      {currentActiveBiroTasks.filter(t => !t.kodeJc).length > 0 && (
-                        <span className="px-1.5 py-0.2 bg-rose-600 text-[10px] font-bold rounded-full">
-                          {currentActiveBiroTasks.filter(t => !t.kodeJc).length}
-                        </span>
-                      )}
+                      Form
+                    </button>
+                    <button
+                      onClick={() => setFormPageMode('output')}
+                      className={`px-3 py-1 rounded ${formPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
+                    >
+                      Output ({currentActiveBiroTasks.length})
                     </button>
                   </div>
                 </div>
 
-                {/* Form View */}
-                {formPageMode === 'form' && (
-                  <div className="bg-slate-800/50 border border-slate-700/70 rounded-xl p-5">
-                    <form onSubmit={handleSubmitForm} className="space-y-4">
+                {formPageMode === 'form' ? (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                    <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-medium text-slate-300 mb-1">Nama Personil</label>
-                          {currentBiroMembers.length > 0 ? (
-                            <select
-                              value={formData.nama}
-                              onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
-                              required
-                              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                            >
-                              <option value="">Pilih Nama Personil...</option>
-                              {currentBiroMembers.map((person, idx) => (
-                                <option key={idx} value={person.nama}>
-                                  {person.nama} ({person.status})
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              type="text"
-                              value={formData.nama}
-                              onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
-                              placeholder="Ketik Nama Personil..."
-                              required
-                              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                            />
-                          )}
+                          <label className="block text-slate-400 mb-1">Nama Personel</label>
+                          <select
+                            value={formData.nama}
+                            onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
+                            required
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                          >
+                            <option value="">Pilih Personel...</option>
+                            {currentBiroMembers.map((p, i) => (
+                              <option key={i} value={p.nama}>{p.nama} ({p.status})</option>
+                            ))}
+                          </select>
                         </div>
 
                         <div>
-                          <label className="block text-xs font-medium text-slate-300 mb-1">Proyek</label>
-                          {projectOptions.length > 0 ? (
-                            <select
-                              value={formData.kodeProyek}
-                              onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
-                              required
-                              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                            >
-                              <option value="">Pilih Proyek...</option>
-                              {projectOptions.map((proj, idx) => (
-                                <option key={idx} value={proj}>{proj}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              type="text"
-                              value={formData.kodeProyek}
-                              onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
-                              placeholder="Kode Proyek..."
-                              required
-                              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                            />
-                          )}
+                          <label className="block text-slate-400 mb-1">Proyek</label>
+                          <select
+                            value={formData.kodeProyek}
+                            onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
+                            required
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                          >
+                            <option value="">Pilih Proyek...</option>
+                            {projectOptions.map((p, i) => (
+                              <option key={i} value={p}>{p}</option>
+                            ))}
+                          </select>
                         </div>
 
                         <div>
-                          <label className="block text-xs font-medium text-slate-300 mb-1">JO (Angka)</label>
+                          <label className="block text-slate-400 mb-1">Nomor JO</label>
                           <input
                             type="text"
                             inputMode="numeric"
                             value={formData.jo}
                             onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9]/g, '') }))}
-                            placeholder="Contoh: 300426"
                             required
-                            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                           />
                         </div>
 
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-medium text-slate-300 mb-1">Task Name</label>
-                          {taskOptions.length > 0 ? (
-                            <select
-                              value={formData.taskName}
-                              onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                              required
-                              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                            >
-                              <option value="">Pilih Task...</option>
-                              {taskOptions.map((task, idx) => (
-                                <option key={idx} value={task}>{task}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              type="text"
-                              value={formData.taskName}
-                              onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                              placeholder="Uraian Pekerjaan / Task Name..."
-                              required
-                              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                            />
-                          )}
+                          <label className="block text-slate-400 mb-1">Task Name</label>
+                          <select
+                            value={formData.taskName}
+                            onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                            required
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                          >
+                            <option value="">Pilih Task...</option>
+                            {taskOptions.map((t, i) => (
+                              <option key={i} value={t}>{t}</option>
+                            ))}
+                          </select>
                         </div>
 
                         <div>
-                          <label className="block text-xs font-medium text-slate-300 mb-1">Start Date</label>
-                          <input
-                            type="date"
-                            value={formData.startDate}
-                            onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                            required
-                            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                          />
+                          <label className="block text-slate-400 mb-1">Mulai</label>
+                          <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" />
                         </div>
-
                         <div>
-                          <label className="block text-xs font-medium text-slate-300 mb-1">End Date</label>
-                          <input
-                            type="date"
-                            value={formData.endDate}
-                            onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                            required
-                            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                          />
+                          <label className="block text-slate-400 mb-1">Selesai</label>
+                          <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" />
                         </div>
 
                         <div className="md:col-span-2">
-                          <label className="block text-xs font-medium text-slate-300 mb-1">PIC</label>
-                          <input
-                            type="text"
-                            value={formData.pic}
-                            onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))}
-                            placeholder="Nama PIC..."
-                            required
-                            className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                          />
+                          <label className="block text-slate-400 mb-1">PIC</label>
+                          <input type="text" value={formData.pic} onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" />
                         </div>
                       </div>
 
-                      <div className="pt-3 border-t border-slate-700/50 flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '' })}
-                          className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs rounded-lg transition cursor-pointer"
-                        >
-                          Reset
-                        </button>
-                        <button
-                          type="submit"
-                          className="px-5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition flex items-center gap-1.5 cursor-pointer"
-                        >
-                          <Send className="w-3.5 h-3.5" /> Simpan
+                      <div className="flex justify-end pt-2">
+                        <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer">
+                          Simpan
                         </button>
                       </div>
                     </form>
                   </div>
-                )}
-
-                {/* Output View */}
-                {formPageMode === 'output' && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="relative flex-1 max-w-xs">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                        <input
-                          type="text"
-                          placeholder="Cari personil / tugas..."
-                          value={outputSearch}
-                          onChange={(e) => setOutputSearch(e.target.value)}
-                          className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => {
-                            const all: Record<string, boolean> = {};
-                            filteredAccordionData.forEach(g => { all[g.picName] = true; });
-                            setExpandedCards(all);
-                          }}
-                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700 cursor-pointer"
-                        >
-                          Buka
-                        </button>
-                        <button
-                          onClick={() => setExpandedCards({})}
-                          className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded border border-slate-700 cursor-pointer"
-                        >
-                          Tutup
-                        </button>
-                        <button
-                          onClick={() => handleClearAllBiroData(selectedFormBiro.biroName)}
-                          className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 rounded border border-rose-800/40 cursor-pointer"
-                          title="Reset Data"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {filteredAccordionData.length > 0 ? (
-                      <div className="space-y-2">
-                        {filteredAccordionData.map((person, idx) => {
-                          const isExpanded = expandedCards[person.picName] ?? false;
-                          const taskCount = person.tasks.length;
-                          const isActive = taskCount > 0;
-                          const isOutsourcing = person.status.toLowerCase().includes('outsourcing');
-
-                          return (
-                            <div
-                              key={idx}
-                              className="bg-slate-800/60 border border-slate-700/70 rounded-xl overflow-hidden"
-                            >
-                              <div
-                                onClick={() => toggleAccordion(person.picName)}
-                                className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/80 transition"
-                              >
-                                <div className="flex items-center gap-2.5 flex-wrap">
-                                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
-                                    isOutsourcing ? 'bg-amber-600 text-white' : isActive ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400'
-                                  }`}>
-                                    <User className="w-4 h-4" />
-                                  </div>
-                                  <span className="font-semibold text-sm text-white">{person.picName}</span>
-                                  <span className="text-xs font-mono text-slate-400">({taskCount})</span>
-
-                                  <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
-                                    isOutsourcing 
-                                      ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' 
-                                      : 'bg-blue-500/15 text-blue-400 border-blue-500/30'
-                                  }`}>
-                                    {person.status}
-                                  </span>
-
-                                  <span className={`px-2 py-0.2 text-[10px] font-bold rounded ${
-                                    isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-700 text-slate-400'
-                                  }`}>
-                                    {isActive ? 'Aktif' : 'Kosong'}
-                                  </span>
-                                </div>
-
-                                <div className="text-slate-400">
-                                  {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                                </div>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredAccordionData.map((person, idx) => (
+                      <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl p-3">
+                        <div className="font-semibold text-white text-sm mb-1">{person.picName} ({person.tasks.length} tugas)</div>
+                        {person.tasks.length > 0 && (
+                          <div className="text-xs text-slate-400 space-y-1 pt-1">
+                            {person.tasks.map((t, i) => (
+                              <div key={i} className="flex justify-between border-t border-slate-800/80 pt-1">
+                                <span>{t.taskName} ({t.project})</span>
+                                <span className="font-mono text-amber-400">{t.kodeJc || 'Pending'}</span>
                               </div>
-
-                              {isExpanded && (
-                                <div className="p-3 border-t border-slate-700/60 bg-slate-900/40">
-                                  {taskCount > 0 ? (
-                                    <div className="overflow-x-auto">
-                                      <table className="w-full text-left text-xs">
-                                        <thead>
-                                          <tr className="text-slate-400 border-b border-slate-700/60 font-medium">
-                                            <th className="py-2 px-2 w-8 text-center">#</th>
-                                            <th className="py-2 px-3 text-amber-400 font-mono">Kode JC</th>
-                                            <th className="py-2 px-3">Proyek</th>
-                                            <th className="py-2 px-3">Task Name</th>
-                                            <th className="py-2 px-3 text-center">Start</th>
-                                            <th className="py-2 px-3 text-center">End</th>
-                                            <th className="py-2 px-3 text-center font-mono">JO</th>
-                                            <th className="py-2 px-2 w-10 text-center">Aksi</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-800 text-slate-200">
-                                          {person.tasks.map((task, tIdx) => (
-                                            <tr key={task.id} className="hover:bg-slate-800/40">
-                                              <td className="py-2 px-2 text-center text-slate-500 font-mono">{tIdx + 1}</td>
-                                              <td className="py-2 px-3 font-mono font-semibold text-amber-300">
-                                                {task.kodeJc || <span className="text-rose-400 text-[11px]">Menunggu Planner</span>}
-                                              </td>
-                                              <td className="py-2 px-3 text-emerald-400 font-medium">{task.project}</td>
-                                              <td className="py-2 px-3 text-slate-200">{task.taskName}</td>
-                                              <td className="py-2 px-3 text-center font-mono text-cyan-300">{task.startDate}</td>
-                                              <td className="py-2 px-3 text-center font-mono text-cyan-300">{task.endDate}</td>
-                                              <td className="py-2 px-3 text-center font-mono font-bold text-violet-300">#{task.jo}</td>
-                                              <td className="py-2 px-2 text-center">
-                                                <button
-                                                  onClick={() => handleDeleteTask(task.id, selectedFormBiro.biroName)}
-                                                  className="p-1 text-slate-500 hover:text-rose-400 rounded cursor-pointer"
-                                                >
-                                                  <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
-                                              </td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  ) : (
-                                    <div className="py-4 text-center text-slate-500 text-xs">Kosong</div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <div className="py-8 text-center text-slate-500 text-xs bg-slate-800/30 rounded-xl">
-                        Data tidak ditemukan
-                      </div>
-                    )}
+                    ))}
                   </div>
                 )}
               </div>
             )}
 
-            {/* LEVEL 3: TABEL KPI */}
+            {/* Step 4: Rekap KPI Bulanan */}
             {selectedBiroPage && (
-              <div className="space-y-4 animate-fadeIn">
-                <div className="bg-slate-800/80 border border-slate-700 rounded-xl p-4 flex items-center justify-between">
-                  <div>
-                    <h2 className="text-base font-bold text-white">{selectedBiroPage.biroName}</h2>
-                    <span className="text-xs text-slate-400 font-mono">Bulan {selectedBiroPage.month} • {filteredTableData.length} Pegawai</span>
-                  </div>
-                  <button
-                    onClick={() => setSelectedBiroPage(null)}
-                    className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded-lg cursor-pointer"
-                  >
-                    Kembali
-                  </button>
+              <div className="space-y-3">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
+                  <span className="font-bold text-white text-sm">{selectedBiroPage.biroName} — {selectedBiroPage.month}</span>
+                  <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700">Tutup</button>
                 </div>
 
-                <div className="flex items-center justify-between gap-4">
-                  <div className="relative w-64">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Cari NIP / Nama..."
-                      value={tableSearch}
-                      onChange={(e) => setTableSearch(e.target.value)}
-                      className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden">
-                  {filteredTableData.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="bg-slate-800 text-slate-300 font-semibold border-b border-slate-700">
-                            <th className="py-2.5 px-3 text-center">#</th>
-                            <th className="py-2.5 px-3">NIP</th>
-                            <th className="py-2.5 px-3">Nama</th>
-                            <th className="py-2.5 px-3 text-right">Effective</th>
-                            <th className="py-2.5 px-3 text-right">Overtime</th>
-                            <th className="py-2.5 px-3 text-right">Idle</th>
-                            <th className="py-2.5 px-3 text-right">TS Reguler</th>
-                            <th className="py-2.5 px-3 text-right">TS Overtime</th>
-                            <th className="py-2.5 px-3 text-center">Terlambat</th>
-                            <th className="py-2.5 px-3 text-center">Sakit</th>
-                            <th className="py-2.5 px-3 text-center">IPM</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-700/50 text-slate-200">
-                          {filteredTableData.map((row, idx) => (
-                            <tr key={idx} className="hover:bg-slate-700/30">
-                              <td className="py-2.5 px-3 text-center text-slate-500 font-mono">{idx + 1}</td>
-                              <td className="py-2.5 px-3 font-mono text-blue-400">{row.nip}</td>
-                              <td className="py-2.5 px-3 font-medium text-white">{row.nama}</td>
-                              <td className="py-2.5 px-3 text-right font-mono text-cyan-400">{row.effectiveHour}</td>
-                              <td className="py-2.5 px-3 text-right font-mono text-amber-400">{row.overtimeHour}</td>
-                              <td className="py-2.5 px-3 text-right font-mono">{row.idleHour}</td>
-                              <td className="py-2.5 px-3 text-right font-mono text-indigo-300">{row.timesheetReguler}%</td>
-                              <td className="py-2.5 px-3 text-right font-mono text-violet-300">{row.timesheetOvertime}%</td>
-                              <td className="py-2.5 px-3 text-center font-mono text-rose-400">{row.terlambat}</td>
-                              <td className="py-2.5 px-3 text-center font-mono text-amber-400">{row.sakit}</td>
-                              <td className="py-2.5 px-3 text-center font-mono text-purple-400">{row.ipm}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="py-8 text-center text-slate-500 text-xs">Data tidak ditemukan</div>
-                  )}
+                <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-800 text-slate-300 border-b border-slate-700">
+                      <tr>
+                        <th className="py-2.5 px-3">Nama</th>
+                        <th className="py-2.5 px-3 font-mono">NIP</th>
+                        <th className="py-2.5 px-3 text-right">Effective</th>
+                        <th className="py-2.5 px-3 text-right">Overtime</th>
+                        <th className="py-2.5 px-3 text-right">Idle</th>
+                        <th className="py-2.5 px-3 text-center">Terlambat</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800 text-slate-300">
+                      {filteredTableData.map((row, idx) => (
+                        <tr key={idx}>
+                          <td className="py-2 px-3 text-white font-medium">{row.nama}</td>
+                          <td className="py-2 px-3 font-mono text-slate-400">{row.nip}</td>
+                          <td className="py-2 px-3 text-right font-mono text-cyan-400">{row.effectiveHour}</td>
+                          <td className="py-2 px-3 text-right font-mono text-amber-400">{row.overtimeHour}</td>
+                          <td className="py-2 px-3 text-right font-mono">{row.idleHour}</td>
+                          <td className="py-2 px-3 text-center font-mono text-rose-400">{row.terlambat}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
-          </>
+          </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* MODAL PLANNER PANEL (SUDAH DIPERBAIKI: MENDUKUNG SUBKON & SEMUA BIRO)     */}
-        {/* ========================================================================= */}
+        {/* ================= MODAL PLANNER (VERIFIKASI KODE JC) ================= */}
         {isPlannerModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-slate-800 border border-slate-700 rounded-xl w-full max-w-2xl shadow-xl overflow-hidden max-h-[85vh] flex flex-col">
-              <div className="p-3.5 bg-slate-900 border-b border-slate-700 flex items-center justify-between">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
+              <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
                 <span className="font-bold text-xs text-white flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Verifikasi Kode JC
+                  <Lock className="w-3.5 h-3.5 text-amber-400" /> Planner Panel
                 </span>
-                <button
-                  onClick={() => setIsPlannerModalOpen(false)}
-                  className="p-1 text-slate-400 hover:text-white cursor-pointer"
-                >
+                <button onClick={() => setIsPlannerModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="p-4 overflow-y-auto flex-1">
+              <div className="p-4">
                 {!isPlannerUnlocked ? (
-                  <form onSubmit={handleVerifyPin} className="max-w-xs mx-auto space-y-3 py-4">
-                    <div className="text-center">
-                      <KeyRound className="w-8 h-8 mx-auto text-amber-400 mb-1.5" />
-                      <span className="text-xs text-slate-300">Masukkan PIN Planner</span>
-                    </div>
-
+                  <form onSubmit={handleVerifyPin} className="max-w-xs mx-auto space-y-3 py-6 text-center">
+                    <KeyRound className="w-8 h-8 text-amber-400 mx-auto" />
                     <input
                       type="password"
                       value={pinInput}
@@ -2359,102 +1631,65 @@ export default function App() {
                       placeholder="PIN (2026)..."
                       autoFocus
                       required
-                      className={`w-full px-3 py-2 bg-slate-900 border rounded-lg text-center text-sm font-mono text-white focus:outline-none ${
-                        pinError ? 'border-rose-500' : 'border-slate-700'
-                      }`}
+                      className={`w-full px-3 py-2 bg-slate-950 border rounded-lg text-center text-sm font-mono text-white focus:outline-none ${pinError ? 'border-rose-500' : 'border-slate-800'}`}
                     />
-
-                    <button
-                      type="submit"
-                      className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-lg transition cursor-pointer"
-                    >
-                      Buka Panel
+                    <button type="submit" className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-lg cursor-pointer">
+                      Buka
                     </button>
                   </form>
                 ) : (
                   <div className="space-y-3">
-                    {/* Header Filter Cakupan Tugas di Modal Planner */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-700 text-xs">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-400">Tampilkan:</span>
-                        <div className="bg-slate-900 p-0.5 rounded border border-slate-700 flex text-[11px]">
-                          <button
-                            onClick={() => setPlannerScope('current')}
-                            className={`px-2 py-0.5 rounded transition cursor-pointer ${
-                              plannerScope === 'current' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            Biro Ini ({currentActiveBiroTasks.length})
-                          </button>
-                          <button
-                            onClick={() => setPlannerScope('all')}
-                            className={`px-2 py-0.5 rounded transition cursor-pointer ${
-                              plannerScope === 'all' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'
-                            }`}
-                          >
-                            Semua Biro ({allSubmittedTasksList.length})
-                          </button>
-                        </div>
+                    <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setPlannerScope('current')}
+                          className={`px-2 py-0.5 rounded text-[11px] font-semibold cursor-pointer ${plannerScope === 'current' ? 'bg-amber-600 text-white' : 'text-slate-400'}`}
+                        >
+                          Biro Ini ({currentActiveBiroTasks.length})
+                        </button>
+                        <button
+                          onClick={() => setPlannerScope('all')}
+                          className={`px-2 py-0.5 rounded text-[11px] font-semibold cursor-pointer ${plannerScope === 'all' ? 'bg-amber-600 text-white' : 'text-slate-400'}`}
+                        >
+                          Semua Biro ({allSubmittedTasksList.length})
+                        </button>
                       </div>
-
-                      <button
-                        onClick={() => setIsPlannerUnlocked(false)}
-                        className="text-[11px] text-slate-400 underline hover:text-white cursor-pointer self-end sm:self-auto"
-                      >
-                        Kunci Kembali
+                      <button onClick={() => setIsPlannerUnlocked(false)} className="text-[11px] text-slate-400 hover:underline">
+                        Kunci
                       </button>
                     </div>
 
-                    {plannerTasksToShow.length > 0 ? (
-                      <div className="space-y-2">
-                        {plannerTasksToShow.map((task, idx) => {
-                          const currentVal = editingTaskKode[task.id] ?? task.kodeJc ?? '';
-
-                          return (
-                            <div 
-                              key={task.id}
-                              className="p-3 bg-slate-900/60 border border-slate-700 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
-                            >
-                              <div className="space-y-0.5 text-xs flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-mono text-slate-500">#{idx + 1}</span>
-                                  <span className="font-semibold text-white">{task.pic}</span>
-                                  <span className="text-blue-400 font-mono">[{task.project}]</span>
-                                  <span className="text-purple-400 font-mono">#{task.jo}</span>
-                                  <span className="px-1.5 py-0.2 bg-slate-800 text-slate-400 rounded text-[10px]">
-                                    {task.biroName}
-                                  </span>
-                                </div>
-                                <div className="text-slate-300 text-[11px]">{task.taskName}</div>
-                              </div>
-
-                              <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
-                                <input
-                                  type="text"
-                                  value={currentVal}
-                                  onChange={(e) => setEditingTaskKode(prev => ({
-                                    ...prev,
-                                    [task.id]: e.target.value.toUpperCase()
-                                  }))}
-                                  placeholder="Kode JC..."
-                                  className="w-32 px-2.5 py-1 bg-slate-900 border border-slate-600 rounded text-xs font-mono text-white uppercase focus:outline-none focus:ring-1 focus:ring-amber-500"
-                                />
-                                <button
-                                  onClick={() => handleSaveKodeJcForTask(task.id, task.biroName || currentActiveBiroName)}
-                                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                                >
-                                  <Check className="w-3 h-3" /> Simpan
-                                </button>
-                              </div>
+                    <div className="max-h-80 overflow-y-auto space-y-2">
+                      {plannerTasksToShow.length > 0 ? (
+                        plannerTasksToShow.map((task, idx) => (
+                          <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
+                            <div className="min-w-0">
+                              <div className="font-semibold text-white truncate">{task.pic} <span className="font-mono text-slate-500 font-normal">#{idx + 1}</span></div>
+                              <div className="text-slate-400 text-[11px] truncate">{task.taskName}</div>
+                              <div className="text-emerald-400 font-mono text-[10px]">{task.project} • {task.biroName}</div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="py-8 text-center text-slate-500 text-xs">
-                        Tidak ada antrean tugas pada cakupan ini
-                      </div>
-                    )}
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <input
+                                type="text"
+                                value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
+                                onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
+                                placeholder="Kode JC..."
+                                className="w-28 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none"
+                              />
+                              <button
+                                onClick={() => handleSaveKodeJcForTask(task.id)}
+                                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer"
+                              >
+                                Simpan
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="py-8 text-center text-xs text-slate-500">Tidak ada pengajuan tugas</div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
