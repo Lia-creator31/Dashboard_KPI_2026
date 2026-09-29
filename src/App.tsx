@@ -33,7 +33,7 @@ import {
   Upload,
   Printer, 
   Calendar, 
-  Sparkles,
+  FileCheck,
   Users,
   Wrench,
   CircleDollarSign,
@@ -249,9 +249,9 @@ export default function App() {
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   // 3 File Excel Utama
-  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);          // data_kpi.xlsx
-  const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);  // JOBCARD_DESAIN.xlsx
-  const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);          // AKSES AKUN IM4...
+  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
   const [isLoadingExcel, setIsLoadingExcel] = useState<boolean>(true);
 
   useEffect(() => {
@@ -392,7 +392,7 @@ export default function App() {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.dept, deptName)).length;
   }, [dynamicOutsourcingList]);
 
-  // Deteksi Nama & Key Biro Aktif
+  // Deteksi Biro Aktif
   const currentActiveBiroName = useMemo(() => {
     if (accessMode === 'subkon') return subconSelectedBiro || '';
     return selectedFormBiro?.biroName || '';
@@ -622,7 +622,7 @@ export default function App() {
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
       setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '' });
 
-      alert('Tugas tersimpan! Masukkan Kode JC di menu Planner untuk menerbitkan Paket AA.');
+      alert('Tugas tersimpan! Masukkan Kode JC di menu Planner untuk menerbitkan Work Order.');
       loadAllJobCards();
     } catch {
       alert('Koneksi database bermasalah.');
@@ -683,16 +683,6 @@ export default function App() {
         });
         return updated;
       });
-      loadAllJobCards();
-    }
-  };
-
-  const handleClearAllBiroData = async (targetBiroName: string) => {
-    if (!targetBiroName) return;
-    if (window.confirm(`Kosongkan semua tugas di ${targetBiroName}?`)) {
-      await supabase.from('job_cards').delete().eq('biro_name', targetBiroName);
-      const biroKey = cleanText(targetBiroName);
-      setManualTasks({ ...manualTasks, [biroKey]: [] });
       loadAllJobCards();
     }
   };
@@ -798,7 +788,7 @@ export default function App() {
   const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
   const activeSubconPendingCount = currentActiveBiroTasks.filter(t => !t.kodeJc).length;
 
-  // Auto-Numbering Paket AA1, AA2... per Biro
+  // Auto-Numbering Work Order (AA1, AA2...) per Biro
   const approvedSubconPackages = useMemo(() => {
     return currentActiveBiroTasks
       .filter(t => t.kodeJc && t.kodeJc.trim() !== '')
@@ -936,7 +926,7 @@ export default function App() {
                   <HardHat className="w-6 h-6" />
                 </div>
                 <h3 className="text-lg font-bold text-white">Mitra / Subkon</h3>
-                <span className="text-xs text-slate-400">Personil Outsourcing & Paket Rilis (AA)</span>
+                <span className="text-xs text-slate-400">Personil Outsourcing</span>
               </div>
             </div>
           </div>
@@ -1017,7 +1007,7 @@ export default function App() {
                           <span className="text-xs text-amber-400 font-mono">({countInBiro} Org)</span>
                           {releaseCount > 0 && (
                             <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded text-[10px] font-bold">
-                              {releaseCount} Paket AA
+                              {releaseCount} Work Order
                             </span>
                           )}
                         </div>
@@ -1045,7 +1035,7 @@ export default function App() {
                             onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('release'); }}
                             className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer"
                           >
-                            Paket AA
+                            Work Order
                           </button>
                         </div>
                       </div>
@@ -1089,7 +1079,7 @@ export default function App() {
                         onClick={() => setSubconPageMode('release')}
                         className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${subconPageMode === 'release' ? 'bg-purple-600 text-white' : 'text-purple-300 hover:text-white'}`}
                       >
-                        <Sparkles className="w-3 h-3 text-amber-300" /> Paket AA ({approvedSubconPackages.length})
+                        <FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({approvedSubconPackages.length})
                       </button>
                     </div>
 
@@ -1315,7 +1305,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Tab 4: Paket Rilis AA1, AA2... */}
+                {/* Tab 4: Work Order (AA1, AA2...) */}
                 {subconPageMode === 'release' && (
                   <div className="space-y-3">
                     {approvedSubconPackages.length > 0 ? (
@@ -1337,7 +1327,7 @@ export default function App() {
                             </div>
                             <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-800 flex justify-between font-mono">
                               <span>{pkg.startDate} s/d {pkg.endDate}</span>
-                              <button onClick={() => alert(`Cetak paket ${pkg.packageTitle}`)} className="text-amber-400 hover:underline">
+                              <button onClick={() => alert(`Cetak work order ${pkg.packageTitle}`)} className="text-amber-400 hover:underline">
                                 Cetak
                               </button>
                             </div>
@@ -1346,7 +1336,7 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-xs text-slate-500">
-                        Belum ada tugas dengan Kode JC di biro ini.
+                        Belum ada Work Order di biro ini.
                       </div>
                     )}
                   </div>
@@ -1607,7 +1597,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= MODAL PLANNER (VERIFIKASI KODE JC) ================= */}
+        {/* ================= MODAL PLANNER ================= */}
         {isPlannerModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
