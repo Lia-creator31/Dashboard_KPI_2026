@@ -143,7 +143,7 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
   return false;
 }
 
-// Prefix Unik Berdasarkan Nama Biro
+// Inisial Unik Kode Biro untuk Work Order
 function getBiroPrefix(biroName: string): string {
   const b = (biroName || '').toLowerCase().replace('&', ' dan ').trim();
   if (b.includes('dokumen') || (b.includes('perencanaan') && b.includes('biro'))) return 'DP';
@@ -422,7 +422,7 @@ export default function App() {
     return manualTasks[currentActiveBiroKey] || [];
   }, [manualTasks, currentActiveBiroKey]);
 
-  // Work Order Khusus Subkon (Prefix Otomatis Tiap Biro: DP1, KS1, SK1, dll.)
+  // Work Order Khusus Subkon
   const subconWorkOrders = useMemo(() => {
     if (!subconSelectedBiro) return [];
     const prefix = getBiroPrefix(subconSelectedBiro);
@@ -516,43 +516,116 @@ export default function App() {
     return [];
   };
 
-  const getJobcardProjects = (): string[] => {
+  // =========================================================================
+  // DEDUKLIPASI KETAT KODE PROYEK: TIDAK DITULIS ULANG (UNIQUE & DISTINCT)
+  // =========================================================================
+  const projectOptions = useMemo((): string[] => {
+    const projectMap = new Map<string, string>();
+
+    // 1. Ekstraksi dari File JOBCARD_DESAIN.xlsx
+    if (jobcardWorkbook) {
+      jobcardWorkbook.SheetNames.forEach(sheetName => {
+        const sheet = jobcardWorkbook.Sheets[sheetName];
+        if (!sheet) return;
+        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+        // Temukan index kolom kode proyek secara dinamis
+        let projCol = 2;
+        for (let r = 0; r < Math.min(5, rows.length); r++) {
+          const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+          const foundIdx = rowVals.findIndex(v => v.includes('proyek') || v.includes('project'));
+          if (foundIdx !== -1) {
+            projCol = foundIdx;
+            break;
+          }
+        }
+
+        rows.forEach((row, idx) => {
+          if (idx < 1 || !row) return;
+          const raw = String(row[projCol] || '').replace(/[\r\n\t]/g, '').trim();
+          if (
+            !raw || 
+            raw.toLowerCase() === 'nan' || 
+            raw.toLowerCase().includes('kode proyek') || 
+            raw.toLowerCase() === 'proyek' || 
+            raw.toLowerCase() === 'project'
+          ) return;
+
+          const cleaned = raw.replace(/\s+/g, ' ').trim().toUpperCase();
+          const normKey = cleanText(cleaned);
+
+          // Jika sudah ada kode yang sama, jangan ditulis ulang
+          if (normKey && !projectMap.has(normKey)) {
+            projectMap.set(normKey, cleaned);
+          }
+        });
+      });
+    }
+
+    // 2. Gabungkan juga dari data penugasan yang tersimpan di Supabase
+    Object.values(manualTasks).forEach(tasks => {
+      tasks.forEach(t => {
+        const raw = String(t.project || '').replace(/[\r\n\t]/g, '').trim();
+        if (raw) {
+          const cleaned = raw.replace(/\s+/g, ' ').trim().toUpperCase();
+          const normKey = cleanText(cleaned);
+          if (normKey && !projectMap.has(normKey)) {
+            projectMap.set(normKey, cleaned);
+          }
+        }
+      });
+    });
+
+    return Array.from(projectMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [jobcardWorkbook, manualTasks]);
+
+  // =========================================================================
+  // DEDUKLIPASI KETAT DESKRIPSI TUGAS: TIDAK DITULIS ULANG
+  // =========================================================================
+  const taskOptions = useMemo((): string[] => {
     if (!jobcardWorkbook) return [];
-    const projects = new Set<string>();
+    const taskMap = new Map<string, string>();
+
     jobcardWorkbook.SheetNames.forEach(sheetName => {
       const sheet = jobcardWorkbook.Sheets[sheetName];
       if (!sheet) return;
       const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+      let taskCol = 3;
+      for (let r = 0; r < Math.min(5, rows.length); r++) {
+        const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+        const foundIdx = rowVals.findIndex(v => v.includes('task') || v.includes('deskripsi') || v.includes('uraian') || v.includes('pekerjaan'));
+        if (foundIdx !== -1) {
+          taskCol = foundIdx;
+          break;
+        }
+      }
+
       rows.forEach((row, idx) => {
-        if (idx < 2 || !row) return;
-        const p = String(row[2] || '').trim();
-        if (p && p.toLowerCase() !== 'nan' && !p.toLowerCase().includes('kode proyek')) {
-          projects.add(p);
+        if (idx < 1 || !row) return;
+        const raw = String(row[taskCol] || '').replace(/[\r\n\t]/g, ' ').trim();
+        if (
+          !raw || 
+          raw.toLowerCase() === 'nan' || 
+          raw.toLowerCase().includes('desc pekerjaan') || 
+          raw.toLowerCase().includes('task name') || 
+          raw.toLowerCase() === 'deskripsi'
+        ) return;
+
+        const cleaned = raw.replace(/\s+/g, ' ').trim();
+        const normKey = cleanText(cleaned);
+
+        // Jika sudah ada deskripsi yang sama, jangan ditulis ulang
+        if (normKey && !taskMap.has(normKey)) {
+          taskMap.set(normKey, cleaned);
         }
       });
     });
-    return Array.from(projects).sort();
-  };
 
-  const getJobcardTasks = (): string[] => {
-    if (!jobcardWorkbook) return [];
-    const tasks = new Set<string>();
-    jobcardWorkbook.SheetNames.forEach(sheetName => {
-      const sheet = jobcardWorkbook.Sheets[sheetName];
-      if (!sheet) return;
-      const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-      rows.forEach((row, idx) => {
-        if (idx < 2 || !row) return;
-        const t = String(row[3] || '').trim();
-        if (t && t.toLowerCase() !== 'nan' && !t.toLowerCase().includes('desc pekerjaan')) {
-          tasks.add(t);
-        }
-      });
-    });
-    return Array.from(tasks).sort();
-  };
+    return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [jobcardWorkbook]);
 
-  // SUBMIT FORM: UNTUK SUBKON OTOMATIS GENERATE WORK ORDER (MISAL DP1, KS1, SK1)
+  // Submit Form: Tanpa PIC & Auto-Release Work Order untuk Subkon
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeBiro = currentActiveBiroName;
@@ -588,7 +661,7 @@ export default function App() {
           task_name: formData.taskName,
           start_date: formData.startDate,
           end_date: formData.endDate,
-          pic: formData.nama, // PIC otomatis nama personil
+          pic: formData.nama,
           jo: formData.jo,
           kode_jc: autoKode,
           status: accessMode === 'subkon' ? 'approved' : 'pending',
@@ -615,7 +688,6 @@ export default function App() {
 
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
 
-      // Otomatis buka dropdown personil di tab anggota
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
       setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '' });
 
@@ -773,9 +845,6 @@ export default function App() {
   );
 
   const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
-  const projectOptions = getJobcardProjects();
-  const taskOptions = getJobcardTasks();
-
   const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
 
   return (
@@ -1028,7 +1097,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA DENGAN DROPDOWN ANAK PANAH (STATUS OUTSOURCING DIHAPUS) */}
+                {/* TAB 1: ANGGOTA DENGAN DROPDOWN ANAK PANAH */}
                 {subconPageMode === 'members' && (
                   <div className="space-y-2.5">
                     {activeSubconMembers.length > 0 ? (
@@ -1092,32 +1161,45 @@ export default function App() {
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-slate-800 text-slate-300">
-                                        {personTasks.map((task, tIdx) => (
-                                          <tr key={task.id} className="hover:bg-slate-900/40">
-                                            <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
-                                            <td className="py-2 px-2.5 font-mono font-bold text-amber-300">
-                                              {task.kodeJc || `${getBiroPrefix(subconSelectedBiro)}${tIdx + 1}`}
-                                            </td>
-                                            <td className="py-2 px-2.5 text-emerald-400 font-medium">{task.project}</td>
-                                            <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
-                                            <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
-                                              {task.startDate} s/d {task.endDate}
-                                            </td>
-                                            <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
-                                            <td className="py-2 px-2.5 text-center">
-                                              <button 
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleDeleteTask(task.id);
-                                                }} 
-                                                className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
-                                                title="Hapus Tugas"
-                                              >
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                              </button>
-                                            </td>
-                                          </tr>
-                                        ))}
+                                        {personTasks.map((task, tIdx) => {
+                                          // Jangan tulis ulang kode proyek jika persis sama dengan baris atasnya
+                                          const isSameProjectAsAbove = tIdx > 0 && task.project === personTasks[tIdx - 1].project;
+
+                                          return (
+                                            <tr key={task.id} className="hover:bg-slate-900/40">
+                                              <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
+                                              <td className="py-2 px-2.5 font-mono font-bold text-amber-300">
+                                                {task.kodeJc || `${getBiroPrefix(subconSelectedBiro)}${tIdx + 1}`}
+                                              </td>
+                                              <td className="py-2 px-2.5 font-medium">
+                                                {isSameProjectAsAbove ? (
+                                                  <span className="text-slate-500 font-mono text-[11px]" title={task.project}>
+                                                    — s.d.a —
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-emerald-400">{task.project}</span>
+                                                )}
+                                              </td>
+                                              <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
+                                              <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
+                                                {task.startDate} s/d {task.endDate}
+                                              </td>
+                                              <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
+                                              <td className="py-2 px-2.5 text-center">
+                                                <button 
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteTask(task.id);
+                                                  }} 
+                                                  className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
+                                                  title="Hapus Tugas"
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
                                       </tbody>
                                     </table>
                                   </div>
@@ -1139,7 +1221,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 2: FORM PENUGASAN (IKON KALENDER PUTIH MURNI DENGAN SVG LUCIDE) */}
+                {/* TAB 2: FORM PENUGASAN (DEDUP KODE PROYEK, DESKRIPSI, IKON KALENDER PUTIH) */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
@@ -1160,9 +1242,14 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* 2. Kode Proyek */}
+                        {/* 2. Kode Proyek (Tidak Ada yang Dobel / Unik) */}
                         <div>
-                          <label className="block text-slate-400 mb-1">Kode Proyek</label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-400">Kode Proyek</label>
+                            <span className="text-[10px] text-emerald-400 font-mono">
+                              {projectOptions.length} Proyek Unik
+                            </span>
+                          </div>
                           <select
                             value={formData.kodeProyek}
                             onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
@@ -1190,7 +1277,7 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 4. Deskripsi */}
+                        {/* 4. Deskripsi (Deduplikasi Tanpa Dobel) */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <select
@@ -1206,7 +1293,7 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* 5. Tanggal Mulai (Ikon Kalender Putih Murni) */}
+                        {/* 5. Tanggal Mulai (Ikon Kalender Putih Jelas) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
                           <div className="relative">
@@ -1225,7 +1312,7 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* 6. Tanggal Selesai (Ikon Kalender Putih Murni) */}
+                        {/* 6. Tanggal Selesai (Ikon Kalender Putih Jelas) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
                           <div className="relative">
@@ -1571,7 +1658,7 @@ export default function App() {
               <div className="space-y-3">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
                   <span className="font-bold text-white text-sm">{selectedBiroPage.biroName} — {selectedBiroPage.month}</span>
-                  <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700 cursor-pointer">Tutup</button>
+                  <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700">Tutup</button>
                 </div>
 
                 <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
