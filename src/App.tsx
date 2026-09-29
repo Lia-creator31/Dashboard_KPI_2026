@@ -27,7 +27,6 @@ import {
   Check, 
   Upload,
   Printer, 
-  Calendar, 
   FileCheck,
   Clock,
   Wrench,
@@ -101,7 +100,7 @@ interface TaskItem {
   endDate: string;
   pic: string;
   jo: string;
-  kodeJc: string; // Menyimpan Jobcard code
+  kodeJc: string;
   rev?: string;
   realJo?: string;
 }
@@ -226,7 +225,7 @@ export default function App() {
   const [subconPageMode, setSubconPageMode] = useState<'members' | 'form' | 'release'>('members');
   const [subconSearch, setSubconSearch] = useState('');
 
-  // Organik Navigation State (Hanya Anggota & Form)
+  // Organik Navigation State
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedBiroPage, setSelectedBiroPage] = useState<SelectedBiroPage | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
@@ -285,7 +284,6 @@ export default function App() {
     }
   }, []);
 
-  // State Planner Khusus Organik
   const [isPlannerModalOpen, setIsPlannerModalOpen] = useState(false);
   const [isPlannerUnlocked, setIsPlannerUnlocked] = useState(false);
   const [pinInput, setPinInput] = useState('');
@@ -299,11 +297,11 @@ export default function App() {
     setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
   };
 
-  // File Excel Utama
+  // 3 File Excel Utama
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
-  const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null); // Realisasi JO.xlsx
+  const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
 
   useEffect(() => {
     async function loadAllExcelFiles() {
@@ -336,9 +334,7 @@ export default function App() {
             '/Realisasi JO.xlsx',
             './Realisasi JO.xlsx',
             '/Realisasi_JO.xlsx',
-            './Realisasi_JO.xlsx',
-            '/Realisasi JO.XLSX',
-            './Realisasi JO.XLSX'
+            './Realisasi_JO.xlsx'
           ])
         ]);
 
@@ -380,7 +376,7 @@ export default function App() {
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary' });
         setRealisasiWorkbook(wb);
-        alert(`File ${file.name} berhasil dibaca! Real JO langsung dihitung otomatis.`);
+        alert(`File ${file.name} berhasil dibaca! Real JO langsung terhitung otomatis.`);
       } catch {
         alert('Gagal membaca file Realisasi JO.xlsx.');
       }
@@ -396,9 +392,7 @@ export default function App() {
     return isNaN(num) ? 0 : num;
   };
 
-  // =========================================================================
-  // PARSER REALISASI JO: MENGHITUNG (EFFECTIVE + OVERTIME) PER JOBCARD
-  // =========================================================================
+  // Parser Realisasi JO (Effective + Overtime)
   const realisasiMap = useMemo(() => {
     const map = new Map<string, number>();
     if (!realisasiWorkbook) return map;
@@ -410,7 +404,6 @@ export default function App() {
       const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
       if (rawRows.length === 0) return;
 
-      // Temukan baris header di 5 baris pertama
       let headerIdx = -1;
       let jobcardCol = -1;
       let effCol = -1;
@@ -431,7 +424,6 @@ export default function App() {
         }
       }
 
-      // Default bila header tak terdeteksi: Kolom L (11) = Effective, M (12) = Overtime, Q (16) = Jobcard
       if (jobcardCol === -1) jobcardCol = 16;
       if (effCol === -1) effCol = 11;
       if (otCol === -1) otCol = 12;
@@ -1280,38 +1272,26 @@ export default function App() {
 
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
-                          <div className="relative">
-                            <input
-                              type="date"
-                              value={formData.startDate}
-                              onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                              required
-                              style={{ colorScheme: 'dark' }}
-                              className="w-full pl-3 pr-10 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
-                              onClick={(e) => {
-                                try { (e.target as any).showPicker?.(); } catch {}
-                              }}
-                            />
-                            <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white pointer-events-none" />
-                          </div>
+                          <input
+                            type="date"
+                            value={formData.startDate}
+                            onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                            required
+                            style={{ colorScheme: 'dark' }}
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                          />
                         </div>
 
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
-                          <div className="relative">
-                            <input
-                              type="date"
-                              value={formData.endDate}
-                              onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                              required
-                              style={{ colorScheme: 'dark' }}
-                              className="w-full pl-3 pr-10 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
-                              onClick={(e) => {
-                                try { (e.target as any).showPicker?.(); } catch {}
-                              }}
-                            />
-                            <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white pointer-events-none" />
-                          </div>
+                          <input
+                            type="date"
+                            value={formData.endDate}
+                            onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                            required
+                            style={{ colorScheme: 'dark' }}
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                          />
                         </div>
                       </div>
 
@@ -1381,7 +1361,6 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {/* Tombol Upload Realisasi JO.xlsx */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <Clock className="w-3.5 h-3.5 text-emerald-400" />
                       <span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
@@ -1533,7 +1512,7 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* OUTPUT TABEL BERKOLOM: KODE JC DIGANTI JOBCARD, REAL JO OTOMATIS DARI REALISASI JO.XLSX */}
+                            {/* OUTPUT TABEL BERKOLOM */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1542,7 +1521,6 @@ export default function App() {
                                       <thead>
                                         <tr className="text-slate-400 border-b border-slate-800">
                                           <th className="py-2 px-2.5 w-8">#</th>
-                                          {/* Kode JC resmi diganti menjadi Jobcard */}
                                           <th className="py-2 px-2.5 font-mono text-amber-400">Jobcard</th>
                                           <th className="py-2 px-2.5">Proyek</th>
                                           <th className="py-2 px-2.5">Deskripsi</th>
@@ -1550,7 +1528,6 @@ export default function App() {
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
                                           <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
-                                          {/* Real JO: Dihitung dari Effective Hours + Overtime Hours */}
                                           <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
                                           <th className="py-2 px-2.5 text-center w-12">Aksi</th>
                                         </tr>
@@ -1558,8 +1535,6 @@ export default function App() {
                                       <tbody className="divide-y divide-slate-800 text-slate-300">
                                         {personTasks.map((task, tIdx) => {
                                           const isSameProjectAsAbove = tIdx > 0 && task.project === personTasks[tIdx - 1].project;
-
-                                          // Hitung Real JO dari map Realisasi JO.xlsx dengan key Jobcard
                                           const jcKey = cleanText(task.kodeJc || '');
                                           const calculatedRealHours = jcKey ? realisasiMap.get(jcKey) : undefined;
 
@@ -1638,7 +1613,7 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  /* TAB 2: FORM ORGANIK (REAL JO OTOMATIS, TANPA INPUT MANUAL) */
+                  /* TAB 2: FORM ORGANIK (IKON KALENDER TERBUKA & JELAS SAAT DIKLIK) */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1672,6 +1647,7 @@ export default function App() {
                           </select>
                         </div>
 
+                        {/* Plan JO */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan JO</label>
                           <input
@@ -1685,6 +1661,7 @@ export default function App() {
                           />
                         </div>
 
+                        {/* Deskripsi */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <select
@@ -1700,6 +1677,7 @@ export default function App() {
                           </select>
                         </div>
 
+                        {/* Rev */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
                           <input
@@ -1711,40 +1689,30 @@ export default function App() {
                           />
                         </div>
 
+                        {/* Plan Start (Kalender Asli Putih Terang, Langsung Muncul Saat Diklik) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan Start</label>
-                          <div className="relative">
-                            <input 
-                              type="date" 
-                              value={formData.startDate} 
-                              onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))} 
-                              required 
-                              style={{ colorScheme: 'dark' }}
-                              className="w-full pl-3 pr-10 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
-                              onClick={(e) => {
-                                try { (e.target as any).showPicker?.(); } catch {}
-                              }}
-                            />
-                            <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white pointer-events-none" />
-                          </div>
+                          <input 
+                            type="date" 
+                            value={formData.startDate} 
+                            onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))} 
+                            required 
+                            style={{ colorScheme: 'dark' }}
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" 
+                          />
                         </div>
 
+                        {/* Plan Finish (Kalender Asli Putih Terang, Langsung Muncul Saat Diklik) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan Finish</label>
-                          <div className="relative">
-                            <input 
-                              type="date" 
-                              value={formData.endDate} 
-                              onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))} 
-                              required 
-                              style={{ colorScheme: 'dark' }}
-                              className="w-full pl-3 pr-10 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
-                              onClick={(e) => {
-                                try { (e.target as any).showPicker?.(); } catch {}
-                              }}
-                            />
-                            <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white pointer-events-none" />
-                          </div>
+                          <input 
+                            type="date" 
+                            value={formData.endDate} 
+                            onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))} 
+                            required 
+                            style={{ colorScheme: 'dark' }}
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" 
+                          />
                         </div>
                       </div>
 
