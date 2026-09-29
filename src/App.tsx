@@ -422,9 +422,7 @@ export default function App() {
     return manualTasks[currentActiveBiroKey] || [];
   }, [manualTasks, currentActiveBiroKey]);
 
-  // =========================================================================
-  // SUBKON WORK ORDER: KODE UNIK TIAP BIRO (DP1, KS1, SK1, DST.) TANPA PLANNER
-  // =========================================================================
+  // Work Order Khusus Subkon (Prefix Otomatis Tiap Biro: DP1, KS1, SK1, dll.)
   const subconWorkOrders = useMemo(() => {
     if (!subconSelectedBiro) return [];
     const prefix = getBiroPrefix(subconSelectedBiro);
@@ -554,7 +552,7 @@ export default function App() {
     return Array.from(tasks).sort();
   };
 
-  // SUBMIT FORM: UNTUK SUBKON OTOMATIS GENERATE KODE WORK ORDER (MISAL: DP1, KS1, SK1)
+  // SUBMIT FORM: UNTUK SUBKON OTOMATIS GENERATE WORK ORDER (MISAL DP1, KS1, SK1)
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeBiro = currentActiveBiroName;
@@ -572,7 +570,7 @@ export default function App() {
       const biroKey = cleanText(activeBiro);
       const currentList = manualTasks[biroKey] || [];
 
-      // Generate Kode Work Order Otomatis Khusus Subkon
+      // Otomatisasi Kode Work Order Subkon
       let autoKode = '';
       if (accessMode === 'subkon') {
         const prefix = getBiroPrefix(activeBiro);
@@ -590,7 +588,7 @@ export default function App() {
           task_name: formData.taskName,
           start_date: formData.startDate,
           end_date: formData.endDate,
-          pic: formData.nama,
+          pic: formData.nama, // Di subkon, PIC otomatis nama personil
           jo: formData.jo,
           kode_jc: autoKode,
           status: accessMode === 'subkon' ? 'approved' : 'pending',
@@ -996,10 +994,10 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 3: Halaman Biro Subkon (Dropdown Akordion per Personil Tanpa Planner) */}
+            {/* Step 3: Halaman Biro Subkon */}
             {subconSelectedBiro && (
               <div className="space-y-4">
-                {/* Header & Tab Menu Simpel (Hanya 3 Pilihan) */}
+                {/* Header & Tab Menu Simpel (Hanya 3 Pilihan, Planner Dihapus) */}
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3>
@@ -1030,7 +1028,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA DENGAN DROPDOWN ANAK PANAH DI SEBELAH KANAN (HASIL LANGSUNG DI BAWAH NAMA) */}
+                {/* TAB 1: ANGGOTA DENGAN DROPDOWN ANAK PANAH (STATUS OUTSOURCING DIHAPUS) */}
                 {subconPageMode === 'members' && (
                   <div className="space-y-2.5">
                     {activeSubconMembers.length > 0 ? (
@@ -1045,7 +1043,7 @@ export default function App() {
                             key={idx} 
                             className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden transition-all duration-200"
                           >
-                            {/* Baris Nama Personel yang Dapat Diklik (Dropdown Header) */}
+                            {/* Baris Nama Personel (Header Dropdown) */}
                             <div 
                               onClick={() => toggleAccordion(person.nama)}
                               className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/40 transition"
@@ -1062,7 +1060,6 @@ export default function App() {
                                 </div>
                               </div>
 
-                              {/* Bagian Kanan: Jumlah Tugas & Anak Panah Dropdown */}
                               <div className="flex items-center gap-3">
                                 <span className="text-xs font-mono text-slate-400 hidden sm:inline">
                                   {personTasks.length} Tugas
@@ -1077,7 +1074,7 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Konten Dropdown: Tabel Hasil Penugasan Muncul Saat Anak Panah / Baris Diklik */}
+                            {/* Hasil Pekerjaan di Bawah Nama */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1088,7 +1085,7 @@ export default function App() {
                                           <th className="py-2 px-2.5 w-8">#</th>
                                           <th className="py-2 px-2.5 font-mono text-amber-400">Kode WO</th>
                                           <th className="py-2 px-2.5">Proyek</th>
-                                          <th className="py-2 px-2.5">Uraian Tugas / Task</th>
+                                          <th className="py-2 px-2.5">Deskripsi</th>
                                           <th className="py-2 px-2.5 font-mono">Jadwal</th>
                                           <th className="py-2 px-2.5 font-mono">JO</th>
                                           <th className="py-2 px-2.5 text-center w-12">Aksi</th>
@@ -1142,11 +1139,12 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 2: FORM PENUGASAN (LANGSUNG RILIS WORK ORDER OTOMATIS) */}
+                {/* TAB 2: FORM PENUGASAN (TASK NAME -> DESKRIPSI, PIC DIHAPUS, KALENDER PUTIH) */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                        {/* 1. Nama Drafter */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Nama Drafter / Personel</label>
                           <select
@@ -1162,6 +1160,7 @@ export default function App() {
                           </select>
                         </div>
 
+                        {/* 2. Kode Proyek */}
                         <div>
                           <label className="block text-slate-400 mb-1">Kode Proyek</label>
                           <select
@@ -1177,6 +1176,7 @@ export default function App() {
                           </select>
                         </div>
 
+                        {/* 3. Nomor JO */}
                         <div>
                           <label className="block text-slate-400 mb-1">Nomor JO</label>
                           <input
@@ -1190,21 +1190,23 @@ export default function App() {
                           />
                         </div>
 
+                        {/* 4. Deskripsi (Sebelumnya Task Name) */}
                         <div className="md:col-span-2">
-                          <label className="block text-slate-400 mb-1">Uraian Tugas / Task Name</label>
+                          <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <select
                             value={formData.taskName}
                             onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
                             required
                             className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
                           >
-                            <option value="">Pilih Task...</option>
+                            <option value="">Pilih Deskripsi Pekerjaan...</option>
                             {taskOptions.map((t, i) => (
                               <option key={i} value={t}>{t}</option>
                             ))}
                           </select>
                         </div>
 
+                        {/* 5. Tanggal Mulai (Ikon Kalender Putih) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
                           <input
@@ -1212,10 +1214,11 @@ export default function App() {
                             value={formData.startDate}
                             onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert cursor-pointer"
                           />
                         </div>
 
+                        {/* 6. Tanggal Selesai (Ikon Kalender Putih) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
                           <input
@@ -1223,21 +1226,11 @@ export default function App() {
                             value={formData.endDate}
                             onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert cursor-pointer"
                           />
                         </div>
 
-                        <div className="md:col-span-2">
-                          <label className="block text-slate-400 mb-1">PIC</label>
-                          <input
-                            type="text"
-                            value={formData.pic}
-                            onChange={(e) => setFormData(prev => ({ ...prev, pic: e.target.value }))}
-                            placeholder="Nama PIC..."
-                            required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
-                          />
-                        </div>
+                        {/* Kolom PIC telah dihapus sesuai permintaan */}
                       </div>
 
                       <div className="pt-3 border-t border-slate-800 flex justify-end">
@@ -1252,7 +1245,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 3: WORK ORDER (KODE UNIK SESUAI BIRO: DP1, KS1, SK1, DST.) */}
+                {/* TAB 3: WORK ORDER (AA1, AA2...) */}
                 {subconPageMode === 'release' && (
                   <div className="space-y-3">
                     {subconWorkOrders.length > 0 ? (
@@ -1472,11 +1465,23 @@ export default function App() {
 
                         <div>
                           <label className="block text-slate-400 mb-1">Mulai</label>
-                          <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" />
+                          <input 
+                            type="date" 
+                            value={formData.startDate} 
+                            onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))} 
+                            required 
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert cursor-pointer" 
+                          />
                         </div>
                         <div>
                           <label className="block text-slate-400 mb-1">Selesai</label>
-                          <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" />
+                          <input 
+                            type="date" 
+                            value={formData.endDate} 
+                            onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))} 
+                            required 
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert cursor-pointer" 
+                          />
                         </div>
 
                         <div className="md:col-span-2">
@@ -1540,7 +1545,7 @@ export default function App() {
               <div className="space-y-3">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
                   <span className="font-bold text-white text-sm">{selectedBiroPage.biroName} — {selectedBiroPage.month}</span>
-                  <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700">Tutup</button>
+                  <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700 cursor-pointer">Tutup</button>
                 </div>
 
                 <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
