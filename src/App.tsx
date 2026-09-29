@@ -67,6 +67,7 @@ const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', {
   eager: true 
 }) as Record<string, string>;
 
+// 3 file Excel utama
 const excelGlobUrls = import.meta.glob('./*.xlsx', { 
   query: '?url', 
   import: 'default', 
@@ -687,6 +688,16 @@ export default function App() {
     }
   };
 
+  const handleClearAllBiroData = async (targetBiroName: string) => {
+    if (!targetBiroName) return;
+    if (window.confirm(`Kosongkan semua tugas di ${targetBiroName}?`)) {
+      await supabase.from('job_cards').delete().eq('biro_name', targetBiroName);
+      const biroKey = cleanText(targetBiroName);
+      setManualTasks({ ...manualTasks, [biroKey]: [] });
+      loadAllJobCards();
+    }
+  };
+
   const toggleAccordion = (picName: string) => {
     setExpandedCards(prev => ({ ...prev, [picName]: !prev[picName] }));
   };
@@ -1029,7 +1040,7 @@ export default function App() {
                             onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('output'); }}
                             className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer"
                           >
-                            Output
+                            Hasil
                           </button>
                           <button
                             onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('release'); }}
@@ -1073,7 +1084,7 @@ export default function App() {
                         onClick={() => setSubconPageMode('output')}
                         className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}
                       >
-                        Output ({currentActiveBiroTasks.length})
+                        Hasil ({currentActiveBiroTasks.length})
                       </button>
                       <button
                         onClick={() => setSubconPageMode('release')}
@@ -1239,7 +1250,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Tab 3: Output Tugas */}
+                {/* Tab 3: Hasil Tugas */}
                 {subconPageMode === 'output' && (
                   <div className="space-y-2">
                     {subconAccordionData.map((person, idx) => {
@@ -1411,7 +1422,7 @@ export default function App() {
                           onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('output'); }}
                           className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer"
                         >
-                          Output
+                          Hasil
                         </button>
 
                         <div className="h-4 w-px bg-slate-800 mx-1 hidden sm:block" />
@@ -1432,7 +1443,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 3: Form/Output Organik */}
+            {/* Step 3: Form/Hasil Organik */}
             {selectedFormBiro && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
@@ -1448,7 +1459,7 @@ export default function App() {
                       onClick={() => setFormPageMode('output')}
                       className={`px-3 py-1 rounded ${formPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
                     >
-                      Output ({currentActiveBiroTasks.length})
+                      Hasil ({currentActiveBiroTasks.length})
                     </button>
                   </div>
                 </div>
@@ -1597,7 +1608,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= MODAL PLANNER ================= */}
+        {/* ================= MODAL PLANNER (VERIFIKASI KODE JC) ================= */}
         {isPlannerModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
