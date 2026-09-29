@@ -171,26 +171,19 @@ function getBiroPrefix(biroName: string): string {
   return 'WO';
 }
 
-// =========================================================================
-// ALGORITMA PEMBERSIH KODE PROYEK: MENGATASI TYPO O vs 0 & TITIK/SPASI GHAIB
-// =========================================================================
+// Algoritma Pembersih Kode Proyek: Mengatasi Typo O vs 0 & Titik/Spasi Ghaib
 function cleanProjectString(raw: any): string {
   if (!raw) return '';
   let s = String(raw)
     .replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ')
     .trim();
   
-  // Hapus tanda baca di ujung (titik, koma, strip, garis miring)
   s = s.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
   s = s.toUpperCase();
 
-  // Koreksi salah ketik huruf O menjadi angka 0 di akhiran nomor urut (misal AOPO1 -> AOP01)
   s = s.replace(/([A-Z0-9])O(\d+)$/, '$10$2');
-
-  // Koreksi angka 0 menjadi huruf O pada kode OPV (misal A26A0P01 -> A26AOP01)
   s = s.replace(/(\d)0P(\d)/, '$1OP$2');
 
-  // Koreksi awalan WOOO... menjadi W000...
   if (/^W[O0]{2,}\d+/.test(s)) {
     s = 'W' + s.slice(1).replace(/[O0]/g, '0');
   }
@@ -198,7 +191,6 @@ function cleanProjectString(raw: any): string {
   return s.trim();
 }
 
-// Kunci normalisasi unik (menyamakan O dan 0 untuk mencegah duplikasi)
 function getProjectNormKey(s: string): string {
   const k = (s || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
   return k.replace(/0/g, 'o');
@@ -549,13 +541,10 @@ export default function App() {
     return [];
   };
 
-  // =========================================================================
-  // DEDUPLIKASI KETAT KODE PROYEK: BEBAS DUPLIKAT (UNIQUE & CLEANED)
-  // =========================================================================
+  // Deduplikasi Ketat Kode Proyek
   const projectOptions = useMemo((): string[] => {
     const projectMap = new Map<string, string>();
 
-    // 1. Ekstraksi dari File JOBCARD_DESAIN.xlsx
     if (jobcardWorkbook) {
       jobcardWorkbook.SheetNames.forEach(sheetName => {
         const sheet = jobcardWorkbook.Sheets[sheetName];
@@ -586,7 +575,6 @@ export default function App() {
           const cleaned = cleanProjectString(raw);
           const normKey = getProjectNormKey(cleaned);
 
-          // Masukkan hanya jika kunci normalisasinya belum ada
           if (cleaned && normKey && !projectMap.has(normKey)) {
             projectMap.set(normKey, cleaned);
           }
@@ -594,7 +582,6 @@ export default function App() {
       });
     }
 
-    // 2. Gabungkan dari data penugasan yang tersimpan di Supabase
     Object.values(manualTasks).forEach(tasks => {
       tasks.forEach(t => {
         const raw = String(t.project || '').trim();
@@ -611,9 +598,7 @@ export default function App() {
     return Array.from(projectMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook, manualTasks]);
 
-  // =========================================================================
-  // DEDUPLIKASI KETAT DESKRIPSI TUGAS
-  // =========================================================================
+  // Deduplikasi Ketat Deskripsi Tugas
   const taskOptions = useMemo((): string[] => {
     if (!jobcardWorkbook) return [];
     const taskMap = new Map<string, string>();
@@ -1448,12 +1433,12 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 2: Biro Organik */}
+            {/* Step 2: Biro Organik (Tombol Jan - Jun Di-comment / Dinonaktifkan) */}
             {selectedDept && !selectedBiroPage && !selectedFormBiro && (
               <div className="space-y-4">
                 <div className="border-b border-slate-800 pb-2">
                   <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
-                  <span className="text-xs text-slate-400">Daftar Biro & Rekap Bulanan</span>
+                  <span className="text-xs text-slate-400">Daftar Biro Penugasan</span>
                 </div>
 
                 <div className="space-y-2">
@@ -1478,6 +1463,8 @@ export default function App() {
                           Hasil
                         </button>
 
+                        {/* Tombol Rekap Bulan Jan - Jun di-comment */}
+                        {/* 
                         <div className="h-4 w-px bg-slate-800 mx-1 hidden sm:block" />
 
                         {monthList.map((month) => (
@@ -1489,6 +1476,7 @@ export default function App() {
                             {month.slice(0, 3)}
                           </button>
                         ))}
+                        */}
                       </div>
                     </div>
                   ))}
@@ -1683,7 +1671,7 @@ export default function App() {
               <div className="space-y-3">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
                   <span className="font-bold text-white text-sm">{selectedBiroPage.biroName} — {selectedBiroPage.month}</span>
-                  <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700">Tutup</button>
+                  <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700 cursor-pointer">Tutup</button>
                 </div>
 
                 <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
