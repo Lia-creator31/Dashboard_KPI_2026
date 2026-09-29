@@ -588,7 +588,7 @@ export default function App() {
           task_name: formData.taskName,
           start_date: formData.startDate,
           end_date: formData.endDate,
-          pic: formData.nama, // Di subkon, PIC otomatis nama personil
+          pic: formData.nama, // PIC otomatis nama personil
           jo: formData.jo,
           kode_jc: autoKode,
           status: accessMode === 'subkon' ? 'approved' : 'pending',
@@ -997,7 +997,7 @@ export default function App() {
             {/* Step 3: Halaman Biro Subkon */}
             {subconSelectedBiro && (
               <div className="space-y-4">
-                {/* Header & Tab Menu Simpel (Hanya 3 Pilihan, Planner Dihapus) */}
+                {/* Header & Tab Menu Simpel */}
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3>
@@ -1139,7 +1139,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 2: FORM PENUGASAN (TASK NAME -> DESKRIPSI, PIC DIHAPUS, KALENDER PUTIH) */}
+                {/* TAB 2: FORM PENUGASAN (IKON KALENDER PUTIH MURNI DENGAN SVG LUCIDE) */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
@@ -1190,7 +1190,7 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 4. Deskripsi (Sebelumnya Task Name) */}
+                        {/* 4. Deskripsi */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <select
@@ -1206,31 +1206,43 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* 5. Tanggal Mulai (Ikon Kalender Putih) */}
+                        {/* 5. Tanggal Mulai (Ikon Kalender Putih Murni) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
-                          <input
-                            type="date"
-                            value={formData.startDate}
-                            onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                            required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert cursor-pointer"
-                          />
+                          <div className="relative">
+                            <input
+                              type="date"
+                              value={formData.startDate}
+                              onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                              required
+                              style={{ colorScheme: 'dark' }}
+                              className="w-full pl-3 pr-10 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
+                              onClick={(e) => {
+                                try { (e.target as any).showPicker?.(); } catch {}
+                              }}
+                            />
+                            <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white pointer-events-none" />
+                          </div>
                         </div>
 
-                        {/* 6. Tanggal Selesai (Ikon Kalender Putih) */}
+                        {/* 6. Tanggal Selesai (Ikon Kalender Putih Murni) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
-                          <input
-                            type="date"
-                            value={formData.endDate}
-                            onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                            required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert cursor-pointer"
-                          />
+                          <div className="relative">
+                            <input
+                              type="date"
+                              value={formData.endDate}
+                              onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                              required
+                              style={{ colorScheme: 'dark' }}
+                              className="w-full pl-3 pr-10 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
+                              onClick={(e) => {
+                                try { (e.target as any).showPicker?.(); } catch {}
+                              }}
+                            />
+                            <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white pointer-events-none" />
+                          </div>
                         </div>
-
-                        {/* Kolom PIC telah dihapus sesuai permintaan */}
                       </div>
 
                       <div className="pt-3 border-t border-slate-800 flex justify-end">
@@ -1245,7 +1257,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 3: WORK ORDER (AA1, AA2...) */}
+                {/* TAB 3: WORK ORDER */}
                 {subconPageMode === 'release' && (
                   <div className="space-y-3">
                     {subconWorkOrders.length > 0 ? (
@@ -1465,23 +1477,37 @@ export default function App() {
 
                         <div>
                           <label className="block text-slate-400 mb-1">Mulai</label>
-                          <input 
-                            type="date" 
-                            value={formData.startDate} 
-                            onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))} 
-                            required 
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert cursor-pointer" 
-                          />
+                          <div className="relative">
+                            <input 
+                              type="date" 
+                              value={formData.startDate} 
+                              onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))} 
+                              required 
+                              style={{ colorScheme: 'dark' }}
+                              className="w-full pl-3 pr-10 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
+                              onClick={(e) => {
+                                try { (e.target as any).showPicker?.(); } catch {}
+                              }}
+                            />
+                            <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white pointer-events-none" />
+                          </div>
                         </div>
                         <div>
                           <label className="block text-slate-400 mb-1">Selesai</label>
-                          <input 
-                            type="date" 
-                            value={formData.endDate} 
-                            onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))} 
-                            required 
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert cursor-pointer" 
-                          />
+                          <div className="relative">
+                            <input 
+                              type="date" 
+                              value={formData.endDate} 
+                              onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))} 
+                              required 
+                              style={{ colorScheme: 'dark' }}
+                              className="w-full pl-3 pr-10 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0"
+                              onClick={(e) => {
+                                try { (e.target as any).showPicker?.(); } catch {}
+                              }}
+                            />
+                            <Calendar className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white pointer-events-none" />
+                          </div>
                         </div>
 
                         <div className="md:col-span-2">
@@ -1613,7 +1639,7 @@ export default function App() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
                       <span className="text-slate-400">Daftar Pengajuan Organik</span>
-                      <button onClick={() => setIsPlannerUnlocked(false)} className="text-[11px] text-slate-400 hover:underline">
+                      <button onClick={() => setIsPlannerUnlocked(false)} className="text-[11px] text-slate-400 hover:underline cursor-pointer">
                         Kunci
                       </button>
                     </div>
