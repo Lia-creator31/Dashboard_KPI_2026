@@ -143,7 +143,7 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
   return false;
 }
 
-// Inisial Unik Kode Biro untuk Work Order
+// Inisial Unik Kode Biro untuk Work Order Subkon
 function getBiroPrefix(biroName: string): string {
   const b = (biroName || '').toLowerCase().replace('&', ' dan ').trim();
   if (b.includes('dokumen') || (b.includes('perencanaan') && b.includes('biro'))) return 'DP';
@@ -171,7 +171,7 @@ function getBiroPrefix(biroName: string): string {
   return 'WO';
 }
 
-// Algoritma Pembersih Kode Proyek: Mengatasi Typo O vs 0 & Titik/Spasi Ghaib
+// Pembersih Kode Proyek: Mengatasi Typo O vs 0 & Titik di Ujung
 function cleanProjectString(raw: any): string {
   if (!raw) return '';
   let s = String(raw)
@@ -224,11 +224,11 @@ export default function App() {
   const [subconPageMode, setSubconPageMode] = useState<'members' | 'form' | 'release'>('members');
   const [subconSearch, setSubconSearch] = useState('');
 
-  // Organik Navigation State
+  // Organik Navigation State (Hanya Anggota & Form)
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedBiroPage, setSelectedBiroPage] = useState<SelectedBiroPage | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
-  const [formPageMode, setFormPageMode] = useState<'form' | 'output'>('form');
+  const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [tableSearch, setTableSearch] = useState('');
@@ -421,6 +421,7 @@ export default function App() {
     return results;
   }, [im4Workbook]);
 
+  // Saring Anggota Khusus Outsourcing untuk Subkon
   const dynamicOutsourcingList = useMemo(() => {
     return allParsedFromExcel.filter(p => p.status.toLowerCase().includes('outsourcing'));
   }, [allParsedFromExcel]);
@@ -432,6 +433,20 @@ export default function App() {
   const getSubconCountForDept = useCallback((deptName: string) => {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.dept, deptName)).length;
   }, [dynamicOutsourcingList]);
+
+  // =========================================================================
+  // KHUSUS ORGANIK: HANYA MENGAMBIL PEGAWAI ORGANIK (PKWTT & PKWT)
+  // OUTSOURCING TIDAK DIMASUKKAN KE PORTAL ORGANIK
+  // =========================================================================
+  const getBiroMembers = useCallback((biroName: string): { nama: string; status: string; jabatan: string }[] => {
+    const members = allParsedFromExcel.filter(
+      p => isBiroMatch(p.biro, biroName) && !p.status.toLowerCase().includes('outsourcing')
+    );
+    if (members.length > 0) {
+      return members.map(m => ({ nama: m.nama, status: m.status, jabatan: m.jabatan }));
+    }
+    return [];
+  }, [allParsedFromExcel]);
 
   // Deteksi Biro Aktif
   const currentActiveBiroName = useMemo(() => {
@@ -531,14 +546,6 @@ export default function App() {
     });
 
     return timesheetMap;
-  };
-
-  const getBiroMembers = (biroName: string): { nama: string; status: string; jabatan: string }[] => {
-    const members = allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName));
-    if (members.length > 0) {
-      return members.map(m => ({ nama: m.nama, status: m.status, jabatan: m.jabatan }));
-    }
-    return [];
   };
 
   // Deduplikasi Ketat Kode Proyek
@@ -776,77 +783,6 @@ export default function App() {
     }
   };
 
-  const handleMonthClick = (biroName: string, month: string) => {
-    if (!workbook) return;
-
-    const monthPrefix = month.toLowerCase().slice(0, 3);
-    const targetSheetName = workbook.SheetNames.find(sheet => {
-      const sLower = sheet.toLowerCase().trim();
-      return sLower.includes(month.toLowerCase()) || sLower.includes(monthPrefix);
-    });
-
-    if (!targetSheetName) return;
-
-    const rawCsvData = csvMonthMap[month.toLowerCase()] || '';
-    const absensiDataMap = parseAbsensiCSV(rawCsvData);
-    const timesheetDataMap = parseTimesheetFolder(month);
-
-    const worksheet = workbook.Sheets[targetSheetName];
-    const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-    const personMap = new Map<string, { nip: string; nama: string; effectiveSum: number; overtimeSum: number; idleSum: number }>();
-
-    rawRows.forEach((row, rowIndex) => {
-      if (!row || row.length === 0 || rowIndex === 0) return;
-
-      const colA_NIP   = String(row[0] || '').trim();
-      const colB_Nama  = String(row[1] || '').trim();
-      const colH_Biro  = String(row[7] || '').trim();
-      const colK_Eff   = parseValToNumber(row[10]);
-      const colL_Ot    = parseValToNumber(row[11]);
-      const colM_Idle  = parseValToNumber(row[12]);
-
-      if (isBiroMatch(colH_Biro, biroName) && (colB_Nama || colA_NIP)) {
-        const personKey = cleanText(colB_Nama || colA_NIP);
-        if (!personMap.has(personKey)) {
-          personMap.set(personKey, {
-            nip: colA_NIP || '-',
-            nama: colB_Nama || '-',
-            effectiveSum: 0,
-            overtimeSum: 0,
-            idleSum: 0,
-          });
-        }
-        const person = personMap.get(personKey)!;
-        person.effectiveSum += colK_Eff;
-        person.overtimeSum += colL_Ot;
-        person.idleSum += colM_Idle;
-      }
-    });
-
-    const formattedData: ExcelRow[] = [];
-    personMap.forEach((person) => {
-      const cleanName = cleanText(person.nama);
-      const absensi = absensiDataMap.get(cleanName);
-      const ts = timesheetDataMap.get(cleanName) || { reguler: 0, overtime: 0 };
-
-      formattedData.push({
-        nip: person.nip,
-        nama: person.nama,
-        effectiveHour: Math.round(person.effectiveSum * 10) / 10,
-        overtimeHour: Math.round(person.overtimeSum * 10) / 10,
-        idleHour: Math.round(person.idleSum * 10) / 10,
-        timesheetReguler: Math.round(ts.reguler * 10) / 10,
-        timesheetOvertime: Math.round(ts.overtime * 10) / 10,
-        terlambat: absensi ? absensi.terlambat : 0,
-        sakit: absensi ? absensi.sakit : 0,
-        ipm: absensi ? absensi.ipm : 0,
-      });
-    });
-
-    setTableSearch('');
-    setSelectedBiroPage({ biroName, month, data: formattedData });
-  };
-
   const filteredDepartments = (departmentsData || []).filter(dept => 
     dept.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -855,13 +791,15 @@ export default function App() {
     dept.name.toLowerCase().includes(subconSearch.toLowerCase())
   );
 
-  const filteredTableData = (selectedBiroPage?.data || []).filter(item => 
-    item.nip.toLowerCase().includes(tableSearch.toLowerCase()) ||
-    item.nama.toLowerCase().includes(tableSearch.toLowerCase())
-  );
-
   const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
   const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
+
+  // Tugas Khusus Organik (Hanya tugas yang dimiliki personel Organik)
+  const organicBiroTasks = useMemo(() => {
+    return currentActiveBiroTasks.filter(t => 
+      currentBiroMembers.some(m => cleanText(m.nama) === cleanText(t.pic))
+    );
+  }, [currentActiveBiroTasks, currentBiroMembers]);
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
@@ -1404,7 +1342,7 @@ export default function App() {
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                   <div>
                     <h2 className="text-lg font-bold text-white">Departemen Desain</h2>
-                    <span className="text-xs text-slate-400">Akses Pegawai Organik</span>
+                    <span className="text-xs text-slate-400">Akses Pegawai Organik (PKWTT & PKWT)</span>
                   </div>
                   <input
                     type="text"
@@ -1433,12 +1371,12 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 2: Biro Organik (Tombol Jan - Jun Di-comment / Dinonaktifkan) */}
+            {/* Step 2: Biro Organik (Tombol Hasil Diganti "Anggota") */}
             {selectedDept && !selectedBiroPage && !selectedFormBiro && (
               <div className="space-y-4">
                 <div className="border-b border-slate-800 pb-2">
                   <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
-                  <span className="text-xs text-slate-400">Daftar Biro Penugasan</span>
+                  <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
                 </div>
 
                 <div className="space-y-2">
@@ -1450,33 +1388,19 @@ export default function App() {
                       <span className="font-semibold text-white text-sm">{biro.name}</span>
 
                       <div className="flex items-center gap-1.5 flex-wrap">
+                        {/* Tombol Anggota menggantikan tombol Hasil */}
+                        <button
+                          onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('members'); }}
+                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer"
+                        >
+                          Anggota
+                        </button>
                         <button
                           onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }}
                           className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer"
                         >
                           Form
                         </button>
-                        <button
-                          onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('output'); }}
-                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer"
-                        >
-                          Hasil
-                        </button>
-
-                        {/* Tombol Rekap Bulan Jan - Jun di-comment */}
-                        {/* 
-                        <div className="h-4 w-px bg-slate-800 mx-1 hidden sm:block" />
-
-                        {monthList.map((month) => (
-                          <button
-                            key={month}
-                            onClick={() => handleMonthClick(biro.name, month)}
-                            className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] rounded border border-slate-700 cursor-pointer"
-                          >
-                            {month.slice(0, 3)}
-                          </button>
-                        ))}
-                        */}
                       </div>
                     </div>
                   ))}
@@ -1484,24 +1408,29 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 3: Form/Hasil Organik */}
+            {/* Step 3: Halaman Detail Biro Organik (Hanya Pegawai PKWTT & PKWT) */}
             {selectedFormBiro && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
-                  <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
+                  <div>
+                    <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
+                    <span className="text-xs text-slate-400 font-mono">{currentBiroMembers.length} Pegawai Organik</span>
+                  </div>
+
                   <div className="flex items-center gap-2">
                     <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                      {/* Tombol Hasil Diganti "Anggota" */}
                       <button
-                        onClick={() => setFormPageMode('form')}
-                        className={`px-3 py-1 rounded ${formPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
+                        onClick={() => setFormPageMode('members')}
+                        className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'members' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
                       >
-                        Form
+                        Anggota ({currentBiroMembers.length})
                       </button>
                       <button
-                        onClick={() => setFormPageMode('output')}
-                        className={`px-3 py-1 rounded ${formPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
+                        onClick={() => setFormPageMode('form')}
+                        className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'form' ? 'bg-emerald-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
                       >
-                        Hasil ({currentActiveBiroTasks.length})
+                        Form
                       </button>
                     </div>
 
@@ -1514,19 +1443,71 @@ export default function App() {
                   </div>
                 </div>
 
-                {formPageMode === 'form' ? (
+                {/* TAB 1: ANGGOTA ORGANIK (OUTSOURCING SUDAH DIHAPUS) */}
+                {formPageMode === 'members' ? (
+                  <div className="space-y-2">
+                    {currentBiroMembers.length > 0 ? (
+                      currentBiroMembers.map((person, idx) => {
+                        const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
+                        const isExpanded = !!expandedCards[person.nama];
+
+                        return (
+                          <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                            <div 
+                              onClick={() => toggleAccordion(person.nama)}
+                              className="p-3 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/40 transition"
+                            >
+                              <div className="font-semibold text-white text-sm">
+                                {person.nama} <span className="text-xs font-mono text-cyan-400">({person.status})</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-slate-400 font-mono">{personTasks.length} Tugas</span>
+                                {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                              </div>
+                            </div>
+
+                            {isExpanded && (
+                              <div className="p-3 border-t border-slate-800 bg-slate-950/60 animate-fadeIn">
+                                {personTasks.length > 0 ? (
+                                  <div className="text-xs text-slate-300 space-y-1">
+                                    {personTasks.map((t, i) => (
+                                      <div key={i} className="flex justify-between items-center border-b border-slate-900 pb-1">
+                                        <div>
+                                          <div className="text-white font-medium">{t.taskName}</div>
+                                          <div className="text-[11px] text-emerald-400 font-mono">{t.project} • #{t.jo}</div>
+                                        </div>
+                                        <span className="font-mono text-amber-400 font-bold">{t.kodeJc || 'Menunggu Planner'}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-slate-500 italic py-1">Belum ada tugas</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
+                        Tidak ada personil organik di biro ini
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* TAB 2: FORM ORGANIK (HANYA MEMILIH PERSONEL ORGANIK) */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="md:col-span-2">
-                          <label className="block text-slate-400 mb-1">Nama Personel</label>
+                          <label className="block text-slate-400 mb-1">Nama Personel (Organik)</label>
                           <select
                             value={formData.nama}
                             onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
                             required
                             className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
                           >
-                            <option value="">Pilih Personel...</option>
+                            <option value="">Pilih Personel Organik...</option>
                             {currentBiroMembers.map((p, i) => (
                               <option key={i} value={p.nama}>{p.nama} ({p.status})</option>
                             ))}
@@ -1623,83 +1604,7 @@ export default function App() {
                       </div>
                     </form>
                   </div>
-                ) : (
-                  <div className="space-y-2">
-                    {currentBiroMembers.map((person, idx) => {
-                      const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
-                      const isExpanded = !!expandedCards[person.nama];
-
-                      return (
-                        <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                          <div 
-                            onClick={() => toggleAccordion(person.nama)}
-                            className="p-3 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/40"
-                          >
-                            <div className="font-semibold text-white text-sm">{person.nama} ({person.status})</div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-slate-400 font-mono">{personTasks.length} Tugas</span>
-                              {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                            </div>
-                          </div>
-
-                          {isExpanded && (
-                            <div className="p-3 border-t border-slate-800 bg-slate-950/60">
-                              {personTasks.length > 0 ? (
-                                <div className="text-xs text-slate-300 space-y-1">
-                                  {personTasks.map((t, i) => (
-                                    <div key={i} className="flex justify-between border-b border-slate-900 pb-1">
-                                      <span>{t.taskName} ({t.project})</span>
-                                      <span className="font-mono text-amber-400 font-bold">{t.kodeJc || 'Pending'}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className="text-xs text-slate-500 italic">Belum ada tugas</div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
                 )}
-              </div>
-            )}
-
-            {/* Step 4: Rekap KPI Bulanan */}
-            {selectedBiroPage && (
-              <div className="space-y-3">
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
-                  <span className="font-bold text-white text-sm">{selectedBiroPage.biroName} — {selectedBiroPage.month}</span>
-                  <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700 cursor-pointer">Tutup</button>
-                </div>
-
-                <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-800 text-slate-300 border-b border-slate-700">
-                      <tr>
-                        <th className="py-2.5 px-3">Nama</th>
-                        <th className="py-2.5 px-3 font-mono">NIP</th>
-                        <th className="py-2.5 px-3 text-right">Effective</th>
-                        <th className="py-2.5 px-3 text-right">Overtime</th>
-                        <th className="py-2.5 px-3 text-right">Idle</th>
-                        <th className="py-2.5 px-3 text-center">Terlambat</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800 text-slate-300">
-                      {filteredTableData.map((row, idx) => (
-                        <tr key={idx}>
-                          <td className="py-2 px-3 text-white font-medium">{row.nama}</td>
-                          <td className="py-2 px-3 font-mono text-slate-400">{row.nip}</td>
-                          <td className="py-2 px-3 text-right font-mono text-cyan-400">{row.effectiveHour}</td>
-                          <td className="py-2 px-3 text-right font-mono text-amber-400">{row.overtimeHour}</td>
-                          <td className="py-2 px-3 text-right font-mono">{row.idleHour}</td>
-                          <td className="py-2 px-3 text-center font-mono text-rose-400">{row.terlambat}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
               </div>
             )}
           </div>
@@ -1745,8 +1650,8 @@ export default function App() {
                     </div>
 
                     <div className="max-h-80 overflow-y-auto space-y-2">
-                      {currentActiveBiroTasks.length > 0 ? (
-                        currentActiveBiroTasks.map((task, idx) => (
+                      {organicBiroTasks.length > 0 ? (
+                        organicBiroTasks.map((task, idx) => (
                           <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
                             <div className="min-w-0">
                               <div className="font-semibold text-white truncate">{task.pic} <span className="font-mono text-slate-500 font-normal">#{idx + 1}</span></div>
@@ -1772,7 +1677,7 @@ export default function App() {
                           </div>
                         ))
                       ) : (
-                        <div className="py-8 text-center text-xs text-slate-500">Tidak ada pengajuan tugas</div>
+                        <div className="py-8 text-center text-xs text-slate-500">Tidak ada pengajuan tugas organik</div>
                       )}
                     </div>
                   </div>
