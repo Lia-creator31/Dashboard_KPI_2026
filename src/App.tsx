@@ -18,11 +18,8 @@ import {
   ArrowLeft, 
   Search, 
   ChevronRight, 
-  FileText, 
-  User, 
   ChevronDown, 
   ChevronUp, 
-  Send, 
   Trash2, 
   Lock, 
   KeyRound, 
@@ -32,9 +29,9 @@ import {
   Printer, 
   Calendar, 
   FileCheck,
-  Users,
   Wrench,
   CircleDollarSign,
+  Users,
   Truck,
   ShieldCheck,
   Laptop,
@@ -146,6 +143,34 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
   return false;
 }
 
+// Prefix Unik Berdasarkan Nama Biro
+function getBiroPrefix(biroName: string): string {
+  const b = (biroName || '').toLowerCase().replace('&', ' dan ').trim();
+  if (b.includes('dokumen') || (b.includes('perencanaan') && b.includes('biro'))) return 'DP';
+  if (b.includes('logistik')) return 'DL';
+  if (b.includes('administrasi')) return 'DA';
+  if (b.includes('pengembangan')) return 'PD';
+  if (b.includes('non kapal')) return 'NK';
+  if (b.includes('kapal selam') || b.includes('submarine')) return 'KS';
+  if (b.includes('kapal permukaan') || b.includes('surface')) return 'KP';
+  if (b.includes('struktur') && b.includes('lambung')) return 'SL';
+  if (b.includes('akomodasi')) return 'AK';
+  if (b.includes('perlengkapan') && b.includes('lambung')) return 'PL';
+  if (b.includes('produksi') && b.includes('lambung')) return 'PR';
+  if (b.includes('propulsi')) return 'SP';
+  if (b.includes('pengaturan') || b.includes('permesinan')) return 'PP';
+  if (b.includes('hvac') || b.includes('geladak')) return 'HV';
+  if (b.includes('listrik') || b.includes('kelistrikan')) return 'SK';
+  if (b.includes('kontrol') || b.includes('otomasi')) return 'KO';
+  if (b.includes('elektronika')) return 'SE';
+  if (b.includes('hps')) return 'HP';
+
+  const words = b.replace(/biro|desain|dasar/gi, '').split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  if (words.length === 1 && words[0].length >= 2) return words[0].slice(0, 2).toUpperCase();
+  return 'WO';
+}
+
 async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
   for (const p of paths) {
     if (!p) continue;
@@ -229,16 +254,14 @@ export default function App() {
     }
   }, []);
 
+  // State Planner Khusus Organik
   const [isPlannerModalOpen, setIsPlannerModalOpen] = useState(false);
   const [isPlannerUnlocked, setIsPlannerUnlocked] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
   const [editingTaskKode, setEditingTaskKode] = useState<{ [taskId: string]: string }>({});
-  const [plannerScope, setPlannerScope] = useState<'current' | 'all'>('current');
 
   const PLANNER_PIN = '2026';
-  
-  // State untuk membuka / menutup dropdown anak panah kartu
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   const toggleAccordion = (cardKey: string) => {
@@ -249,12 +272,10 @@ export default function App() {
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
-  const [isLoadingExcel, setIsLoadingExcel] = useState<boolean>(true);
 
   useEffect(() => {
     async function loadAllExcelFiles() {
       try {
-        setIsLoadingExcel(true);
         let kpiUrl = '';
         let jcUrl = '';
         let im4Url = '';
@@ -283,8 +304,6 @@ export default function App() {
         if (wbIm4) setIm4Workbook(wbIm4);
       } catch {
         // fallback
-      } finally {
-        setIsLoadingExcel(false);
       }
     }
     loadAllExcelFiles();
@@ -403,16 +422,17 @@ export default function App() {
     return manualTasks[currentActiveBiroKey] || [];
   }, [manualTasks, currentActiveBiroKey]);
 
-  const allSubmittedTasksList = useMemo(() => {
-    const list: TaskItem[] = [];
-    Object.values(manualTasks).forEach(arr => list.push(...arr));
-    return list;
-  }, [manualTasks]);
-
-  const plannerTasksToShow = useMemo(() => {
-    if (plannerScope === 'all') return allSubmittedTasksList;
-    return currentActiveBiroTasks;
-  }, [plannerScope, allSubmittedTasksList, currentActiveBiroTasks]);
+  // =========================================================================
+  // SUBKON WORK ORDER: KODE UNIK TIAP BIRO (DP1, KS1, SK1, DST.) TANPA PLANNER
+  // =========================================================================
+  const subconWorkOrders = useMemo(() => {
+    if (!subconSelectedBiro) return [];
+    const prefix = getBiroPrefix(subconSelectedBiro);
+    return currentActiveBiroTasks.map((task, idx) => ({
+      ...task,
+      packageTitle: `${prefix}${idx + 1}`
+    }));
+  }, [subconSelectedBiro, currentActiveBiroTasks]);
 
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
@@ -534,6 +554,7 @@ export default function App() {
     return Array.from(tasks).sort();
   };
 
+  // SUBMIT FORM: UNTUK SUBKON OTOMATIS GENERATE KODE WORK ORDER (MISAL: DP1, KS1, SK1)
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeBiro = currentActiveBiroName;
@@ -546,6 +567,16 @@ export default function App() {
       if (biroList && biroList.length > 0) {
         const found = biroList.find(b => isBiroMatch(b.name, activeBiro));
         validBiroId = found ? found.id : biroList[0].id;
+      }
+
+      const biroKey = cleanText(activeBiro);
+      const currentList = manualTasks[biroKey] || [];
+
+      // Generate Kode Work Order Otomatis Khusus Subkon
+      let autoKode = '';
+      if (accessMode === 'subkon') {
+        const prefix = getBiroPrefix(activeBiro);
+        autoKode = `${prefix}${currentList.length + 1}`;
       }
 
       const { data: insertedRow, error } = await supabase
@@ -561,8 +592,8 @@ export default function App() {
           end_date: formData.endDate,
           pic: formData.nama,
           jo: formData.jo,
-          kode_jc: '',
-          status: 'pending',
+          kode_jc: autoKode,
+          status: accessMode === 'subkon' ? 'approved' : 'pending',
         })
         .select()
         .single();
@@ -572,7 +603,6 @@ export default function App() {
         return;
       }
 
-      const biroKey = cleanText(activeBiro);
       const newTask: TaskItem = {
         id: insertedRow.id,
         biroName: activeBiro,
@@ -582,17 +612,20 @@ export default function App() {
         endDate: formData.endDate,
         pic: formData.nama,
         jo: formData.jo,
-        kode_jc: '',
+        kode_jc: autoKode,
       };
 
-      const currentList = manualTasks[biroKey] || [];
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
 
-      // Otomatis buka dropdown personil yang baru ditambahkan
+      // Otomatis buka dropdown personil di tab anggota
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
       setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '' });
 
-      alert('Tugas tersimpan! Hasilnya langsung muncul pada kartu personil.');
+      if (accessMode === 'subkon') {
+        alert(`Tugas tersimpan! Work Order "${autoKode}" langsung terbit dan dapat dilihat di bawah nama personil.`);
+      } else {
+        alert('Tugas tersimpan! Buka Planner untuk approval kode JC.');
+      }
       loadAllJobCards();
     } catch {
       alert('Koneksi database bermasalah.');
@@ -746,17 +779,6 @@ export default function App() {
   const taskOptions = getJobcardTasks();
 
   const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
-  const activeSubconPendingCount = currentActiveBiroTasks.filter(t => !t.kodeJc).length;
-
-  // Auto-Numbering Work Order (AA1, AA2...) per Biro
-  const approvedSubconPackages = useMemo(() => {
-    return currentActiveBiroTasks
-      .filter(t => t.kodeJc && t.kodeJc.trim() !== '')
-      .map((task, idx) => ({
-        ...task,
-        packageTitle: `AA${idx + 1}`
-      }));
-  }, [currentActiveBiroTasks]);
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
@@ -876,7 +898,7 @@ export default function App() {
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                   <div>
                     <h2 className="text-lg font-bold text-white">Pilih Departemen</h2>
-                    <span className="text-xs text-slate-400">Total {dynamicOutsourcingList.length} Personel</span>
+                    <span className="text-xs text-slate-400">Total {dynamicOutsourcingList.length} Personel Outsourcing</span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -930,7 +952,7 @@ export default function App() {
                 <div className="space-y-2">
                   {subconSelectedDept.biros.map((biro) => {
                     const countInBiro = getSubconMembersForBiro(biro.name).length;
-                    const releaseCount = (manualTasks[cleanText(biro.name)] || []).filter(t => t.kodeJc).length;
+                    const releaseCount = (manualTasks[cleanText(biro.name)] || []).length;
 
                     return (
                       <div
@@ -974,53 +996,41 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 3: Halaman Biro Subkon (Dropdown Akordion per Personil) */}
+            {/* Step 3: Halaman Biro Subkon (Dropdown Akordion per Personil Tanpa Planner) */}
             {subconSelectedBiro && (
               <div className="space-y-4">
-                {/* Header & Tab Menu Simpel */}
+                {/* Header & Tab Menu Simpel (Hanya 3 Pilihan) */}
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3>
-                    <span className="text-xs text-slate-400 font-mono">{activeSubconMembers.length} Personel</span>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {activeSubconMembers.length} Personel • Kode Biro: <b className="text-amber-400">{getBiroPrefix(subconSelectedBiro)}</b>
+                    </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
-                      <button
-                        onClick={() => setSubconPageMode('members')}
-                        className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'members' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        Anggota
-                      </button>
-                      <button
-                        onClick={() => setSubconPageMode('form')}
-                        className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
-                      >
-                        Form
-                      </button>
-                      <button
-                        onClick={() => setSubconPageMode('release')}
-                        className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${subconPageMode === 'release' ? 'bg-purple-600 text-white' : 'text-purple-300 hover:text-white'}`}
-                      >
-                        <FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({approvedSubconPackages.length})
-                      </button>
-                    </div>
-
+                  <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
                     <button
-                      onClick={() => setIsPlannerModalOpen(true)}
-                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                      onClick={() => setSubconPageMode('members')}
+                      className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'members' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}
                     >
-                      <Lock className="w-3 h-3" /> Planner
-                      {activeSubconPendingCount > 0 && (
-                        <span className="px-1.5 py-0.2 bg-rose-600 text-[10px] font-bold rounded-full">
-                          {activeSubconPendingCount}
-                        </span>
-                      )}
+                      Anggota
+                    </button>
+                    <button
+                      onClick={() => setSubconPageMode('form')}
+                      className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Form
+                    </button>
+                    <button
+                      onClick={() => setSubconPageMode('release')}
+                      className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${subconPageMode === 'release' ? 'bg-purple-600 text-white' : 'text-purple-300 hover:text-white'}`}
+                    >
+                      <FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({subconWorkOrders.length})
                     </button>
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA DENGAN DROPDOWN ANAK PANAH DI SEBELAH KANAN */}
+                {/* TAB 1: ANGGOTA DENGAN DROPDOWN ANAK PANAH DI SEBELAH KANAN (HASIL LANGSUNG DI BAWAH NAMA) */}
                 {subconPageMode === 'members' && (
                   <div className="space-y-2.5">
                     {activeSubconMembers.length > 0 ? (
@@ -1038,7 +1048,7 @@ export default function App() {
                             {/* Baris Nama Personel yang Dapat Diklik (Dropdown Header) */}
                             <div 
                               onClick={() => toggleAccordion(person.nama)}
-                              className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-850 hover:bg-slate-800/40 transition"
+                              className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/40 transition"
                             >
                               <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">
@@ -1055,7 +1065,7 @@ export default function App() {
                               {/* Bagian Kanan: Jumlah Tugas & Anak Panah Dropdown */}
                               <div className="flex items-center gap-3">
                                 <span className="text-xs font-mono text-slate-400 hidden sm:inline">
-                                  {personTasks.length} Hasil
+                                  {personTasks.length} Tugas
                                 </span>
                                 <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-amber-400' : ''}`}>
                                   {isExpanded ? (
@@ -1074,9 +1084,9 @@ export default function App() {
                                   <div className="overflow-x-auto">
                                     <table className="w-full text-left text-xs">
                                       <thead>
-                                        <tr className="text-slate-400 border-b border-slate-850">
+                                        <tr className="text-slate-400 border-b border-slate-800">
                                           <th className="py-2 px-2.5 w-8">#</th>
-                                          <th className="py-2 px-2.5 font-mono text-amber-400">Kode JC</th>
+                                          <th className="py-2 px-2.5 font-mono text-amber-400">Kode WO</th>
                                           <th className="py-2 px-2.5">Proyek</th>
                                           <th className="py-2 px-2.5">Uraian Tugas / Task</th>
                                           <th className="py-2 px-2.5 font-mono">Jadwal</th>
@@ -1084,12 +1094,12 @@ export default function App() {
                                           <th className="py-2 px-2.5 text-center w-12">Aksi</th>
                                         </tr>
                                       </thead>
-                                      <tbody className="divide-y divide-slate-850 text-slate-300">
+                                      <tbody className="divide-y divide-slate-800 text-slate-300">
                                         {personTasks.map((task, tIdx) => (
                                           <tr key={task.id} className="hover:bg-slate-900/40">
                                             <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
                                             <td className="py-2 px-2.5 font-mono font-bold text-amber-300">
-                                              {task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}
+                                              {task.kodeJc || `${getBiroPrefix(subconSelectedBiro)}${tIdx + 1}`}
                                             </td>
                                             <td className="py-2 px-2.5 text-emerald-400 font-medium">{task.project}</td>
                                             <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
@@ -1132,7 +1142,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 2: FORM PENUGASAN */}
+                {/* TAB 2: FORM PENUGASAN (LANGSUNG RILIS WORK ORDER OTOMATIS) */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
@@ -1235,26 +1245,26 @@ export default function App() {
                           type="submit"
                           className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-lg transition cursor-pointer"
                         >
-                          Simpan Tugas
+                          Simpan Tugas & Terbitkan Work Order
                         </button>
                       </div>
                     </form>
                   </div>
                 )}
 
-                {/* TAB 3: WORK ORDER (AA1, AA2...) */}
+                {/* TAB 3: WORK ORDER (KODE UNIK SESUAI BIRO: DP1, KS1, SK1, DST.) */}
                 {subconPageMode === 'release' && (
                   <div className="space-y-3">
-                    {approvedSubconPackages.length > 0 ? (
+                    {subconWorkOrders.length > 0 ? (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {approvedSubconPackages.map((pkg) => (
+                        {subconWorkOrders.map((pkg) => (
                           <div key={pkg.id} className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
                             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                              <span className="px-2 py-0.5 bg-purple-600 rounded text-white font-mono font-bold text-sm">
+                              <span className="px-2.5 py-0.5 bg-purple-600 rounded text-white font-mono font-bold text-sm tracking-wide shadow-sm">
                                 {pkg.packageTitle}
                               </span>
                               <span className="font-mono text-xs text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                                {pkg.kodeJc}
+                                {pkg.kodeJc || pkg.packageTitle}
                               </span>
                             </div>
                             <div className="text-xs space-y-1">
@@ -1264,8 +1274,8 @@ export default function App() {
                             </div>
                             <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-800 flex justify-between font-mono">
                               <span>{pkg.startDate} s/d {pkg.endDate}</span>
-                              <button onClick={() => alert(`Cetak work order ${pkg.packageTitle}`)} className="text-amber-400 hover:underline cursor-pointer">
-                                Cetak
+                              <button onClick={() => alert(`Mencetak Work Order ${pkg.packageTitle}...`)} className="text-amber-400 hover:underline cursor-pointer flex items-center gap-1">
+                                <Printer className="w-3 h-3" /> Cetak
                               </button>
                             </div>
                           </div>
@@ -1273,7 +1283,7 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-xs text-slate-500">
-                        Belum ada Work Order di biro ini.
+                        Belum ada Work Order di biro ini. Tambahkan tugas di tab <b>Form</b> untuk langsung menerbitkan Work Order.
                       </div>
                     )}
                   </div>
@@ -1374,18 +1384,27 @@ export default function App() {
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
                   <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
-                  <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                      <button
+                        onClick={() => setFormPageMode('form')}
+                        className={`px-3 py-1 rounded ${formPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
+                      >
+                        Form
+                      </button>
+                      <button
+                        onClick={() => setFormPageMode('output')}
+                        className={`px-3 py-1 rounded ${formPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
+                      >
+                        Hasil ({currentActiveBiroTasks.length})
+                      </button>
+                    </div>
+
                     <button
-                      onClick={() => setFormPageMode('form')}
-                      className={`px-3 py-1 rounded ${formPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
+                      onClick={() => setIsPlannerModalOpen(true)}
+                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
                     >
-                      Form
-                    </button>
-                    <button
-                      onClick={() => setFormPageMode('output')}
-                      className={`px-3 py-1 rounded ${formPageMode === 'output' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
-                    >
-                      Hasil ({currentActiveBiroTasks.length})
+                      <Lock className="w-3 h-3" /> Planner
                     </button>
                   </div>
                 </div>
@@ -1475,19 +1494,42 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {currentActiveBiroTasks.length > 0 ? (
-                      currentActiveBiroTasks.map((t, i) => (
-                        <div key={i} className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex justify-between items-center text-xs">
-                          <div>
-                            <div className="text-white font-semibold">{t.pic}</div>
-                            <div className="text-slate-400">{t.taskName} ({t.project})</div>
+                    {currentBiroMembers.map((person, idx) => {
+                      const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
+                      const isExpanded = !!expandedCards[person.nama];
+
+                      return (
+                        <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                          <div 
+                            onClick={() => toggleAccordion(person.nama)}
+                            className="p-3 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/40"
+                          >
+                            <div className="font-semibold text-white text-sm">{person.nama} ({person.status})</div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-slate-400 font-mono">{personTasks.length} Tugas</span>
+                              {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                            </div>
                           </div>
-                          <span className="font-mono text-amber-400 font-bold">{t.kodeJc || 'Pending'}</span>
+
+                          {isExpanded && (
+                            <div className="p-3 border-t border-slate-800 bg-slate-950/60">
+                              {personTasks.length > 0 ? (
+                                <div className="text-xs text-slate-300 space-y-1">
+                                  {personTasks.map((t, i) => (
+                                    <div key={i} className="flex justify-between border-b border-slate-900 pb-1">
+                                      <span>{t.taskName} ({t.project})</span>
+                                      <span className="font-mono text-amber-400 font-bold">{t.kodeJc || 'Pending'}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-xs text-slate-500 italic">Belum ada tugas</div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      ))
-                    ) : (
-                      <div className="text-xs text-slate-500 py-6 text-center">Belum ada tugas</div>
-                    )}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1498,7 +1540,7 @@ export default function App() {
               <div className="space-y-3">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
                   <span className="font-bold text-white text-sm">{selectedBiroPage.biroName} — {selectedBiroPage.month}</span>
-                  <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700 cursor-pointer">Tutup</button>
+                  <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700">Tutup</button>
                 </div>
 
                 <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
@@ -1532,13 +1574,13 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= MODAL PLANNER ================= */}
+        {/* ================= MODAL PLANNER (KHUSUS ORGANIK) ================= */}
         {isPlannerModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
               <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
                 <span className="font-bold text-xs text-white flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-amber-400" /> Planner Panel
+                  <Lock className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Kode JC Organik
                 </span>
                 <button onClick={() => setIsPlannerModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
                   <X className="w-4 h-4" />
@@ -1565,28 +1607,15 @@ export default function App() {
                 ) : (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setPlannerScope('current')}
-                          className={`px-2 py-0.5 rounded text-[11px] font-semibold cursor-pointer ${plannerScope === 'current' ? 'bg-amber-600 text-white' : 'text-slate-400'}`}
-                        >
-                          Biro Ini ({currentActiveBiroTasks.length})
-                        </button>
-                        <button
-                          onClick={() => setPlannerScope('all')}
-                          className={`px-2 py-0.5 rounded text-[11px] font-semibold cursor-pointer ${plannerScope === 'all' ? 'bg-amber-600 text-white' : 'text-slate-400'}`}
-                        >
-                          Semua Biro ({allSubmittedTasksList.length})
-                        </button>
-                      </div>
+                      <span className="text-slate-400">Daftar Pengajuan Organik</span>
                       <button onClick={() => setIsPlannerUnlocked(false)} className="text-[11px] text-slate-400 hover:underline">
                         Kunci
                       </button>
                     </div>
 
                     <div className="max-h-80 overflow-y-auto space-y-2">
-                      {plannerTasksToShow.length > 0 ? (
-                        plannerTasksToShow.map((task, idx) => (
+                      {currentActiveBiroTasks.length > 0 ? (
+                        currentActiveBiroTasks.map((task, idx) => (
                           <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
                             <div className="min-w-0">
                               <div className="font-semibold text-white truncate">{task.pic} <span className="font-mono text-slate-500 font-normal">#{idx + 1}</span></div>
