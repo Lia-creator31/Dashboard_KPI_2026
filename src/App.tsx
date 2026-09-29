@@ -29,6 +29,7 @@ import {
   Printer, 
   Calendar, 
   FileCheck,
+  Clock,
   Wrench,
   CircleDollarSign,
   Users,
@@ -62,7 +63,7 @@ const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', {
   eager: true 
 }) as Record<string, string>;
 
-// 3 file Excel utama
+// File Excel utama
 const excelGlobUrls = import.meta.glob('./*.xlsx', { 
   query: '?url', 
   import: 'default', 
@@ -100,7 +101,7 @@ interface TaskItem {
   endDate: string;
   pic: string;
   jo: string;
-  kodeJc: string;
+  kodeJc: string; // Menyimpan Jobcard code
   rev?: string;
   realJo?: string;
 }
@@ -173,7 +174,6 @@ function getBiroPrefix(biroName: string): string {
   return 'WO';
 }
 
-// Pembersih Kode Proyek: Mengatasi Typo O vs 0 & Titik di Ujung
 function cleanProjectString(raw: any): string {
   if (!raw) return '';
   let s = String(raw)
@@ -299,10 +299,11 @@ export default function App() {
     setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
   };
 
-  // 3 File Excel Utama
+  // File Excel Utama
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
+  const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null); // Realisasi JO.xlsx
 
   useEffect(() => {
     async function loadAllExcelFiles() {
@@ -310,15 +311,17 @@ export default function App() {
         let kpiUrl = '';
         let jcUrl = '';
         let im4Url = '';
+        let realisasiUrl = '';
 
         Object.entries(excelGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
           if (pLower.includes('kpi')) kpiUrl = url;
-          else if (pLower.includes('jobcard')) jcUrl = url;
+          else if (pLower.includes('jobcard') && !pLower.includes('realisasi')) jcUrl = url;
           else if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
+          else if (pLower.includes('realisasi')) realisasiUrl = url;
         });
 
-        const [wbKpi, wbJc, wbIm4] = await Promise.all([
+        const [wbKpi, wbJc, wbIm4, wbRealisasi] = await Promise.all([
           fetchSafeWorkbook([kpiUrl, '/data_kpi.xlsx', './data_kpi.xlsx']),
           fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx', '/JOBCARD DESAIN.xlsx']),
           fetchSafeWorkbook([
@@ -327,12 +330,22 @@ export default function App() {
             './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx',
             '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL.xlsx',
             './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL.xlsx'
+          ]),
+          fetchSafeWorkbook([
+            realisasiUrl,
+            '/Realisasi JO.xlsx',
+            './Realisasi JO.xlsx',
+            '/Realisasi_JO.xlsx',
+            './Realisasi_JO.xlsx',
+            '/Realisasi JO.XLSX',
+            './Realisasi JO.XLSX'
           ])
         ]);
 
         if (wbKpi) setWorkbook(wbKpi);
         if (wbJc) setJobcardWorkbook(wbJc);
         if (wbIm4) setIm4Workbook(wbIm4);
+        if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
       } catch {
         // fallback
       }
@@ -357,6 +370,92 @@ export default function App() {
     };
     reader.readAsBinaryString(file);
   };
+
+  const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        setRealisasiWorkbook(wb);
+        alert(`File ${file.name} berhasil dibaca! Real JO langsung dihitung otomatis.`);
+      } catch {
+        alert('Gagal membaca file Realisasi JO.xlsx.');
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const parseValToNumber = (val: any): number => {
+    if (val === null || val === undefined || val === '') return 0;
+    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+    const str = String(val).trim().replace('%', '').replace(',', '.');
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : num;
+  };
+
+  // =========================================================================
+  // PARSER REALISASI JO: MENGHITUNG (EFFECTIVE + OVERTIME) PER JOBCARD
+  // =========================================================================
+  const realisasiMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!realisasiWorkbook) return map;
+
+    realisasiWorkbook.SheetNames.forEach(sheetName => {
+      const sheet = realisasiWorkbook.Sheets[sheetName];
+      if (!sheet) return;
+
+      const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      if (rawRows.length === 0) return;
+
+      // Temukan baris header di 5 baris pertama
+      let headerIdx = -1;
+      let jobcardCol = -1;
+      let effCol = -1;
+      let otCol = -1;
+
+      for (let r = 0; r < Math.min(5, rawRows.length); r++) {
+        const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
+        const jcIdx = row.findIndex(c => c.includes('jobcard'));
+        const eIdx = row.findIndex(c => c.includes('effective'));
+        const oIdx = row.findIndex(c => c.includes('overtime'));
+
+        if (jcIdx !== -1 && (eIdx !== -1 || oIdx !== -1)) {
+          headerIdx = r;
+          jobcardCol = jcIdx;
+          effCol = eIdx;
+          otCol = oIdx;
+          break;
+        }
+      }
+
+      // Default bila header tak terdeteksi: Kolom L (11) = Effective, M (12) = Overtime, Q (16) = Jobcard
+      if (jobcardCol === -1) jobcardCol = 16;
+      if (effCol === -1) effCol = 11;
+      if (otCol === -1) otCol = 12;
+
+      for (let r = Math.max(headerIdx + 1, 1); r < rawRows.length; r++) {
+        const row = rawRows[r];
+        if (!row) continue;
+
+        const rawJc = String(row[jobcardCol] || '').trim();
+        if (!rawJc || rawJc.toLowerCase() === 'nan' || rawJc.toLowerCase().includes('jobcard')) continue;
+
+        const eff = effCol !== -1 ? parseValToNumber(row[effCol]) : 0;
+        const ot = otCol !== -1 ? parseValToNumber(row[otCol]) : 0;
+        const total = eff + ot;
+
+        const key = cleanText(rawJc);
+        if (key) {
+          map.set(key, (map.get(key) || 0) + total);
+        }
+      }
+    });
+
+    return map;
+  }, [realisasiWorkbook]);
 
   // Parser Master Anggota dari Excel IM4
   const allParsedFromExcel = useMemo<ParsedMember[]>(() => {
@@ -427,7 +526,6 @@ export default function App() {
     return results;
   }, [im4Workbook]);
 
-  // Saring Anggota Khusus Outsourcing untuk Subkon
   const dynamicOutsourcingList = useMemo(() => {
     return allParsedFromExcel.filter(p => p.status.toLowerCase().includes('outsourcing'));
   }, [allParsedFromExcel]);
@@ -575,7 +673,7 @@ export default function App() {
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook]);
 
-  // Submit Form: Tanpa PIC manual (otomatis nama personil yang dipilih)
+  // Submit Form: Tanpa PIC manual
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeBiro = currentActiveBiroName;
@@ -609,7 +707,7 @@ export default function App() {
         task_name: formData.taskName,
         start_date: formData.startDate,
         end_date: formData.endDate,
-        pic: formData.nama, // PIC otomatis nama personel yang dipilih
+        pic: formData.nama,
         jo: formData.jo,
         kode_jc: autoKode,
         status: accessMode === 'subkon' ? 'approved' : 'pending',
@@ -617,9 +715,6 @@ export default function App() {
 
       if (formData.rev) {
         insertPayload.rev = formData.rev;
-      }
-      if (formData.realJo) {
-        insertPayload.real_jo = formData.realJo;
       }
 
       let insertedRow: any = null;
@@ -630,9 +725,8 @@ export default function App() {
         .single();
 
       if (error) {
-        if (error.message?.includes('real_jo') || error.message?.includes('rev') || (error as any).details?.includes('real_jo') || (error as any).details?.includes('rev')) {
+        if (error.message?.includes('rev') || (error as any).details?.includes('rev')) {
           delete insertPayload.rev;
-          delete insertPayload.real_jo;
           const { data: retryData, error: retryError } = await supabase
             .from('job_cards')
             .insert(insertPayload)
@@ -662,7 +756,6 @@ export default function App() {
         jo: formData.jo,
         kode_jc: autoKode,
         rev: formData.rev || '0',
-        realJo: formData.realJo || '',
       };
 
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
@@ -673,7 +766,7 @@ export default function App() {
       if (accessMode === 'subkon') {
         alert(`Tugas tersimpan! Work Order "${autoKode}" langsung terbit dan dapat dilihat di bawah nama personil.`);
       } else {
-        alert('Tugas tersimpan! Buka Planner untuk approval kode JC.');
+        alert('Tugas tersimpan! Buka Planner untuk approval Jobcard.');
       }
       loadAllJobCards();
     } catch {
@@ -702,7 +795,7 @@ export default function App() {
       .eq('id', taskId);
 
     if (error) {
-      alert('Gagal simpan kode: ' + error.message);
+      alert('Gagal simpan Jobcard: ' + error.message);
       return;
     }
 
@@ -750,7 +843,6 @@ export default function App() {
   const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
   const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
 
-  // Tugas Khusus Organik
   const organicBiroTasks = useMemo(() => {
     return currentActiveBiroTasks.filter(t => 
       currentBiroMembers.some(m => cleanText(m.nama) === cleanText(t.pic))
@@ -1287,13 +1379,23 @@ export default function App() {
                     <h2 className="text-lg font-bold text-white">Departemen Desain</h2>
                     <span className="text-xs text-slate-400">Akses Pegawai Organik (PKWTT & PKWT)</span>
                   </div>
-                  <input
-                    type="text"
-                    placeholder="Cari..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44"
-                  />
+
+                  <div className="flex items-center gap-2">
+                    {/* Tombol Upload Realisasi JO.xlsx */}
+                    <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                      <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
+                    </label>
+
+                    <input
+                      type="text"
+                      placeholder="Cari..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44"
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
@@ -1314,7 +1416,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 2: Biro Organik (Tombol Hasil Resmi Diganti "Anggota") */}
+            {/* Step 2: Biro Organik */}
             {selectedDept && !selectedBiroPage && !selectedFormBiro && (
               <div className="space-y-4">
                 <div className="border-b border-slate-800 pb-2">
@@ -1353,13 +1455,21 @@ export default function App() {
             {/* Step 3: Halaman Detail Biro Organik */}
             {selectedFormBiro && (
               <div className="space-y-4">
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
-                    <span className="text-xs text-slate-400 font-mono">{currentBiroMembers.length} Pegawai Organik</span>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {currentBiroMembers.length} Pegawai Organik • Real JO: {realisasiMap.size > 0 ? `${realisasiMap.size} Jobcard Terdaftar` : 'Excel Realisasi Belum Dimuat'}
+                    </span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                      <Clock className="w-3 h-3 text-emerald-400" />
+                      <span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
+                    </label>
+
                     <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
                       <button
                         onClick={() => setFormPageMode('members')}
@@ -1384,7 +1494,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK DENGAN OUTPUT TABEL (PLAN JO & REAL JO) */}
+                {/* TAB 1: ANGGOTA ORGANIK (TABEL KOLOM: JOBCARD, PLAN JO & REAL JO DARI EXCEL) */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
@@ -1418,16 +1528,12 @@ export default function App() {
                                   {personTasks.length} Tugas
                                 </span>
                                 <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-blue-400' : ''}`}>
-                                  {isExpanded ? (
-                                    <ChevronUp className="w-4 h-4" />
-                                  ) : (
-                                    <ChevronDown className="w-4 h-4" />
-                                  )}
+                                  {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                                 </div>
                               </div>
                             </div>
 
-                            {/* OUTPUT TABEL BERKOLOM LENGKAP: PLAN JO & REAL JO */}
+                            {/* OUTPUT TABEL BERKOLOM: KODE JC DIGANTI JOBCARD, REAL JO OTOMATIS DARI REALISASI JO.XLSX */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1436,13 +1542,15 @@ export default function App() {
                                       <thead>
                                         <tr className="text-slate-400 border-b border-slate-800">
                                           <th className="py-2 px-2.5 w-8">#</th>
-                                          <th className="py-2 px-2.5 font-mono text-amber-400">Kode JC</th>
+                                          {/* Kode JC resmi diganti menjadi Jobcard */}
+                                          <th className="py-2 px-2.5 font-mono text-amber-400">Jobcard</th>
                                           <th className="py-2 px-2.5">Proyek</th>
                                           <th className="py-2 px-2.5">Deskripsi</th>
                                           <th className="py-2 px-2.5 text-center font-mono">Rev</th>
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
                                           <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
+                                          {/* Real JO: Dihitung dari Effective Hours + Overtime Hours */}
                                           <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
                                           <th className="py-2 px-2.5 text-center w-12">Aksi</th>
                                         </tr>
@@ -1450,6 +1558,10 @@ export default function App() {
                                       <tbody className="divide-y divide-slate-800 text-slate-300">
                                         {personTasks.map((task, tIdx) => {
                                           const isSameProjectAsAbove = tIdx > 0 && task.project === personTasks[tIdx - 1].project;
+
+                                          // Hitung Real JO dari map Realisasi JO.xlsx dengan key Jobcard
+                                          const jcKey = cleanText(task.kodeJc || '');
+                                          const calculatedRealHours = jcKey ? realisasiMap.get(jcKey) : undefined;
 
                                           return (
                                             <tr key={task.id} className="hover:bg-slate-900/40">
@@ -1477,9 +1589,20 @@ export default function App() {
                                                 {task.endDate}
                                               </td>
                                               <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
-                                              <td className="py-2 px-2.5 font-mono text-emerald-400">
-                                                {task.realJo ? (task.realJo.startsWith('#') ? task.realJo : `#${task.realJo}`) : '-'}
+                                              
+                                              {/* Kolom Real JO: Nilai Otomatis dari Excel Realisasi JO.xlsx */}
+                                              <td className="py-2 px-2.5 font-mono font-bold">
+                                                {calculatedRealHours !== undefined ? (
+                                                  <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
+                                                    {Math.round(calculatedRealHours * 100) / 100} Jam
+                                                  </span>
+                                                ) : task.kodeJc ? (
+                                                  <span className="text-slate-500 font-normal">0 Jam</span>
+                                                ) : (
+                                                  <span className="text-slate-600 font-normal">-</span>
+                                                )}
                                               </td>
+
                                               <td className="py-2 px-2.5 text-center">
                                                 <button 
                                                   onClick={(e) => {
@@ -1515,7 +1638,7 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  /* TAB 2: FORM ORGANIK (TANPA PIC, LABEL: PLAN JO & REAL JO) */
+                  /* TAB 2: FORM ORGANIK (REAL JO OTOMATIS, TANPA INPUT MANUAL) */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1549,7 +1672,6 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* Plan JO */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan JO</label>
                           <input
@@ -1578,7 +1700,7 @@ export default function App() {
                           </select>
                         </div>
 
-                        <div>
+                        <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
                           <input
                             type="text"
@@ -1588,21 +1710,6 @@ export default function App() {
                             className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                           />
                         </div>
-
-                        {/* Real JO */}
-                        <div>
-                          <label className="block text-slate-400 mb-1">Real JO</label>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={formData.realJo}
-                            onChange={(e) => setFormData(prev => ({ ...prev, realJo: e.target.value.replace(/[^0-9]/g, '') }))}
-                            placeholder="Opsional, Contoh: 300428"
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
-                          />
-                        </div>
-
-                        {/* PIC Dihapus */}
 
                         <div>
                           <label className="block text-slate-400 mb-1">Plan Start</label>
@@ -1654,13 +1761,13 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= MODAL PLANNER (KHUSUS ORGANIK) ================= */}
+        {/* ================= MODAL PLANNER (INPUT JOBCARD ORGANIK) ================= */}
         {isPlannerModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
               <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
                 <span className="font-bold text-xs text-white flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Kode JC Organik
+                  <Lock className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard Organik
                 </span>
                 <button onClick={() => setIsPlannerModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
                   <X className="w-4 h-4" />
@@ -1687,7 +1794,7 @@ export default function App() {
                 ) : (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
-                      <span className="text-slate-400">Daftar Pengajuan Organik</span>
+                      <span className="text-slate-400">Daftar Pengajuan Jobcard ({organicBiroTasks.length})</span>
                       <button onClick={() => setIsPlannerUnlocked(false)} className="text-[11px] text-slate-400 hover:underline cursor-pointer">
                         Kunci
                       </button>
@@ -1711,8 +1818,8 @@ export default function App() {
                                 type="text"
                                 value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
                                 onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
-                                placeholder="Kode JC..."
-                                className="w-28 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none"
+                                placeholder="Jobcard (misal: JC020926 39833)..."
+                                className="w-48 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none"
                               />
                               <button
                                 onClick={() => handleSaveKodeJcForTask(task.id)}
