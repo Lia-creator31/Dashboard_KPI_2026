@@ -171,6 +171,39 @@ function getBiroPrefix(biroName: string): string {
   return 'WO';
 }
 
+// =========================================================================
+// ALGORITMA PEMBERSIH KODE PROYEK: MENGATASI TYPO O vs 0 & TITIK/SPASI GHAIB
+// =========================================================================
+function cleanProjectString(raw: any): string {
+  if (!raw) return '';
+  let s = String(raw)
+    .replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ')
+    .trim();
+  
+  // Hapus tanda baca di ujung (titik, koma, strip, garis miring)
+  s = s.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
+  s = s.toUpperCase();
+
+  // Koreksi salah ketik huruf O menjadi angka 0 di akhiran nomor urut (misal AOPO1 -> AOP01)
+  s = s.replace(/([A-Z0-9])O(\d+)$/, '$10$2');
+
+  // Koreksi angka 0 menjadi huruf O pada kode OPV (misal A26A0P01 -> A26AOP01)
+  s = s.replace(/(\d)0P(\d)/, '$1OP$2');
+
+  // Koreksi awalan WOOO... menjadi W000...
+  if (/^W[O0]{2,}\d+/.test(s)) {
+    s = 'W' + s.slice(1).replace(/[O0]/g, '0');
+  }
+
+  return s.trim();
+}
+
+// Kunci normalisasi unik (menyamakan O dan 0 untuk mencegah duplikasi)
+function getProjectNormKey(s: string): string {
+  const k = (s || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  return k.replace(/0/g, 'o');
+}
+
 async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
   for (const p of paths) {
     if (!p) continue;
@@ -517,7 +550,7 @@ export default function App() {
   };
 
   // =========================================================================
-  // DEDUKLIPASI KETAT KODE PROYEK: TIDAK DITULIS ULANG (UNIQUE & DISTINCT)
+  // DEDUPLIKASI KETAT KODE PROYEK: BEBAS DUPLIKAT (UNIQUE & CLEANED)
   // =========================================================================
   const projectOptions = useMemo((): string[] => {
     const projectMap = new Map<string, string>();
@@ -529,7 +562,6 @@ export default function App() {
         if (!sheet) return;
         const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-        // Temukan index kolom kode proyek secara dinamis
         let projCol = 2;
         for (let r = 0; r < Math.min(5, rows.length); r++) {
           const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
@@ -542,7 +574,7 @@ export default function App() {
 
         rows.forEach((row, idx) => {
           if (idx < 1 || !row) return;
-          const raw = String(row[projCol] || '').replace(/[\r\n\t]/g, '').trim();
+          const raw = String(row[projCol] || '').trim();
           if (
             !raw || 
             raw.toLowerCase() === 'nan' || 
@@ -551,25 +583,25 @@ export default function App() {
             raw.toLowerCase() === 'project'
           ) return;
 
-          const cleaned = raw.replace(/\s+/g, ' ').trim().toUpperCase();
-          const normKey = cleanText(cleaned);
+          const cleaned = cleanProjectString(raw);
+          const normKey = getProjectNormKey(cleaned);
 
-          // Jika sudah ada kode yang sama, jangan ditulis ulang
-          if (normKey && !projectMap.has(normKey)) {
+          // Masukkan hanya jika kunci normalisasinya belum ada
+          if (cleaned && normKey && !projectMap.has(normKey)) {
             projectMap.set(normKey, cleaned);
           }
         });
       });
     }
 
-    // 2. Gabungkan juga dari data penugasan yang tersimpan di Supabase
+    // 2. Gabungkan dari data penugasan yang tersimpan di Supabase
     Object.values(manualTasks).forEach(tasks => {
       tasks.forEach(t => {
-        const raw = String(t.project || '').replace(/[\r\n\t]/g, '').trim();
+        const raw = String(t.project || '').trim();
         if (raw) {
-          const cleaned = raw.replace(/\s+/g, ' ').trim().toUpperCase();
-          const normKey = cleanText(cleaned);
-          if (normKey && !projectMap.has(normKey)) {
+          const cleaned = cleanProjectString(raw);
+          const normKey = getProjectNormKey(cleaned);
+          if (cleaned && normKey && !projectMap.has(normKey)) {
             projectMap.set(normKey, cleaned);
           }
         }
@@ -580,7 +612,7 @@ export default function App() {
   }, [jobcardWorkbook, manualTasks]);
 
   // =========================================================================
-  // DEDUKLIPASI KETAT DESKRIPSI TUGAS: TIDAK DITULIS ULANG
+  // DEDUPLIKASI KETAT DESKRIPSI TUGAS
   // =========================================================================
   const taskOptions = useMemo((): string[] => {
     if (!jobcardWorkbook) return [];
@@ -603,7 +635,7 @@ export default function App() {
 
       rows.forEach((row, idx) => {
         if (idx < 1 || !row) return;
-        const raw = String(row[taskCol] || '').replace(/[\r\n\t]/g, ' ').trim();
+        const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
         if (
           !raw || 
           raw.toLowerCase() === 'nan' || 
@@ -612,11 +644,10 @@ export default function App() {
           raw.toLowerCase() === 'deskripsi'
         ) return;
 
-        const cleaned = raw.replace(/\s+/g, ' ').trim();
+        const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
         const normKey = cleanText(cleaned);
 
-        // Jika sudah ada deskripsi yang sama, jangan ditulis ulang
-        if (normKey && !taskMap.has(normKey)) {
+        if (cleaned && normKey && !taskMap.has(normKey)) {
           taskMap.set(normKey, cleaned);
         }
       });
@@ -1162,7 +1193,6 @@ export default function App() {
                                       </thead>
                                       <tbody className="divide-y divide-slate-800 text-slate-300">
                                         {personTasks.map((task, tIdx) => {
-                                          // Jangan tulis ulang kode proyek jika persis sama dengan baris atasnya
                                           const isSameProjectAsAbove = tIdx > 0 && task.project === personTasks[tIdx - 1].project;
 
                                           return (
@@ -1221,7 +1251,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 2: FORM PENUGASAN (DEDUP KODE PROYEK, DESKRIPSI, IKON KALENDER PUTIH) */}
+                {/* TAB 2: FORM PENUGASAN (DEDUKLIPASI KODE PROYEK, DESKRIPSI, IKON KALENDER PUTIH) */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
@@ -1242,14 +1272,9 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* 2. Kode Proyek (Tidak Ada yang Dobel / Unik) */}
+                        {/* 2. Kode Proyek (Bebas Duplikat) */}
                         <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="text-slate-400">Kode Proyek</label>
-                            <span className="text-[10px] text-emerald-400 font-mono">
-                              {projectOptions.length} Proyek Unik
-                            </span>
-                          </div>
+                          <label className="block text-slate-400 mb-1">Kode Proyek</label>
                           <select
                             value={formData.kodeProyek}
                             onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
@@ -1277,7 +1302,7 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 4. Deskripsi (Deduplikasi Tanpa Dobel) */}
+                        {/* 4. Deskripsi (Bebas Duplikat) */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <select
@@ -1293,7 +1318,7 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* 5. Tanggal Mulai (Ikon Kalender Putih Jelas) */}
+                        {/* 5. Tanggal Mulai (Ikon Kalender Putih Terang) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
                           <div className="relative">
@@ -1312,7 +1337,7 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* 6. Tanggal Selesai (Ikon Kalender Putih Jelas) */}
+                        {/* 6. Tanggal Selesai (Ikon Kalender Putih Terang) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
                           <div className="relative">
