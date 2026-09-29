@@ -20,6 +20,8 @@ import {
   ChevronRight, 
   FileText, 
   User, 
+  ChevronDown, 
+  ChevronUp, 
   Send, 
   Trash2, 
   Lock, 
@@ -63,6 +65,7 @@ const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', {
   eager: true 
 }) as Record<string, string>;
 
+// 3 file Excel utama
 const excelGlobUrls = import.meta.glob('./*.xlsx', { 
   query: '?url', 
   import: 'default', 
@@ -165,7 +168,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
 export default function App() {
   const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
 
-  // Subkon Navigation State: Cukup 3 Mode (members, form, release)
+  // Subkon Navigation State
   const [subconSelectedDept, setSubconSelectedDept] = useState<Department | null>(null);
   const [subconSelectedBiro, setSubconSelectedBiro] = useState<string | null>(null);
   const [subconPageMode, setSubconPageMode] = useState<'members' | 'form' | 'release'>('members');
@@ -234,6 +237,13 @@ export default function App() {
   const [plannerScope, setPlannerScope] = useState<'current' | 'all'>('current');
 
   const PLANNER_PIN = '2026';
+  
+  // State untuk membuka / menutup dropdown anak panah kartu
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
+
+  const toggleAccordion = (cardKey: string) => {
+    setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
+  };
 
   // 3 File Excel Utama
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
@@ -578,9 +588,11 @@ export default function App() {
       const currentList = manualTasks[biroKey] || [];
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
 
+      // Otomatis buka dropdown personil yang baru ditambahkan
+      setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
       setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '' });
 
-      alert('Tugas tersimpan! Hasilnya langsung muncul di bawah nama personil.');
+      alert('Tugas tersimpan! Hasilnya langsung muncul pada kartu personil.');
       loadAllJobCards();
     } catch {
       alert('Koneksi database bermasalah.');
@@ -962,10 +974,10 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 3: Halaman Biro Subkon (Anggota + Hasil Langsung di Bawah Nama) */}
+            {/* Step 3: Halaman Biro Subkon (Dropdown Akordion per Personil) */}
             {subconSelectedBiro && (
               <div className="space-y-4">
-                {/* Header & Tab Menu Simpel (Hanya 3 Pilihan) */}
+                {/* Header & Tab Menu Simpel */}
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3>
@@ -1008,85 +1020,107 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: DAFTAR ANGGOTA + HASIL LANGSUNG DI BAWAH NAMA (STATUS OUTSOURCING DIHAPUS) */}
+                {/* TAB 1: ANGGOTA DENGAN DROPDOWN ANAK PANAH DI SEBELAH KANAN */}
                 {subconPageMode === 'members' && (
-                  <div className="space-y-3">
+                  <div className="space-y-2.5">
                     {activeSubconMembers.length > 0 ? (
                       activeSubconMembers.map((person, idx) => {
                         const personTasks = currentActiveBiroTasks.filter(
                           t => cleanText(t.pic) === cleanText(person.nama)
                         );
+                        const isExpanded = !!expandedCards[person.nama];
 
                         return (
-                          <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-                            {/* Baris Informasi Personil: Nama, NIP, Jabatan (Status Outsourcing Dihapus) */}
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-800/80 pb-2.5">
-                              <div className="flex items-center gap-2.5">
+                          <div 
+                            key={idx} 
+                            className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden transition-all duration-200"
+                          >
+                            {/* Baris Nama Personel yang Dapat Diklik (Dropdown Header) */}
+                            <div 
+                              onClick={() => toggleAccordion(person.nama)}
+                              className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-850 hover:bg-slate-800/40 transition"
+                            >
+                              <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">
                                   {person.nama.charAt(0)}
                                 </div>
                                 <div>
-                                  <div className="font-bold text-white text-sm">{person.nama}</div>
+                                  <div className="font-semibold text-white text-sm">{person.nama}</div>
                                   <div className="text-xs text-slate-400 font-mono">
                                     NIP: {person.nip || '-'} • <span className="text-cyan-400">{person.jabatan}</span>
                                   </div>
                                 </div>
                               </div>
 
-                              <span className="text-xs font-mono text-slate-500 self-end sm:self-auto">
-                                {personTasks.length} Hasil Penugasan
-                              </span>
+                              {/* Bagian Kanan: Jumlah Tugas & Anak Panah Dropdown */}
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-mono text-slate-400 hidden sm:inline">
+                                  {personTasks.length} Hasil
+                                </span>
+                                <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-amber-400' : ''}`}>
+                                  {isExpanded ? (
+                                    <ChevronUp className="w-4 h-4" />
+                                  ) : (
+                                    <ChevronDown className="w-4 h-4" />
+                                  )}
+                                </div>
+                              </div>
                             </div>
 
-                            {/* HASIL PEKERJAAN LANGSUNG DITAMPILKAN DI BAWAH NAMA */}
-                            <div className="bg-slate-950 rounded-lg p-2.5 border border-slate-800/60">
-                              {personTasks.length > 0 ? (
-                                <div className="overflow-x-auto">
-                                  <table className="w-full text-left text-xs">
-                                    <thead>
-                                      <tr className="text-slate-400 border-b border-slate-800">
-                                        <th className="py-1.5 px-2 w-8">#</th>
-                                        <th className="py-1.5 px-2 font-mono text-amber-400">Kode JC</th>
-                                        <th className="py-1.5 px-2">Proyek</th>
-                                        <th className="py-1.5 px-2">Uraian Tugas / Task</th>
-                                        <th className="py-1.5 px-2 font-mono">Jadwal</th>
-                                        <th className="py-1.5 px-2 font-mono">JO</th>
-                                        <th className="py-1.5 px-2 text-center w-10">Aksi</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-900 text-slate-300">
-                                      {personTasks.map((task, tIdx) => (
-                                        <tr key={task.id} className="hover:bg-slate-900/50">
-                                          <td className="py-2 px-2 text-slate-500 font-mono">{tIdx + 1}</td>
-                                          <td className="py-2 px-2 font-mono font-bold text-amber-300">
-                                            {task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}
-                                          </td>
-                                          <td className="py-2 px-2 text-emerald-400 font-medium">{task.project}</td>
-                                          <td className="py-2 px-2 text-slate-200">{task.taskName}</td>
-                                          <td className="py-2 px-2 font-mono text-[11px] text-slate-400">
-                                            {task.startDate} s/d {task.endDate}
-                                          </td>
-                                          <td className="py-2 px-2 font-mono text-violet-300">#{task.jo}</td>
-                                          <td className="py-2 px-2 text-center">
-                                            <button 
-                                              onClick={() => handleDeleteTask(task.id)} 
-                                              className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
-                                              title="Hapus Tugas"
-                                            >
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                          </td>
+                            {/* Konten Dropdown: Tabel Hasil Penugasan Muncul Saat Anak Panah / Baris Diklik */}
+                            {isExpanded && (
+                              <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
+                                {personTasks.length > 0 ? (
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-xs">
+                                      <thead>
+                                        <tr className="text-slate-400 border-b border-slate-850">
+                                          <th className="py-2 px-2.5 w-8">#</th>
+                                          <th className="py-2 px-2.5 font-mono text-amber-400">Kode JC</th>
+                                          <th className="py-2 px-2.5">Proyek</th>
+                                          <th className="py-2 px-2.5">Uraian Tugas / Task</th>
+                                          <th className="py-2 px-2.5 font-mono">Jadwal</th>
+                                          <th className="py-2 px-2.5 font-mono">JO</th>
+                                          <th className="py-2 px-2.5 text-center w-12">Aksi</th>
                                         </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              ) : (
-                                <div className="text-xs text-slate-500 py-2 text-center italic">
-                                  Belum ada hasil penugasan. Klik tab "Form" di atas untuk menambahkan tugas.
-                                </div>
-                              )}
-                            </div>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-850 text-slate-300">
+                                        {personTasks.map((task, tIdx) => (
+                                          <tr key={task.id} className="hover:bg-slate-900/40">
+                                            <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
+                                            <td className="py-2 px-2.5 font-mono font-bold text-amber-300">
+                                              {task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}
+                                            </td>
+                                            <td className="py-2 px-2.5 text-emerald-400 font-medium">{task.project}</td>
+                                            <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
+                                            <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
+                                              {task.startDate} s/d {task.endDate}
+                                            </td>
+                                            <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
+                                            <td className="py-2 px-2.5 text-center">
+                                              <button 
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleDeleteTask(task.id);
+                                                }} 
+                                                className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
+                                                title="Hapus Tugas"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                              </button>
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-slate-500 py-3 text-center italic">
+                                    Belum ada tugas. Buka tab <b>Form</b> di atas untuk menambahkan penugasan.
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })
@@ -1230,7 +1264,7 @@ export default function App() {
                             </div>
                             <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-800 flex justify-between font-mono">
                               <span>{pkg.startDate} s/d {pkg.endDate}</span>
-                              <button onClick={() => alert(`Cetak work order ${pkg.packageTitle}`)} className="text-amber-400 hover:underline">
+                              <button onClick={() => alert(`Cetak work order ${pkg.packageTitle}`)} className="text-amber-400 hover:underline cursor-pointer">
                                 Cetak
                               </button>
                             </div>
@@ -1441,26 +1475,19 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {currentBiroMembers.map((person, idx) => {
-                      const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
-                      return (
-                        <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2">
-                          <div className="font-semibold text-white text-sm">{person.nama} ({person.status})</div>
-                          {personTasks.length > 0 ? (
-                            <div className="text-xs text-slate-400 space-y-1 bg-slate-950 p-2 rounded">
-                              {personTasks.map((t, i) => (
-                                <div key={i} className="flex justify-between border-b border-slate-900 pb-1">
-                                  <span>{t.taskName} ({t.project})</span>
-                                  <span className="font-mono text-amber-400">{t.kodeJc || 'Pending'}</span>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-xs text-slate-500 italic">Belum ada tugas</div>
-                          )}
+                    {currentActiveBiroTasks.length > 0 ? (
+                      currentActiveBiroTasks.map((t, i) => (
+                        <div key={i} className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex justify-between items-center text-xs">
+                          <div>
+                            <div className="text-white font-semibold">{t.pic}</div>
+                            <div className="text-slate-400">{t.taskName} ({t.project})</div>
+                          </div>
+                          <span className="font-mono text-amber-400 font-bold">{t.kodeJc || 'Pending'}</span>
                         </div>
-                      );
-                    })}
+                      ))
+                    ) : (
+                      <div className="text-xs text-slate-500 py-6 text-center">Belum ada tugas</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1471,7 +1498,7 @@ export default function App() {
               <div className="space-y-3">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
                   <span className="font-bold text-white text-sm">{selectedBiroPage.biroName} — {selectedBiroPage.month}</span>
-                  <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700">Tutup</button>
+                  <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 bg-slate-800 text-xs rounded border border-slate-700 cursor-pointer">Tutup</button>
                 </div>
 
                 <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
