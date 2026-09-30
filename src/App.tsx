@@ -987,6 +987,18 @@ export default function App() {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.biro, biroName));
   }, [dynamicOutsourcingList]);
 
+  const getSubconCountForDept = useCallback((deptName: string): number => {
+  const dept = (departmentsData || []).find(d => d.name === deptName);
+  if (!dept) return 0;
+
+  // Pakai Set agar orang yang cocok ke lebih dari satu biro tidak terhitung ganda
+  const uniq = new Set<string>();
+  dept.biros.forEach(biro => {
+    getSubconMembersForBiro(biro.name).forEach(p => uniq.add(p.nip || p.nama));
+  });
+  return uniq.size;
+}, [getSubconMembersForBiro]);
+
   const getBiroMembers = useCallback((biroName: string): { nama: string; status: string; jabatan: string }[] => {
     const members = allParsedFromExcel.filter(
       p => isBiroMatch(p.biro, biroName) && !p.status.toLowerCase().includes('outsourcing')
