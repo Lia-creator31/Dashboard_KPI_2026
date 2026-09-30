@@ -20,6 +20,7 @@ import {
   ChevronRight, 
   ChevronDown, 
   ChevronUp, 
+  Pencil,
   Trash2, 
   Lock, 
   KeyRound, 
@@ -103,6 +104,7 @@ interface TaskItem {
   kodeJc: string;
   rev?: string;
   realJo?: string;
+  release?: string;
 }
 
 interface SelectedBiroPage {
@@ -118,6 +120,41 @@ interface SelectedFormPage {
 
 function cleanText(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+}
+
+// Helper penyimpanan lokal khusus nilai Rev & Release
+function getLocalRev(id: string, defaultVal: string = '0'): string {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_rev_map') || '{}');
+    return map[id] !== undefined ? String(map[id]) : defaultVal;
+  } catch {
+    return defaultVal;
+  }
+}
+
+function saveLocalRev(id: string, val: string) {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_rev_map') || '{}');
+    map[id] = val;
+    localStorage.setItem('task_rev_map', JSON.stringify(map));
+  } catch {}
+}
+
+function getLocalRelease(id: string, defaultVal: string = ''): string {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_release_map') || '{}');
+    return map[id] !== undefined ? String(map[id]) : defaultVal;
+  } catch {
+    return defaultVal;
+  }
+}
+
+function saveLocalRelease(id: string, val: string) {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_release_map') || '{}');
+    map[id] = val;
+    localStorage.setItem('task_release_map', JSON.stringify(map));
+  } catch {}
 }
 
 function isBiroMatch(biro1: string, biro2: string): boolean {
@@ -244,6 +281,20 @@ export default function App() {
     jo: '',
     rev: '0',
     realJo: '',
+    release: '',
+  });
+
+  // State Modal Edit Tugas
+  const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    project: '',
+    taskName: '',
+    startDate: '',
+    endDate: '',
+    jo: '',
+    kodeJc: '',
+    rev: '0',
+    release: '',
   });
 
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>({});
@@ -263,6 +314,15 @@ export default function App() {
           const biroKey = cleanText(row.biro_name || '');
           if (!biroKey) return;
           if (!grouped[biroKey]) grouped[biroKey] = [];
+
+          const persistedRev = (row.rev !== undefined && row.rev !== null && String(row.rev).trim() !== '')
+            ? String(row.rev)
+            : getLocalRev(row.id, '0');
+
+          const persistedRelease = (row.release !== undefined && row.release !== null && String(row.release).trim() !== '')
+            ? String(row.release)
+            : getLocalRelease(row.id, '');
+
           grouped[biroKey].push({
             id: row.id,
             biroName: row.biro_name || '',
@@ -273,7 +333,8 @@ export default function App() {
             pic: row.pic || '',
             jo: row.jo || '',
             kodeJc: row.kode_jc || '',
-            rev: row.rev || '0',
+            rev: persistedRev,
+            release: persistedRelease,
             realJo: row.real_jo || row.realJo || '',
           });
         });
@@ -526,11 +587,6 @@ export default function App() {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.biro, biroName));
   }, [dynamicOutsourcingList]);
 
-  const getSubconCountForDept = useCallback((deptName: string) => {
-    return dynamicOutsourcingList.filter(os => isBiroMatch(os.dept, deptName)).length;
-  }, [dynamicOutsourcingList]);
-
-  // HANYA MENGAMBIL PEGAWAI ORGANIK (PKWTT & PKWT)
   const getBiroMembers = useCallback((biroName: string): { nama: string; status: string; jabatan: string }[] => {
     const members = allParsedFromExcel.filter(
       p => isBiroMatch(p.biro, biroName) && !p.status.toLowerCase().includes('outsourcing')
@@ -541,7 +597,6 @@ export default function App() {
     return [];
   }, [allParsedFromExcel]);
 
-  // Deteksi Biro Aktif
   const currentActiveBiroName = useMemo(() => {
     if (accessMode === 'subkon') return subconSelectedBiro || '';
     return selectedFormBiro?.biroName || '';
@@ -555,7 +610,6 @@ export default function App() {
     return manualTasks[currentActiveBiroKey] || [];
   }, [manualTasks, currentActiveBiroKey]);
 
-  // Work Order Khusus Subkon
   const subconWorkOrders = useMemo(() => {
     if (!subconSelectedBiro) return [];
     const prefix = getBiroPrefix(subconSelectedBiro);
@@ -565,7 +619,6 @@ export default function App() {
     }));
   }, [subconSelectedBiro, currentActiveBiroTasks]);
 
-  // Deduplikasi Ketat Kode Proyek
   const projectOptions = useMemo((): string[] => {
     const projectMap = new Map<string, string>();
 
@@ -622,7 +675,6 @@ export default function App() {
     return Array.from(projectMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook, manualTasks]);
 
-  // Deduplikasi Ketat Deskripsi Tugas
   const taskOptions = useMemo((): string[] => {
     if (!jobcardWorkbook) return [];
     const taskMap = new Map<string, string>();
@@ -665,7 +717,7 @@ export default function App() {
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook]);
 
-  // Submit Form: Tanpa PIC manual
+  // Submit Form: Menyimpan ke Supabase & LocalStorage untuk Rev & Release
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeBiro = currentActiveBiroName;
@@ -683,12 +735,14 @@ export default function App() {
       const biroKey = cleanText(activeBiro);
       const currentList = manualTasks[biroKey] || [];
 
-      // Otomatisasi Kode Work Order Subkon
       let autoKode = '';
       if (accessMode === 'subkon') {
         const prefix = getBiroPrefix(activeBiro);
         autoKode = `${prefix}${currentList.length + 1}`;
       }
+
+      const revVal = (formData.rev && formData.rev.trim() !== '') ? formData.rev.trim() : '0';
+      const releaseVal = formData.release ? formData.release.trim() : '';
 
       const insertPayload: any = {
         biro_id: validBiroId,
@@ -703,11 +757,9 @@ export default function App() {
         jo: formData.jo,
         kode_jc: autoKode,
         status: accessMode === 'subkon' ? 'approved' : 'pending',
+        rev: revVal,
+        release: releaseVal,
       };
-
-      if (formData.rev) {
-        insertPayload.rev = formData.rev;
-      }
 
       let insertedRow: any = null;
       const { data: resData, error } = await supabase
@@ -717,25 +769,26 @@ export default function App() {
         .single();
 
       if (error) {
-        if (error.message?.includes('rev') || (error as any).details?.includes('rev')) {
-          delete insertPayload.rev;
-          const { data: retryData, error: retryError } = await supabase
-            .from('job_cards')
-            .insert(insertPayload)
-            .select()
-            .single();
-          if (retryError) {
-            alert('Gagal simpan: ' + retryError.message);
-            return;
-          }
-          insertedRow = retryData;
-        } else {
-          alert('Gagal simpan: ' + error.message);
+        // Fallback jika Supabase belum punya kolom rev atau release
+        delete insertPayload.rev;
+        delete insertPayload.release;
+        const { data: retryData, error: retryError } = await supabase
+          .from('job_cards')
+          .insert(insertPayload)
+          .select()
+          .single();
+        if (retryError) {
+          alert('Gagal simpan: ' + retryError.message);
           return;
         }
+        insertedRow = retryData;
       } else {
         insertedRow = resData;
       }
+
+      // Simpan rev dan release ke localStorage
+      saveLocalRev(insertedRow.id, revVal);
+      saveLocalRelease(insertedRow.id, releaseVal);
 
       const newTask: TaskItem = {
         id: insertedRow.id,
@@ -747,13 +800,14 @@ export default function App() {
         pic: formData.nama,
         jo: formData.jo,
         kode_jc: autoKode,
-        rev: formData.rev || '0',
+        rev: revVal,
+        release: releaseVal,
       };
 
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
 
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
-      setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '' });
+      setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '', release: '' });
 
       if (accessMode === 'subkon') {
         alert(`Tugas tersimpan! Work Order "${autoKode}" langsung terbit dan dapat dilihat di bawah nama personil.`);
@@ -764,6 +818,91 @@ export default function App() {
     } catch {
       alert('Koneksi database bermasalah.');
     }
+  };
+
+  // Buka Modal Edit
+  const handleOpenEdit = (task: TaskItem) => {
+    setEditingTask(task);
+    setEditFormData({
+      project: task.project || '',
+      taskName: task.taskName || '',
+      startDate: task.startDate || '',
+      endDate: task.endDate || '',
+      jo: task.jo || '',
+      kodeJc: task.kodeJc || '',
+      rev: task.rev || '0',
+      release: task.release || '',
+    });
+  };
+
+  // Simpan Perubahan Edit
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTask) return;
+
+    const revVal = (editFormData.rev && editFormData.rev.trim() !== '') ? editFormData.rev.trim() : '0';
+    const releaseVal = editFormData.release ? editFormData.release.trim() : '';
+
+    const updatePayload: any = {
+      project: editFormData.project,
+      project_code: editFormData.project,
+      task_name: editFormData.taskName,
+      start_date: editFormData.startDate,
+      end_date: editFormData.endDate,
+      jo: editFormData.jo,
+      kode_jc: editFormData.kodeJc,
+      rev: revVal,
+      release: releaseVal,
+    };
+
+    let { error } = await supabase
+      .from('job_cards')
+      .update(updatePayload)
+      .eq('id', editingTask.id);
+
+    if (error && (error.message?.includes('rev') || error.message?.includes('release') || (error as any).details?.includes('rev') || (error as any).details?.includes('release'))) {
+      delete updatePayload.rev;
+      delete updatePayload.release;
+      const retry = await supabase.from('job_cards').update(updatePayload).eq('id', editingTask.id);
+      error = retry.error;
+    }
+
+    if (error) {
+      alert('Gagal mengupdate: ' + error.message);
+      return;
+    }
+
+    // Update penyimpanan lokal
+    saveLocalRev(editingTask.id, revVal);
+    saveLocalRelease(editingTask.id, releaseVal);
+
+    // Update state tampilan
+    setManualTasks(prev => {
+      const updated = { ...prev };
+      Object.keys(updated).forEach(k => {
+        updated[k] = updated[k].map(t => {
+          if (t.id === editingTask.id) {
+            return {
+              ...t,
+              project: editFormData.project,
+              taskName: editFormData.taskName,
+              startDate: editFormData.startDate,
+              endDate: editFormData.endDate,
+              jo: editFormData.jo,
+              kodeJc: editFormData.kodeJc,
+              rev: revVal,
+              release: releaseVal,
+            };
+          }
+          return t;
+        });
+      });
+      return updated;
+    });
+
+    setEditingTask(null);
+    alert('Penugasan berhasil diperbarui!');
+    loadAllJobCards();
   };
 
   const handleVerifyPin = (e: React.FormEvent) => {
@@ -1131,6 +1270,7 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* Konten Dropdown: Tabel Kolom Rapi */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1144,7 +1284,7 @@ export default function App() {
                                           <th className="py-2 px-2.5">Deskripsi</th>
                                           <th className="py-2 px-2.5 font-mono">Jadwal</th>
                                           <th className="py-2 px-2.5 font-mono">JO</th>
-                                          <th className="py-2 px-2.5 text-center w-12">Aksi</th>
+                                          <th className="py-2 px-2.5 text-center w-20">Aksi</th>
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-slate-800 text-slate-300">
@@ -1172,16 +1312,28 @@ export default function App() {
                                               </td>
                                               <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
                                               <td className="py-2 px-2.5 text-center">
-                                                <button 
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleDeleteTask(task.id);
-                                                  }} 
-                                                  className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
-                                                  title="Hapus Tugas"
-                                                >
-                                                  <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                  <button 
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleOpenEdit(task);
+                                                    }} 
+                                                    className="p-1 rounded bg-slate-850 hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 transition cursor-pointer"
+                                                    title="Edit Tugas"
+                                                  >
+                                                    <Pencil className="w-3.5 h-3.5" />
+                                                  </button>
+                                                  <button 
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleDeleteTask(task.id);
+                                                    }} 
+                                                    className="p-1 rounded bg-slate-850 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                                                    title="Hapus Tugas"
+                                                  >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                  </button>
+                                                </div>
                                               </td>
                                             </tr>
                                           );
@@ -1473,7 +1625,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK (TABEL KOLOM: JOBCARD, PLAN JO & REAL JO DARI EXCEL) */}
+                {/* TAB 1: ANGGOTA ORGANIK (TABEL LENGKAP: REV, PLAN START, PLAN FINISH, RELEASE, PLAN JO, REAL JO) */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
@@ -1527,9 +1679,11 @@ export default function App() {
                                           <th className="py-2 px-2.5 text-center font-mono">Rev</th>
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
+                                          {/* Kolom Baru: Release */}
+                                          <th className="py-2 px-2.5 font-mono text-emerald-400">Release</th>
                                           <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
                                           <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
-                                          <th className="py-2 px-2.5 text-center w-12">Aksi</th>
+                                          <th className="py-2 px-2.5 text-center w-20">Aksi</th>
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-slate-800 text-slate-300">
@@ -1563,9 +1717,13 @@ export default function App() {
                                               <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">
                                                 {task.endDate}
                                               </td>
+                                              {/* Nilai Kolom Release */}
+                                              <td className="py-2 px-2.5 font-mono text-[11px] text-emerald-400">
+                                                {task.release || '-'}
+                                              </td>
                                               <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
                                               
-                                              {/* Kolom Real JO: Nilai Otomatis dari Excel Realisasi JO.xlsx */}
+                                              {/* Kolom Real JO */}
                                               <td className="py-2 px-2.5 font-mono font-bold">
                                                 {calculatedRealHours !== undefined ? (
                                                   <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
@@ -1579,16 +1737,28 @@ export default function App() {
                                               </td>
 
                                               <td className="py-2 px-2.5 text-center">
-                                                <button 
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleDeleteTask(task.id);
-                                                  }} 
-                                                  className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
-                                                  title="Hapus Tugas"
-                                                >
-                                                  <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                  <button 
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleOpenEdit(task);
+                                                    }} 
+                                                    className="p-1 rounded bg-slate-850 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 transition cursor-pointer"
+                                                    title="Edit Tugas"
+                                                  >
+                                                    <Pencil className="w-3.5 h-3.5" />
+                                                  </button>
+                                                  <button 
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      handleDeleteTask(task.id);
+                                                    }} 
+                                                    className="p-1 rounded bg-slate-850 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                                                    title="Hapus Tugas"
+                                                  >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                  </button>
+                                                </div>
                                               </td>
                                             </tr>
                                           );
@@ -1613,7 +1783,7 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  /* TAB 2: FORM ORGANIK (IKON KALENDER TERBUKA & JELAS SAAT DIKLIK) */
+                  /* TAB 2: FORM ORGANIK */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1647,7 +1817,6 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* Plan JO */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan JO</label>
                           <input
@@ -1661,7 +1830,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Deskripsi */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <select
@@ -1677,8 +1845,7 @@ export default function App() {
                           </select>
                         </div>
 
-                        {/* Rev */}
-                        <div className="md:col-span-2">
+                        <div>
                           <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
                           <input
                             type="text"
@@ -1689,7 +1856,18 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Plan Start (Kalender Asli Putih Terang, Langsung Muncul Saat Diklik) */}
+                        {/* Input Release */}
+                        <div>
+                          <label className="block text-slate-400 mb-1">Release</label>
+                          <input 
+                            type="date" 
+                            value={formData.release} 
+                            onChange={(e) => setFormData(prev => ({ ...prev, release: e.target.value }))} 
+                            style={{ colorScheme: 'dark' }}
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" 
+                          />
+                        </div>
+
                         <div>
                           <label className="block text-slate-400 mb-1">Plan Start</label>
                           <input 
@@ -1702,7 +1880,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Plan Finish (Kalender Asli Putih Terang, Langsung Muncul Saat Diklik) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan Finish</label>
                           <input 
@@ -1726,6 +1903,155 @@ export default function App() {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ================= MODAL EDIT PENUGASAN (ORGANIK & SUBKON) ================= */}
+        {editingTask && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-fadeIn">
+              <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+                <span className="font-bold text-xs text-white flex items-center gap-1.5">
+                  <Pencil className="w-3.5 h-3.5 text-blue-400" /> Edit Penugasan — {editingTask.pic}
+                </span>
+                <button onClick={() => setEditingTask(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEdit} className="p-4 space-y-3.5 text-xs">
+                <div>
+                  <label className="block text-slate-400 mb-1">Kode Proyek</label>
+                  <select
+                    value={editFormData.project}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, project: e.target.value }))}
+                    required
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
+                  >
+                    {projectOptions.map((p, i) => (
+                      <option key={i} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">
+                      {accessMode === 'organik' ? 'Plan JO' : 'Nomor JO'}
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={editFormData.jo}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9]/g, '') }))}
+                      required
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1">
+                      {accessMode === 'organik' ? 'Jobcard' : 'Kode WO'}
+                    </label>
+                    <input
+                      type="text"
+                      value={editFormData.kodeJc}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, kodeJc: e.target.value.toUpperCase() }))}
+                      placeholder={accessMode === 'organik' ? 'JC...' : 'WO...'}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono uppercase"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 mb-1">Deskripsi</label>
+                  <select
+                    value={editFormData.taskName}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                    required
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
+                  >
+                    {taskOptions.map((t, i) => (
+                      <option key={i} value={t}>{t}</option>
+                    ))}
+                    {!taskOptions.includes(editFormData.taskName) && (
+                      <option value={editFormData.taskName}>{editFormData.taskName}</option>
+                    )}
+                  </select>
+                </div>
+
+                {accessMode === 'organik' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
+                      <input
+                        type="text"
+                        value={editFormData.rev}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, rev: e.target.value }))}
+                        placeholder="0"
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Release</label>
+                      <input
+                        type="date"
+                        value={editFormData.release}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, release: e.target.value }))}
+                        style={{ colorScheme: 'dark' }}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">
+                      {accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'}
+                    </label>
+                    <input
+                      type="date"
+                      value={editFormData.startDate}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                      required
+                      style={{ colorScheme: 'dark' }}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 mb-1">
+                      {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'}
+                    </label>
+                    <input
+                      type="date"
+                      value={editFormData.endDate}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                      required
+                      style={{ colorScheme: 'dark' }}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingTask(null)}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer"
+                  >
+                    Simpan Perubahan
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 
