@@ -698,7 +698,7 @@ export default function App() {
     fetchDrawingControlForProject(newProject);
   };
 
-const handleDeskripsiChange = (selectedDesc: string) => {
+  const handleDeskripsiChange = (selectedDesc: string) => {
     const cleanProj = cleanText(formData.kodeProyek || '');
     const rowsForThisProj = drawingControlMap[cleanProj] || [];
 
@@ -709,17 +709,13 @@ const handleDeskripsiChange = (selectedDesc: string) => {
       const cleanTarget = cleanText(selectedDesc);
       const currentFormRev = String(formData.rev || '0').trim();
 
-      // Cari baris yang mencocokkan nomor drawing/nama DAN nomor revisi (rev) secara fleksibel
       const exactMatch = rowsForThisProj.find(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
         const cName = cleanText(r.drawingName);
         const rowRev = String(r.rev || '0').trim();
 
-        // Cek apakah nomor revisi sama (mendukung angka maupun string seperti '2')
         const isRevMatch = rowRev === currentFormRev;
-
-        // Cek kecocokan teks deskripsi
         const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
 
         return isNameMatch && isRevMatch;
@@ -798,8 +794,9 @@ const handleDeskripsiChange = (selectedDesc: string) => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
         const cName = cleanText(r.drawingName);
-        const isRevMatch = String(r.rev || '0').trim() === currentTaskRev;
-        const isNameMatch = cFull === cleanTarget || (cName && cleanTarget.includes(cName)) || (cDwg && cleanTarget.includes(cDwg));
+        const rowRev = String(r.rev || '0').trim();
+        const isRevMatch = rowRev === currentTaskRev;
+        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
         return isNameMatch && isRevMatch;
       });
 
@@ -2496,8 +2493,10 @@ const handleDeskripsiChange = (selectedDesc: string) => {
                         const cFull = cleanText(r.fullDeskripsi);
                         const cDwg = cleanText(r.noDwg);
                         const cName = cleanText(r.drawingName);
-                        const isRevMatch = String(r.rev || '0').trim() === currentEditRev;
-                        const isNameMatch = cFull === cleanTarget || cleanText(r.drawingName) === cleanTarget || (r.noDwg && cleanTarget.includes(cleanText(r.noDwg)));
+                        const rowRev = String(r.rev || '0').trim();
+
+                        const isRevMatch = rowRev === currentEditRev;
+                        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
 
                         return isNameMatch && isRevMatch;
                       });
@@ -2531,9 +2530,11 @@ const handleDeskripsiChange = (selectedDesc: string) => {
 
                           const exactMatch = rows.find(r => {
                             const cFull = cleanText(r.fullDeskripsi);
+                            const cDwg = cleanText(r.noDwg);
                             const cName = cleanText(r.drawingName);
-                            const isRevMatch = String(r.rev || '0').trim() === String(newRev).trim();
-                            const isNameMatch = cFull === cleanText(editFormData.taskName) || (cName && cleanText(editFormData.taskName).includes(cName));
+                            const rowRev = String(r.rev || '0').trim();
+                            const isRevMatch = rowRev === String(newRev).trim();
+                            const isNameMatch = cleanText(editFormData.taskName).includes(cDwg) || cleanText(editFormData.taskName).includes(cName) || cFull.includes(cleanText(editFormData.taskName));
                             return isNameMatch && isRevMatch;
                           });
 
