@@ -698,9 +698,9 @@ export default function App() {
     fetchDrawingControlForProject(newProject);
   };
 
-  const handleDeskripsiChange = (selectedDesc: string) => {
+const handleDeskripsiChange = (selectedDesc: string) => {
     const cleanProj = cleanText(formData.kodeProyek || '');
-    const rowsForThisProj = drawingControlMap[cleanProj] || [];
+    const rowsForThisProj = drawingControlMap[cleanProj] || '';
 
     let autoRelease = '';
     let autoRev = formData.rev || '0';
@@ -721,19 +721,30 @@ export default function App() {
 
       if (matches.length > 0) {
         const lastRow = matches[matches.length - 1];
-        if (lastRow.finishDate) {
+        
+        // TAMBAHAN / PENYESUAIAN DI SINI:
+        // Cek apakah revisi / tanggal finish benar-benar ada di data sumber
+        if (lastRow.finishDate && lastRow.rev === formData.rev) {
           autoRelease = parseToStandardDate(lastRow.finishDate);
+        } else {
+          autoRelease = ''; // Kosongkan jika revisi baru belum ada di Excel/Drive
         }
+
         if (lastRow.rev) {
           autoRev = lastRow.rev;
         }
+      } else {
+        // Jika data gambar tidak ditemukan sama sekali di sumber
+        autoRelease = '';
       }
+    } else {
+      autoRelease = '';
     }
 
     setFormData(prev => ({
       ...prev,
       taskName: selectedDesc,
-      release: autoRelease || prev.release,
+      release: autoRelease, // Langsung set sesuai hasil pengecekan (kosong jika tidak ada)
       rev: autoRev,
     }));
   };
