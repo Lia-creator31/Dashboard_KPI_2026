@@ -1605,7 +1605,7 @@ export default function App() {
               </div>
             )}
 
-            {subconSelectedBiro && (
+{subconSelectedBiro && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
@@ -1615,7 +1615,7 @@ export default function App() {
                     </span>
                   </div>
 
-                  {/* Navigasi Tab Subkon yang Diperbaiki agar Tidak Menjadi Putih */}
+                  {/* Navigasi Tab Subkon */}
                   <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
                     <button
                       onClick={() => setSubconPageMode('members')}
@@ -1648,6 +1648,7 @@ export default function App() {
                       <FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({subconWorkOrders.length})
                     </button>
                   </div>
+                </div>
 
                 {/* TAB 1: ANGGOTA SUBKON (HANYA OUTSOURCING) */}
                 {subconPageMode === 'members' && (
