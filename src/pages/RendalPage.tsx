@@ -312,7 +312,6 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
 }
 
 export default function RendalPage({ user, onLogout }: RendalPageProps) {
-  const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
@@ -988,7 +987,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         )}
 
-        {/* ================= MODAL PLANNER ================= -->
+        {/* ================= MODAL PLANNER ================= */}
         {isPlannerModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
