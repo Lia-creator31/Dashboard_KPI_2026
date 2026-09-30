@@ -90,19 +90,6 @@ export interface ParsedMember {
   dept: string;
 }
 
-interface ExcelRow {
-  nip: string;
-  nama: string;
-  effectiveHour: number;
-  overtimeHour: number;
-  idleHour: number;
-  timesheetReguler: number;
-  timesheetOvertime: number;
-  terlambat: number;
-  sakit: number;
-  ipm: number;
-}
-
 interface TaskItem {
   id: string;
   biroName: string;
@@ -126,20 +113,15 @@ interface DrawingControlRow {
   finishDate: string;
 }
 
-interface SelectedBiroPage {
-  biroName: string;
-  month: string;
-  data: ExcelRow[];
-}
-
-interface SelectedFormPage {
-  biroName: string;
-  deptName: string;
-}
-
 interface SelectOption {
   value: string;
   label: string;
+}
+
+// ✅ FIX 1: Tambah interface yang hilang
+interface SelectedFormPage {
+  biroName: string;
+  deptName: string;
 }
 
 function SearchableSelect({
@@ -160,6 +142,7 @@ function SearchableSelect({
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const normalizedOptions = useMemo<SelectOption[]>(() => {
+    if (!options) return [];
     return options.map(opt => typeof opt === 'string' ? { value: opt, label: opt } : opt);
   }, [options]);
 
@@ -463,12 +446,10 @@ export default function App() {
 
   // Organik Navigation State
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
-  const [selectedBiroPage, setSelectedBiroPage] = useState<SelectedBiroPage | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [tableSearch, setTableSearch] = useState('');
   
   const [formData, setFormData] = useState({
     nama: '',
@@ -536,7 +517,7 @@ export default function App() {
             kodeJc: row.kode_jc || '',
             rev: persistedRev,
             release: persistedRelease,
-            realJo: row.real_jo || row.realJo || '',
+            realJo: row.real_jc || row.realJo || '',
           });
         });
         setManualTasks(grouped);
@@ -558,7 +539,6 @@ export default function App() {
   };
 
   // State File Excel Utama
-  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
   const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
@@ -570,21 +550,18 @@ export default function App() {
   useEffect(() => {
     async function loadAllExcelFiles() {
       try {
-        let kpiUrl = '';
         let jcUrl = '';
         let im4Url = '';
         let realisasiUrl = '';
 
         Object.entries(excelGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
-          if (pLower.includes('kpi')) kpiUrl = url;
-          else if (pLower.includes('jobcard') && !pLower.includes('realisasi')) jcUrl = url;
+          if (pLower.includes('jobcard') && !pLower.includes('realisasi')) jcUrl = url;
           else if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
           else if (pLower.includes('realisasi')) realisasiUrl = url;
         });
 
-        const [wbKpi, wbJc, wbIm4, wbRealisasi] = await Promise.all([
-          fetchSafeWorkbook([kpiUrl, '/data_kpi.xlsx', './data_kpi.xlsx']),
+        const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
           fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx', '/JOBCARD DESAIN.xlsx']),
           fetchSafeWorkbook([
             im4Url,
@@ -602,7 +579,6 @@ export default function App() {
           ])
         ]);
 
-        if (wbKpi) setWorkbook(wbKpi);
         if (wbJc) setJobcardWorkbook(wbJc);
         if (wbIm4) setIm4Workbook(wbIm4);
         if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
@@ -612,7 +588,6 @@ export default function App() {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
-  // Handler Update File Master: AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL.xlsx
   const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -630,7 +605,6 @@ export default function App() {
     reader.readAsBinaryString(file);
   };
 
-  // Handler Update File Master: JOBCARD_DESAIN.xlsx
   const handleUpdateJobcardExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -648,7 +622,6 @@ export default function App() {
     reader.readAsBinaryString(file);
   };
 
-  // Integrasi Google Apps Script
   const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
     const cleanProj = cleanText(projectCode);
     if (!cleanProj) return;
@@ -866,54 +839,56 @@ export default function App() {
     const map = new Map<string, number>();
     if (!realisasiWorkbook) return map;
 
-    realisasiWorkbook.SheetNames.forEach(sheetName => {
-      const sheet = realisasiWorkbook.Sheets[sheetName];
-      if (!sheet) return;
+    try {
+      realisasiWorkbook.SheetNames.forEach(sheetName => {
+        const sheet = realisasiWorkbook.Sheets[sheetName];
+        if (!sheet) return;
 
-      const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-      if (rawRows.length === 0) return;
+        const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        if (rawRows.length === 0) return;
 
-      let headerIdx = -1;
-      let jobcardCol = -1;
-      let effCol = -1;
-      let otCol = -1;
+        let headerIdx = -1;
+        let jobcardCol = -1;
+        let effCol = -1;
+        let otCol = -1;
 
-      for (let r = 0; r < Math.min(5, rawRows.length); r++) {
-        const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
-        const jcIdx = row.findIndex(c => c.includes('jobcard'));
-        const eIdx = row.findIndex(c => c.includes('effective'));
-        const oIdx = row.findIndex(c => c.includes('overtime'));
+        for (let r = 0; r < Math.min(5, rawRows.length); r++) {
+          const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
+          const jcIdx = row.findIndex(c => c.includes('jobcard'));
+          const eIdx = row.findIndex(c => c.includes('effective'));
+          const oIdx = row.findIndex(c => c.includes('overtime'));
 
-        if (jcIdx !== -1 && (eIdx !== -1 || oIdx !== -1)) {
-          headerIdx = r;
-          jobcardCol = jcIdx;
-          effCol = eIdx;
-          otCol = oIdx;
-          break;
+          if (jcIdx !== -1 && (eIdx !== -1 || oIdx !== -1)) {
+            headerIdx = r;
+            jobcardCol = jcIdx;
+            effCol = eIdx;
+            otCol = oIdx;
+            break;
+          }
         }
-      }
 
-      if (jobcardCol === -1) jobcardCol = 16;
-      if (effCol === -1) effCol = 11;
-      if (otCol === -1) otCol = 12;
+        if (jobcardCol === -1) jobcardCol = 16;
+        if (effCol === -1) effCol = 11;
+        if (otCol === -1) otCol = 12;
 
-      for (let r = Math.max(headerIdx + 1, 1); r < rawRows.length; r++) {
-        const row = rawRows[r];
-        if (!row) continue;
+        for (let r = Math.max(headerIdx + 1, 1); r < rawRows.length; r++) {
+          const row = rawRows[r];
+          if (!row) continue;
 
-        const rawJc = String(row[jobcardCol] || '').trim();
-        if (!rawJc || rawJc.toLowerCase() === 'nan' || rawJc.toLowerCase().includes('jobcard')) continue;
+          const rawJc = String(row[jobcardCol] || '').trim();
+          if (!rawJc || rawJc.toLowerCase() === 'nan' || rawJc.toLowerCase().includes('jobcard')) continue;
 
-        const eff = effCol !== -1 ? parseValToNumber(row[effCol]) : 0;
-        const ot = otCol !== -1 ? parseValToNumber(row[otCol]) : 0;
-        const total = eff + ot;
+          const eff = effCol !== -1 ? parseValToNumber(row[effCol]) : 0;
+          const ot = otCol !== -1 ? parseValToNumber(row[otCol]) : 0;
+          const total = eff + ot;
 
-        const key = cleanText(rawJc);
-        if (key) {
-          map.set(key, (map.get(key) || 0) + total);
+          const key = cleanText(rawJc);
+          if (key) {
+            map.set(key, (map.get(key) || 0) + total);
+          }
         }
-      }
-    });
+      });
+    } catch {}
 
     return map;
   }, [realisasiWorkbook]);
@@ -921,69 +896,73 @@ export default function App() {
   const allParsedFromExcel = useMemo<ParsedMember[]>(() => {
     if (!im4Workbook) return [];
 
-    const sheetName = im4Workbook.SheetNames.find(s => s.toLowerCase().includes('education')) || im4Workbook.SheetNames[0];
-    const sheet = im4Workbook.Sheets[sheetName];
-    if (!sheet) return [];
+    try {
+      const sheetName = im4Workbook.SheetNames.find(s => s.toLowerCase().includes('education')) || im4Workbook.SheetNames[0];
+      const sheet = im4Workbook.Sheets[sheetName];
+      if (!sheet) return [];
 
-    const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-    
-    let headerIdx = -1;
-    for (let r = 0; r < Math.min(15, rawRows.length); r++) {
-      const rowVals = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
-      if (rowVals.includes('nama') && (rowVals.includes('nip') || rowVals.includes('status') || rowVals.includes('jabatan'))) {
-        headerIdx = r;
-        break;
-      }
-    }
-
-    if (headerIdx === -1) return [];
-
-    const headers = rawRows[headerIdx].map(v => String(v).trim().toLowerCase());
-    const namaCol = headers.findIndex(h => h === 'nama');
-    const nipCol = headers.findIndex(h => h === 'nip');
-    const statusCol = headers.findIndex(h => h === 'status');
-    const unitCol = headers.findIndex(h => h.includes('unit'));
-    const jabatanCol = headers.findIndex(h => h.includes('jabatan'));
-
-    let currentDept = '';
-    let currentBiro = '';
-    const results: ParsedMember[] = [];
-
-    for (let r = headerIdx + 1; r < rawRows.length; r++) {
-      const row = rawRows[r];
-      if (!row) continue;
-
-      const nama = String(row[namaCol] || '').trim();
-      if (!nama || nama.toLowerCase() === 'nan' || nama.toLowerCase() === 'nama') continue;
-
-      const nip = String(row[nipCol] || '').trim();
-      const statusRaw = String(row[statusCol] || '').trim();
-      const unit = String(row[unitCol] || '').trim();
-      const jabatan = String(row[jabatanCol] || '').trim();
-
-      if (jabatan.toLowerCase().includes('kepala divisi')) {
-        currentDept = 'Div. Desain';
-        currentBiro = 'Div. Desain';
-      } else if (jabatan.toLowerCase().includes('kepala departemen') || jabatan.toLowerCase().includes('kadep')) {
-        if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
-        else currentDept = jabatan;
-        currentBiro = `Staf ${currentDept}`;
-      } else if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
-        currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').replace(/Kabiro/gi, 'Biro').trim();
-        if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
+      const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      
+      let headerIdx = -1;
+      for (let r = 0; r < Math.min(15, rawRows.length); r++) {
+        const rowVals = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
+        if (rowVals.includes('nama') && (rowVals.includes('nip') || rowVals.includes('status') || rowVals.includes('jabatan'))) {
+          headerIdx = r;
+          break;
+        }
       }
 
-      results.push({
-        nama,
-        nip,
-        status: statusRaw || 'PKWTT',
-        jabatan,
-        biro: currentBiro,
-        dept: currentDept
-      });
-    }
+      if (headerIdx === -1) return [];
 
-    return results;
+      const headers = rawRows[headerIdx].map(v => String(v).trim().toLowerCase());
+      const namaCol = headers.findIndex(h => h === 'nama');
+      const nipCol = headers.findIndex(h => h === 'nip');
+      const statusCol = headers.findIndex(h => h === 'status');
+      const unitCol = headers.findIndex(h => h.includes('unit'));
+      const jabatanCol = headers.findIndex(h => h.includes('jabatan'));
+
+      let currentDept = '';
+      let currentBiro = '';
+      const results: ParsedMember[] = [];
+
+      for (let r = headerIdx + 1; r < rawRows.length; r++) {
+        const row = rawRows[r];
+        if (!row) continue;
+
+        const nama = String(row[namaCol] || '').trim();
+        if (!nama || nama.toLowerCase() === 'nan' || nama.toLowerCase() === 'nama') continue;
+
+        const nip = String(row[nipCol] || '').trim();
+        const statusRaw = String(row[statusCol] || '').trim();
+        const unit = String(row[unitCol] || '').trim();
+        const jabatan = String(row[jabatanCol] || '').trim();
+
+        if (jabatan.toLowerCase().includes('kepala divisi')) {
+          currentDept = 'Div. Desain';
+          currentBiro = 'Div. Desain';
+        } else if (jabatan.toLowerCase().includes('kepala departemen') || jabatan.toLowerCase().includes('kadep')) {
+          if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
+          else currentDept = jabatan;
+          currentBiro = `Staf ${currentDept}`;
+        } else if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
+          currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').replace(/Kabiro/gi, 'Biro').trim();
+          if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
+        }
+
+        results.push({
+          nama,
+          nip,
+          status: statusRaw || 'PKWTT',
+          jabatan,
+          biro: currentBiro,
+          dept: currentDept
+        });
+      }
+
+      return results;
+    } catch {
+      return [];
+    }
   }, [im4Workbook]);
 
   const dynamicOutsourcingList = useMemo(() => {
@@ -994,12 +973,28 @@ export default function App() {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.biro, biroName));
   }, [dynamicOutsourcingList]);
 
-  const getBiroMembers = useCallback((biroName: string): { nama: string; status: string; jabatan: string }[] => {
+  // FUNGSI PENGHITUNG JUMLAH OUTSOURCING PER DEPARTEMEN DENGAN SET AMAN
+  const getSubconCountForDept = useCallback((deptName: string): number => {
+    try {
+      const dept = (departmentsData || []).find(d => d.name === deptName);
+      if (!dept) return 0;
+
+      const uniq = new Set<string>();
+      dept.biros.forEach(biro => {
+        getSubconMembersForBiro(biro.name).forEach(p => uniq.add(p.nip || p.nama));
+      });
+      return uniq.size;
+    } catch {
+      return 0;
+    }
+  }, [getSubconMembersForBiro]);
+
+  const getBiroMembers = useCallback((biroName: string): { nama: string; nip: string; status: string; jabatan: string }[] => {
     const members = allParsedFromExcel.filter(
       p => isBiroMatch(p.biro, biroName) && !p.status.toLowerCase().includes('outsourcing')
     );
     if (members.length > 0) {
-      return members.map(m => ({ nama: m.nama, status: m.status, jabatan: m.jabatan }));
+      return members.map(m => ({ nama: m.nama, nip: m.nip, status: m.status, jabatan: m.jabatan }));
     }
     return [];
   }, [allParsedFromExcel]);
@@ -1017,14 +1012,27 @@ export default function App() {
     return manualTasks[currentActiveBiroKey] || [];
   }, [manualTasks, currentActiveBiroKey]);
 
+  // ✅ FIX 2: Tambah variabel yang hilang
+  const activeSubconMembers = useMemo(() => {
+    if (!subconSelectedBiro) return [];
+    return getSubconMembersForBiro(subconSelectedBiro);
+  }, [subconSelectedBiro, getSubconMembersForBiro]);
+
+  // HANYA MENARIK TUGAS MILIK PERSONEL OUTSOURCING UNTUK PORTAL SUBKON
   const subconWorkOrders = useMemo(() => {
     if (!subconSelectedBiro) return [];
     const prefix = getBiroPrefix(subconSelectedBiro);
-    return currentActiveBiroTasks.map((task, idx) => ({
+    const subconNames = getSubconMembersForBiro(subconSelectedBiro).map(m => cleanText(m.nama));
+    
+    const filteredTasks = currentActiveBiroTasks.filter(t => 
+      subconNames.includes(cleanText(t.pic))
+    );
+
+    return filteredTasks.map((task, idx) => ({
       ...task,
       packageTitle: `${prefix}${idx + 1}`
     }));
-  }, [subconSelectedBiro, currentActiveBiroTasks]);
+  }, [subconSelectedBiro, currentActiveBiroTasks, getSubconMembersForBiro]);
 
   const projectOptions = useMemo((): string[] => {
     const projectMap = new Map<string, string>();
@@ -1038,40 +1046,42 @@ export default function App() {
     });
 
     if (jobcardWorkbook) {
-      jobcardWorkbook.SheetNames.forEach(sheetName => {
-        const sheet = jobcardWorkbook.Sheets[sheetName];
-        if (!sheet) return;
-        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      try {
+        jobcardWorkbook.SheetNames.forEach(sheetName => {
+          const sheet = jobcardWorkbook.Sheets[sheetName];
+          if (!sheet) return;
+          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-        let projCol = 2;
-        for (let r = 0; r < Math.min(5, rows.length); r++) {
-          const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-          const foundIdx = rowVals.findIndex(v => v.includes('proyek') || v.includes('project'));
-          if (foundIdx !== -1) {
-            projCol = foundIdx;
-            break;
+          let projCol = 2;
+          for (let r = 0; r < Math.min(5, rows.length); r++) {
+            const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+            const foundIdx = rowVals.findIndex(v => v.includes('proyek') || v.includes('project'));
+            if (foundIdx !== -1) {
+              projCol = foundIdx;
+              break;
+            }
           }
-        }
 
-        rows.forEach((row, idx) => {
-          if (idx < 1 || !row) return;
-          const raw = String(row[projCol] || '').trim();
-          if (
-            !raw || 
-            raw.toLowerCase() === 'nan' || 
-            raw.toLowerCase().includes('kode proyek') || 
-            raw.toLowerCase() === 'proyek' || 
-            raw.toLowerCase() === 'project'
-          ) return;
+          rows.forEach((row, idx) => {
+            if (idx < 1 || !row) return;
+            const raw = String(row[projCol] || '').trim();
+            if (
+              !raw || 
+              raw.toLowerCase() === 'nan' || 
+              raw.toLowerCase().includes('kode proyek') || 
+              raw.toLowerCase() === 'proyek' || 
+              raw.toLowerCase() === 'project'
+            ) return;
 
-          const cleaned = cleanProjectString(raw);
-          const normKey = getProjectNormKey(cleaned);
+            const cleaned = cleanProjectString(raw);
+            const normKey = getProjectNormKey(cleaned);
 
-          if (cleaned && normKey && !projectMap.has(normKey)) {
-            projectMap.set(normKey, cleaned);
-          }
+            if (cleaned && normKey && !projectMap.has(normKey)) {
+              projectMap.set(normKey, cleaned);
+            }
+          });
         });
-      });
+      } catch {}
     }
 
     Object.values(manualTasks).forEach(tasks => {
@@ -1105,39 +1115,41 @@ export default function App() {
     });
 
     if (jobcardWorkbook) {
-      jobcardWorkbook.SheetNames.forEach(sheetName => {
-        const sheet = jobcardWorkbook.Sheets[sheetName];
-        if (!sheet) return;
-        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      try {
+        jobcardWorkbook.SheetNames.forEach(sheetName => {
+          const sheet = jobcardWorkbook.Sheets[sheetName];
+          if (!sheet) return;
+          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-        let taskCol = 3;
-        for (let r = 0; r < Math.min(5, rows.length); r++) {
-          const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-          const foundIdx = rowVals.findIndex(v => v.includes('task') || v.includes('deskripsi') || v.includes('uraian') || v.includes('pekerjaan'));
-          if (foundIdx !== -1) {
-            taskCol = foundIdx;
-            break;
+          let taskCol = 3;
+          for (let r = 0; r < Math.min(5, rows.length); r++) {
+            const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+            const foundIdx = rowVals.findIndex(v => v.includes('task') || v.includes('deskripsi') || v.includes('uraian') || v.includes('pekerjaan'));
+            if (foundIdx !== -1) {
+              taskCol = foundIdx;
+              break;
+            }
           }
-        }
 
-        rows.forEach((row, idx) => {
-          if (idx < 1 || !row) return;
-          const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
-          if (
-            !raw || 
-            raw.toLowerCase() === 'nan' || 
-            raw.toLowerCase().includes('desc pekerjaan') || 
-            raw.toLowerCase() === 'deskripsi'
-          ) return;
+          rows.forEach((row, idx) => {
+            if (idx < 1 || !row) return;
+            const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
+            if (
+              !raw || 
+              raw.toLowerCase() === 'nan' || 
+              raw.toLowerCase().includes('desc pekerjaan') || 
+              raw.toLowerCase() === 'deskripsi'
+            ) return;
 
-          const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
-          const normKey = cleanText(cleaned);
+            const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
+            const normKey = cleanText(cleaned);
 
-          if (cleaned && normKey && !taskMap.has(normKey)) {
-            taskMap.set(normKey, cleaned);
-          }
+            if (cleaned && normKey && !taskMap.has(normKey)) {
+              taskMap.set(normKey, cleaned);
+            }
+          });
         });
-      });
+      } catch {}
     }
 
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
@@ -1213,6 +1225,7 @@ export default function App() {
       saveLocalRev(insertedRow.id, revVal);
       saveLocalRelease(insertedRow.id, releaseVal);
 
+      // ✅ FIX 3: Perbaiki kodeJc (sebelumnya kode_jc)
       const newTask: TaskItem = {
         id: insertedRow.id,
         biroName: activeBiro,
@@ -1222,7 +1235,7 @@ export default function App() {
         endDate: formData.endDate,
         pic: formData.nama,
         jo: formData.jo,
-        kode_jc: autoKode,
+        kodeJc: autoKode,
         rev: revVal,
         release: releaseVal,
       };
@@ -1391,7 +1404,6 @@ export default function App() {
   );
 
   const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
-  const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
 
   const organicBiroTasks = useMemo(() => {
     return currentActiveBiroTasks.filter(t => 
@@ -1409,7 +1421,6 @@ export default function App() {
             onClick={() => {
               setAccessMode('landing');
               setSelectedFormBiro(null);
-              setSelectedBiroPage(null);
               setSelectedDept(null);
               setSubconSelectedBiro(null);
               setSubconSelectedDept(null);
@@ -1434,7 +1445,6 @@ export default function App() {
                 onClick={() => {
                   setAccessMode('landing');
                   setSelectedFormBiro(null);
-                  setSelectedBiroPage(null);
                   setSelectedDept(null);
                   setSubconSelectedBiro(null);
                   setSubconSelectedDept(null);
@@ -1455,10 +1465,6 @@ export default function App() {
               </button>
             ) : accessMode === 'organik' && selectedFormBiro ? (
               <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                <ArrowLeft className="w-3.5 h-3.5" /> Biro
-              </button>
-            ) : accessMode === 'organik' && selectedBiroPage ? (
-              <button onClick={() => setSelectedBiroPage(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                 <ArrowLeft className="w-3.5 h-3.5" /> Biro
               </button>
             ) : accessMode === 'organik' && selectedDept ? (
@@ -1519,14 +1525,12 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Tombol Update File Master Personel IM4 */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <Users className="w-3.5 h-3.5 text-amber-400" />
                       <span>Update Personel IM4</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
                     </label>
 
-                    {/* Tombol Update File Master JOBCARD_DESAIN */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
                       <span>Update Jobcard Desain</span>
@@ -1576,7 +1580,6 @@ export default function App() {
                 <div className="space-y-2">
                   {subconSelectedDept.biros.map((biro) => {
                     const countInBiro = getSubconMembersForBiro(biro.name).length;
-                    const releaseCount = (manualTasks[cleanText(biro.name)] || []).length;
 
                     return (
                       <div
@@ -1586,11 +1589,6 @@ export default function App() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-white text-sm">{biro.name}</span>
                           <span className="text-xs text-amber-400 font-mono">({countInBiro} Org)</span>
-                          {releaseCount > 0 && (
-                            <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded text-[10px] font-bold">
-                              {releaseCount} Work Order
-                            </span>
-                          )}
                         </div>
 
                         <div className="flex items-center gap-1.5 self-end sm:self-auto">
@@ -1620,43 +1618,57 @@ export default function App() {
               </div>
             )}
 
-            {subconSelectedBiro && (
+{subconSelectedBiro && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3>
                     <span className="text-xs text-slate-400 font-mono">
-                      {activeSubconMembers.length} Personel • Kode Biro: <b className="text-amber-400">{getBiroPrefix(subconSelectedBiro)}</b>
+                      {activeSubconMembers.length} Personel Outsourcing • Kode Biro: <b className="text-amber-400">{getBiroPrefix(subconSelectedBiro)}</b>
                     </span>
                   </div>
 
+                  {/* Navigasi Tab Subkon */}
                   <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
                     <button
                       onClick={() => setSubconPageMode('members')}
-                      className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'members' ? 'bg-amber-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                      className={`px-3 py-1 rounded transition cursor-pointer ${
+                        subconPageMode === 'members' 
+                          ? 'bg-amber-600 text-white font-bold shadow' 
+                          : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                      }`}
                     >
                       Anggota
                     </button>
                     <button
                       onClick={() => setSubconPageMode('form')}
-                      className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'form' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'}`}
+                      className={`px-3 py-1 rounded transition cursor-pointer ${
+                        subconPageMode === 'form' 
+                          ? 'bg-emerald-600 text-white font-bold shadow' 
+                          : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                      }`}
                     >
                       Form
                     </button>
                     <button
                       onClick={() => setSubconPageMode('release')}
-                      className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${subconPageMode === 'release' ? 'bg-purple-600 text-white' : 'text-purple-300 hover:text-white'}`}
+                      className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${
+                        subconPageMode === 'release' 
+                          ? 'bg-purple-600 text-white font-bold shadow' 
+                          : 'text-purple-300 hover:text-white hover:bg-slate-900'
+                      }`}
                     >
                       <FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({subconWorkOrders.length})
                     </button>
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA SUBKON */}
+                {/* TAB 1: ANGGOTA SUBKON (HANYA OUTSOURCING) */}
                 {subconPageMode === 'members' && (
                   <div className="space-y-2.5">
                     {activeSubconMembers.length > 0 ? (
-                      activeSubconMembers.map((person, idx) => {
+                      // ✅ FIX 4: Gunakan key yang unik
+                      activeSubconMembers.map((person) => {
                         const personTasks = currentActiveBiroTasks.filter(
                           t => cleanText(t.pic) === cleanText(person.nama)
                         );
@@ -1664,7 +1676,7 @@ export default function App() {
 
                         return (
                           <div 
-                            key={idx} 
+                            key={`${person.nama}-${person.nip}`} 
                             className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden transition-all duration-200"
                           >
                             <div 
@@ -1693,6 +1705,7 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* Tabel Tugas Subkon */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1777,7 +1790,7 @@ export default function App() {
                       })
                     ) : (
                       <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-                        Tidak ada anggota di biro ini
+                        Tidak ada personel outsourcing di biro ini
                       </div>
                     )}
                   </div>
@@ -1789,12 +1802,12 @@ export default function App() {
                     <form onSubmit={handleSubmitForm} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                         <div className="md:col-span-2">
-                          <label className="block text-slate-400 mb-1">Nama Drafter / Personel</label>
+                          <label className="block text-slate-400 mb-1">Nama Drafter / Personel (Outsourcing)</label>
                           <SearchableSelect
                             options={activeSubconMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.jabatan})` }))}
                             value={formData.nama}
                             onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
-                            placeholder="Ketik nama drafter / personel..."
+                            placeholder="Ketik nama personel outsourcing..."
                             required
                           />
                         </div>
@@ -1819,7 +1832,7 @@ export default function App() {
                             onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9]/g, '') }))}
                             placeholder="Contoh: 300426"
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono focus:outline-none"
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                           />
                         </div>
 
@@ -1902,7 +1915,7 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-xs text-slate-500">
-                        Belum ada Work Order di biro ini. Tambahkan tugas di tab <b>Form</b> untuk langsung menerbitkan Work Order.
+                        Belum ada Work Order outsourcing di biro ini.
                       </div>
                     )}
                   </div>
@@ -1915,7 +1928,7 @@ export default function App() {
         {/* ================= 3. PORTAL ORGANIK ================= */}
         {accessMode === 'organik' && (
           <div className="space-y-6">
-            {!selectedDept && !selectedBiroPage && !selectedFormBiro && (
+            {!selectedDept && !selectedFormBiro && (
               <div className="space-y-5">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
                   <div>
@@ -1924,21 +1937,18 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Tombol Update File Master Personel IM4 */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <Users className="w-3.5 h-3.5 text-blue-400" />
                       <span>Update Personel IM4</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
                     </label>
 
-                    {/* Tombol Update File Master JOBCARD_DESAIN */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
                       <span>Update Jobcard Desain</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
                     </label>
 
-                    {/* Tombol Update Realisasi JO.xlsx */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <Clock className="w-3.5 h-3.5 text-emerald-400" />
                       <span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
@@ -1973,7 +1983,7 @@ export default function App() {
               </div>
             )}
 
-            {selectedDept && !selectedBiroPage && !selectedFormBiro && (
+            {selectedDept && !selectedFormBiro && (
               <div className="space-y-4">
                 <div className="border-b border-slate-800 pb-2">
                   <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
@@ -2024,9 +2034,8 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Tombol Update Realisasi JO */}
                     <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                      <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                      <Clock className="w-3 h-3 text-emerald-400" />
                       <span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                     </label>
@@ -2059,12 +2068,13 @@ export default function App() {
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
-                      currentBiroMembers.map((person, idx) => {
+                      // ✅ FIX 5: Gunakan key yang unik
+                      currentBiroMembers.map((person) => {
                         const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
                         const isExpanded = !!expandedCards[person.nama];
 
                         return (
-                          <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden transition-all duration-200">
+                          <div key={`${person.nama}-${person.nip}`} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden transition-all duration-200">
                             <div 
                               onClick={() => toggleAccordion(person.nama)}
                               className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/40 transition"
@@ -2093,6 +2103,7 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* OUTPUT TABEL BERKOLOM */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -2259,7 +2270,7 @@ export default function App() {
                       })
                     ) : (
                       <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-                        Tidak ada personil organik di biro ini
+                        Tidak ada personil organik di biro ini (Silakan upload Master IM4 terlebih dahulu)
                       </div>
                     )}
                   </div>
