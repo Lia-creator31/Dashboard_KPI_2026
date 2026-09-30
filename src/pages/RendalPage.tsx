@@ -306,34 +306,42 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   }, []);
 
   // Initial Load Excel Files
-  useEffect(() => {
-    async function initMasterFiles() {
-      try {
-        let jcUrl = '';
-        let im4Url = '';
-        let realisasiUrl = '';
+useEffect(() => {
+  async function initMasterFiles() {
+    try {
+      let im4Url = '';
+      let jcUrl = '';
+      let realisasiUrl = '';
 
-        Object.entries(excelGlobUrls).forEach(([path, url]) => {
-          const pLower = path.toLowerCase();
-          if (pLower.includes('jobcard') && !pLower.includes('realisasi')) jcUrl = url;
-          else if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
-          else if (pLower.includes('realisasi')) realisasiUrl = url;
-        });
+      Object.entries(excelGlobUrls).forEach(([path, url]) => {
+        const pLower = path.toLowerCase();
+        if (pLower.includes('jobcard') && !pLower.includes('realisasi')) jcUrl = url;
+        else if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
+        else if (pLower.includes('realisasi')) realisasiUrl = url;
+      });
 
-        const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
-          fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx']),
-          fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx']),
-          fetchSafeWorkbook([realisasiUrl, '/Realisasi JO.xlsx', './Realisasi JO.xlsx'])
-        ]);
+      // ✅ TAMBAHKAN LOGGING UNTUK DEBUG
+      console.log('🔍 Excel files found:', { im4Url, jcUrl, realisasiUrl });
 
-        if (wbJc) setJobcardWorkbook(wbJc);
-        if (wbIm4) setIm4Workbook(wbIm4);
-        if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
-      } catch {}
+      const [wbIm4, wbJc, wbRealisasi] = await Promise.all([
+        fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx']),
+        fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx']),
+        fetchSafeWorkbook([realisasiUrl, '/Realisasi JO.xlsx', './Realisasi JO.xlsx'])
+      ]);
+
+      if (wbIm4) {
+        setIm4Workbook(wbIm4);
+        console.log('✅ IM4 workbook loaded');
+      } else {
+        console.warn('⚠️ IM4 workbook NOT loaded - file tidak ditemukan');
+      }
+    } catch (err) {
+      console.error('❌ Error loading Excel files:', err);
     }
-    initMasterFiles();
-    loadAllJobCards();
-  }, [loadAllJobCards]);
+  }
+  initMasterFiles();
+  loadAllJobCards();
+}, [loadAllJobCards]);
 
   // Handlers Upload Excel
   const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
