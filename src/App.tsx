@@ -70,9 +70,7 @@ const excelGlobUrls = import.meta.glob('./*.xlsx', {
   eager: true 
 }) as Record<string, string>;
 
-// =========================================================================
-// URL GOOGLE APPS SCRIPT WEB APP UNTUK DRIVE DRAWING CONTROL
-// =========================================================================
+// URL Google Apps Script Web App untuk Drawing Control Google Drive
 const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
 
 interface DriveSheetInfo {
@@ -157,9 +155,6 @@ interface SelectOption {
   label: string;
 }
 
-// =========================================================================
-// KOMPONEN DROPDOWN DENGAN PENCARIAN KETIK (SEARCHABLE SELECT)
-// =========================================================================
 function SearchableSelect({
   options,
   value,
@@ -280,33 +275,25 @@ const indoMonthsMap: Record<string, string> = {
   des: '12', desember: '12', dec: '12', december: '12'
 };
 
-// =========================================================================
-// PARSER CERDAS: MENGHAPUS HARI & MENGONVERSI KE FORMAT ISO (YYYY-MM-DD)
-// =========================================================================
 function parseToStandardDate(val: any): string {
   if (!val) return '';
   let str = String(val).trim();
   if (!str || str === '-' || str.toLowerCase() === 'nan') return '';
 
-  // 1. Hapus nama hari di depan (Senin, Selasa, Jumat, Mon, Fri, etc.)
   str = str.replace(/^(senin|selasa|rabu|kamis|jumat|sabtu|minggu|mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s*/i, '').trim();
 
-  // 2. Format ISO dari Apps Script: 2026-08-14T00:00:00.000Z
   if (str.toLowerCase().includes('t') && str.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(str)) {
     return str.slice(0, 10);
   }
 
-  // 3. Standar YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
 
-  // 4. Mon DD YYYY (misal: Aug 14 2026 00:00:00 ...)
   const mJs = str.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})/);
   if (mJs) {
     const mon = indoMonthsMap[mJs[1].toLowerCase()] || indoMonthsMap[mJs[1].toLowerCase().slice(0, 3)] || '01';
     return `${mJs[3]}-${mon}-${mJs[2].padStart(2, '0')}`;
   }
 
-  // 5. DD Mon YYYY / DD-Mon-YYYY (misal: 14 Agustus 2026, 14-Agu-2026, 19-Sep-26)
   const mDdMon = str.match(/^(\d{1,2})[-/\s]+([A-Za-z]+)[-/\s]+(\d{2,4})/);
   if (mDdMon) {
     let y = mDdMon[3];
@@ -315,20 +302,17 @@ function parseToStandardDate(val: any): string {
     return `${y}-${mon}-${mDdMon[1].padStart(2, '0')}`;
   }
 
-  // 6. YYYY Mon DD / YYYY-Mon-DD (misal: 2026-Agu-03)
   const mYMon = str.match(/^(\d{4})[-/\s]+([A-Za-z]+)[-/\s]+(\d{1,2})/);
   if (mYMon) {
     const mon = indoMonthsMap[mYMon[2].toLowerCase()] || indoMonthsMap[mYMon[2].toLowerCase().slice(0, 3)] || '01';
     return `${mYMon[1]}-${mon}-${mYMon[3].padStart(2, '0')}`;
   }
 
-  // 7. DD-MM-YYYY atau DD/MM/YYYY
   const mDmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
   if (mDmy) {
     return `${mDmy[3]}-${mDmy[2].padStart(2, '0')}-${mDmy[1].padStart(2, '0')}`;
   }
 
-  // 8. YYYY/MM/DD
   const mYmd = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
   if (mYmd) {
     return `${mYmd[1]}-${mYmd[2].padStart(2, '0')}-${mYmd[3].padStart(2, '0')}`;
@@ -343,17 +327,13 @@ function parseToStandardDate(val: any): string {
   return str;
 }
 
-// =========================================================================
-// FORMAT TAMPILAN TANGGAL: TANGGAL-BULAN-TAHUN TANPA HARI (DD-MM-YYYY)
-// =========================================================================
 function formatDisplayDate(val: any): string {
   if (!val) return '-';
   const iso = parseToStandardDate(val);
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m) {
-    return `${m[3]}-${m[2]}-${m[1]}`; // Menampilkan: Tanggal-Bulan-Tahun (DD-MM-YYYY)
+    return `${m[3]}-${m[2]}-${m[1]}`;
   }
-  // Hapus jika masih ada teks hari
   const clean = String(val).replace(/^(senin|selasa|rabu|kamis|jumat|sabtu|minggu|mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s*/i, '').trim();
   return clean || '-';
 }
@@ -480,9 +460,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
           return XLSX.read(buf, { type: 'array' });
         }
       }
-    } catch {
-      // next
-    }
+    } catch {}
   }
   return null;
 }
@@ -574,9 +552,7 @@ export default function App() {
         });
         setManualTasks(grouped);
       }
-    } catch {
-      // fallback
-    }
+    } catch {}
   }, []);
 
   const [isPlannerModalOpen, setIsPlannerModalOpen] = useState(false);
@@ -641,9 +617,7 @@ export default function App() {
         if (wbJc) setJobcardWorkbook(wbJc);
         if (wbIm4) setIm4Workbook(wbIm4);
         if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
-      } catch {
-        // fallback
-      }
+      } catch {}
     }
     loadAllExcelFiles();
     loadAllJobCards();
@@ -681,7 +655,6 @@ export default function App() {
       console.warn('Gagal koneksi ke Google Apps Script, mencoba fallback...', err);
     }
 
-    // Fallback registry
     const match = GOOGLE_DRIVE_SHEETS.find(s => 
       cleanText(s.projectKey) === cleanProj || 
       cleanProj.includes(cleanText(s.projectKey)) || 
@@ -769,7 +742,6 @@ export default function App() {
     fetchDrawingControlForProject(newProject);
   };
 
-  // Pemilihan deskripsi: Mengambil nilai finish date baris terakhir tanpa nama hari
   const handleDeskripsiChange = (selectedDesc: string) => {
     const cleanProj = cleanText(formData.kodeProyek || '');
     const rowsForThisProj = drawingControlMap[cleanProj] || [];
@@ -791,7 +763,6 @@ export default function App() {
         return false;
       });
 
-      // AMBIL BARIS TERAKHIR SENDIRI & HAPUS NAMA HARI
       if (matches.length > 0) {
         const lastRow = matches[matches.length - 1];
         if (lastRow.finishDate) {
@@ -1677,6 +1648,7 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* Tabel Subkon */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1716,7 +1688,8 @@ export default function App() {
                                               <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
                                                 {formatDisplayDate(task.startDate)} s/d {formatDisplayDate(task.endDate)}
                                               </td>
-                                              <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
+                                              {/* Nilai JO tanpa tanda pagar */}
+                                              <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo}</td>
                                               <td className="py-2 px-2.5 text-center">
                                                 <div className="flex items-center justify-center gap-1.5">
                                                   <button 
@@ -1870,7 +1843,7 @@ export default function App() {
                             </div>
                             <div className="text-xs space-y-1">
                               <div className="text-white font-semibold">{pkg.pic}</div>
-                              <div className="text-emerald-400 font-mono">{pkg.project} • #{pkg.jo}</div>
+                              <div className="text-emerald-400 font-mono">{pkg.project} • {pkg.jo}</div>
                               <div className="text-slate-300 text-[11px] bg-slate-950 p-2 rounded border border-slate-800">{pkg.taskName}</div>
                             </div>
                             <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-800 flex justify-between font-mono">
@@ -1992,13 +1965,13 @@ export default function App() {
 
                   <div className="flex items-center gap-2 flex-wrap">
                     <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                      <Upload className="w-3 h-3 text-cyan-400" />
+                      <Upload className="w-3.5 h-3.5 text-cyan-400" />
                       <span>{formData.kodeProyek ? `Upload DC (${formData.kodeProyek})` : 'Upload Drawing Control'}</span>
                       <input type="file" accept=".xlsx, .xls, .csv" onChange={handleUploadProjectDrawingControl} className="hidden" />
                     </label>
 
                     <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                      <Clock className="w-3 h-3 text-emerald-400" />
+                      <Clock className="w-3.5 h-3.5 text-emerald-400" />
                       <span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                     </label>
@@ -2027,7 +2000,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK (RELEASE: TANGGAL-BULAN-TAHUN TANPA HARI) */}
+                {/* TAB 1: ANGGOTA ORGANIK (PLAN JO TANPA TANDA PAGAR #) */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
@@ -2065,6 +2038,7 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* OUTPUT TABEL BERKOLOM: PLAN JO MURNI ANGKA (TANPA #) */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -2116,7 +2090,11 @@ export default function App() {
                                               <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">
                                                 {formatDisplayDate(task.endDate)}
                                               </td>
-                                              <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
+
+                                              {/* PLAN JO TANPA TANDA PAGAR (#) */}
+                                              <td className="py-2 px-2.5 font-mono text-violet-300">
+                                                {task.jo ? String(task.jo).replace(/^#+/, '') : '-'}
+                                              </td>
                                               
                                               {/* Real JO */}
                                               <td className="py-2 px-2.5 font-mono font-bold">
@@ -2131,7 +2109,7 @@ export default function App() {
                                                 )}
                                               </td>
 
-                                              {/* Release: Format Bersih Tanggal-Bulan-Tahun (Tanpa Hari) */}
+                                              {/* Release */}
                                               <td className="py-2 px-2.5 font-mono text-[11px] text-cyan-300 font-semibold">
                                                 {formatDisplayDate(task.release)}
                                               </td>
@@ -2209,6 +2187,7 @@ export default function App() {
                           />
                         </div>
 
+                        {/* Plan JO Input */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan JO</label>
                           <input
@@ -2251,7 +2230,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Release */}
                         <div>
                           <div className="flex items-center justify-between mb-1">
                             <label className="text-slate-400">Release (Tanggal-Bulan-Tahun)</label>
