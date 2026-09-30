@@ -160,6 +160,7 @@ function SearchableSelect({
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const normalizedOptions = useMemo<SelectOption[]>(() => {
+    if (!options) return [];
     return options.map(opt => typeof opt === 'string' ? { value: opt, label: opt } : opt);
   }, [options]);
 
@@ -558,7 +559,6 @@ export default function App() {
   };
 
   // State File Excel Utama
-  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
   const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
@@ -570,21 +570,18 @@ export default function App() {
   useEffect(() => {
     async function loadAllExcelFiles() {
       try {
-        let kpiUrl = '';
         let jcUrl = '';
         let im4Url = '';
         let realisasiUrl = '';
 
         Object.entries(excelGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
-          if (pLower.includes('kpi')) kpiUrl = url;
-          else if (pLower.includes('jobcard') && !pLower.includes('realisasi')) jcUrl = url;
+          if (pLower.includes('jobcard') && !pLower.includes('realisasi')) jcUrl = url;
           else if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
           else if (pLower.includes('realisasi')) realisasiUrl = url;
         });
 
-        const [wbKpi, wbJc, wbIm4, wbRealisasi] = await Promise.all([
-          fetchSafeWorkbook([kpiUrl, '/data_kpi.xlsx', './data_kpi.xlsx']),
+        const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
           fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx', '/JOBCARD DESAIN.xlsx']),
           fetchSafeWorkbook([
             im4Url,
@@ -602,7 +599,6 @@ export default function App() {
           ])
         ]);
 
-        if (wbKpi) setWorkbook(wbKpi);
         if (wbJc) setJobcardWorkbook(wbJc);
         if (wbIm4) setIm4Workbook(wbIm4);
         if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
@@ -1445,6 +1441,7 @@ export default function App() {
               </button>
             )}
 
+            {/* Tombol Kembali Dinamis */}
             {accessMode === 'subkon' && subconSelectedBiro ? (
               <button onClick={() => setSubconSelectedBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                 <ArrowLeft className="w-3.5 h-3.5" /> Biro
@@ -1693,6 +1690,7 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* Tabel Subkon */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -2026,7 +2024,7 @@ export default function App() {
                   <div className="flex items-center gap-2 flex-wrap">
                     {/* Tombol Update Realisasi JO */}
                     <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                      <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                      <Clock className="w-3 h-3 text-emerald-400" />
                       <span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                     </label>
@@ -2093,6 +2091,7 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* OUTPUT TABEL BERKOLOM */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
