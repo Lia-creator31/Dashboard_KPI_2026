@@ -698,7 +698,7 @@ export default function App() {
     fetchDrawingControlForProject(newProject);
   };
 
-const handleDeskripsiChange = (selectedDesc: string) => {
+  const handleDeskripsiChange = (selectedDesc: string) => {
     const cleanProj = cleanText(formData.kodeProyek || '');
     const rowsForThisProj = drawingControlMap[cleanProj] || [];
 
@@ -709,20 +709,17 @@ const handleDeskripsiChange = (selectedDesc: string) => {
       const cleanTarget = cleanText(selectedDesc);
       const currentFormRev = String(formData.rev || '0').trim();
 
-      // Cari baris di Excel/Drive yang cocok dengan nama gambar DAN nomor revisi (rev) yang sedang aktif
       const exactMatch = rowsForThisProj.find(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
         const cName = cleanText(r.drawingName);
         const isRevMatch = String(r.rev || '0').trim() === currentFormRev;
-
         const isNameMatch = cFull === cleanTarget || (cName && (cleanTarget === cName || cleanTarget.includes(cName))) || (cDwg && cleanTarget.includes(cDwg));
 
         return isNameMatch && isRevMatch;
       });
 
       if (exactMatch) {
-        // Jika revisi tersebut ADA di Excel/Drive, ambil tanggalnya
         if (exactMatch.finishDate) {
           autoRelease = parseToStandardDate(exactMatch.finishDate);
         }
@@ -730,7 +727,6 @@ const handleDeskripsiChange = (selectedDesc: string) => {
           autoRev = exactMatch.rev;
         }
       } else {
-        // Jika revisi (misal Rev 3) TIDAK ADA di Excel/Drive, kosongkan release!
         autoRelease = '';
       }
     }
@@ -794,24 +790,25 @@ const handleDeskripsiChange = (selectedDesc: string) => {
 
     if (rows && rows.length > 0) {
       const cleanTarget = cleanText(task.taskName);
-      const matches = rows.filter(r => {
+      const currentTaskRev = String(task.rev || '0').trim();
+
+      const exactMatch = rows.find(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
         const cName = cleanText(r.drawingName);
-        return cFull === cleanTarget || (cName && cleanTarget.includes(cName)) || (cDwg && cleanTarget.includes(cDwg));
+        const isRevMatch = String(r.rev || '0').trim() === currentTaskRev;
+        const isNameMatch = cFull === cleanTarget || (cName && cleanTarget.includes(cName)) || (cDwg && cleanTarget.includes(cDwg));
+        return isNameMatch && isRevMatch;
       });
 
-      if (matches.length > 0) {
-        const lastRow = matches[matches.length - 1];
-        if (lastRow.finishDate) {
-          const standardDate = parseToStandardDate(lastRow.finishDate);
-          await handleQuickSaveRelease(task.id, standardDate);
-          alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(standardDate)}`);
-          return;
-        }
+      if (exactMatch && exactMatch.finishDate) {
+        const standardDate = parseToStandardDate(exactMatch.finishDate);
+        await handleQuickSaveRelease(task.id, standardDate);
+        alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(standardDate)}`);
+        return;
       }
     }
-    alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}". Silakan edit langsung dengan tombol pensil.`);
+    alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
   };
 
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
@@ -2328,7 +2325,28 @@ const handleDeskripsiChange = (selectedDesc: string) => {
                           <input
                             type="text"
                             value={formData.rev}
-                            onChange={(e) => setFormData(prev => ({ ...prev, rev: e.target.value }))}
+                            onChange={(e) => {
+                              const newRev = e.target.value;
+                              const cleanProj = cleanText(formData.kodeProyek || '');
+                              const rows = drawingControlMap[cleanProj] || [];
+                              let autoRel = '';
+
+                              const exactMatch = rows.find(r => {
+                                const cFull = cleanText(r.fullDeskripsi);
+                                const cName = cleanText(r.drawingName);
+                                const isRevMatch = String(r.rev || '0').trim() === String(newRev).trim();
+                                const isNameMatch = cFull === cleanText(formData.taskName) || (cName && cleanText(formData.taskName).includes(cName));
+                                return isNameMatch && isRevMatch;
+                              });
+
+                              if (exactMatch && exactMatch.finishDate) {
+                                autoRel = parseToStandardDate(exactMatch.finishDate);
+                              } else {
+                                autoRel = '';
+                              }
+
+                              setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
+                            }}
                             placeholder="0"
                             className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                           />
@@ -2419,35 +2437,11 @@ const handleDeskripsiChange = (selectedDesc: string) => {
                   <label className="block text-slate-400 mb-1">Kode Proyek</label>
                   <SearchableSelect
                     options={projectOptions}
+                    value={editFormData.project}
                     onChange={(val) => {
-                        const cleanProj = cleanText(editFormData.project || '');
-                        const rows = drawingControlMap[cleanProj] || [];
-                        let newRelease = '';
-                        let newRev = editFormData.rev;
-                    
-                        const cleanTarget = cleanText(val);
-                        const currentEditRev = String(editFormData.rev || '0').trim();
-                    
-                        // Validasi ketat berdasarkan nama gambar dan nomor revisi (rev)
-                        const exactMatch = rows.find(r => {
-                          const cFull = cleanText(r.fullDeskripsi);
-                          const cDwg = cleanText(r.noDwg);
-                          const cName = cleanText(r.drawingName);
-                          const isRevMatch = String(r.rev || '0').trim() === currentEditRev;
-                          const isNameMatch = cFull === cleanTarget || cleanText(r.drawingName) === cleanTarget || (r.noDwg && cleanTarget.includes(cleanText(r.noDwg)));
-                    
-                          return isNameMatch && isRevMatch;
-                        });
-                    
-                        if (exactMatch) {
-                          if (exactMatch.finishDate) newRelease = parseToStandardDate(exactMatch.finishDate);
-                          if (exactMatch.rev) newRev = exactMatch.rev;
-                        } else {
-                          newRelease = ''; // Kosongkan jika revisi tidak ada di Excel
-                        }
-                    
-                        setEditFormData(prev => ({ ...prev, taskName: val, release: newRelease, rev: newRev }));
-                      }}
+                      setEditFormData(prev => ({ ...prev, project: val }));
+                      fetchDrawingControlForProject(val);
+                    }}
                     placeholder="Ketik kode proyek..."
                     required
                   />
@@ -2490,15 +2484,27 @@ const handleDeskripsiChange = (selectedDesc: string) => {
                     onChange={(val) => {
                       const cleanProj = cleanText(editFormData.project || '');
                       const rows = drawingControlMap[cleanProj] || [];
-                      let newRelease = editFormData.release;
+                      let newRelease = '';
                       let newRev = editFormData.rev;
 
                       const cleanTarget = cleanText(val);
-                      const matches = rows.filter(r => cleanText(r.fullDeskripsi) === cleanTarget || cleanText(r.drawingName) === cleanTarget || (r.noDwg && cleanTarget.includes(cleanText(r.noDwg))));
-                      if (matches.length > 0) {
-                        const last = matches[matches.length - 1];
-                        if (last.finishDate) newRelease = parseToStandardDate(last.finishDate);
-                        if (last.rev) newRev = last.rev;
+                      const currentEditRev = String(editFormData.rev || '0').trim();
+
+                      const exactMatch = rows.find(r => {
+                        const cFull = cleanText(r.fullDeskripsi);
+                        const cDwg = cleanText(r.noDwg);
+                        const cName = cleanText(r.drawingName);
+                        const isRevMatch = String(r.rev || '0').trim() === currentEditRev;
+                        const isNameMatch = cFull === cleanTarget || cleanText(r.drawingName) === cleanTarget || (r.noDwg && cleanTarget.includes(cleanText(r.noDwg)));
+
+                        return isNameMatch && isRevMatch;
+                      });
+
+                      if (exactMatch && exactMatch.finishDate) {
+                        newRelease = parseToStandardDate(exactMatch.finishDate);
+                        if (exactMatch.rev) newRev = exactMatch.rev;
+                      } else {
+                        newRelease = '';
                       }
 
                       setEditFormData(prev => ({ ...prev, taskName: val, release: newRelease, rev: newRev }));
@@ -2515,7 +2521,28 @@ const handleDeskripsiChange = (selectedDesc: string) => {
                       <input
                         type="text"
                         value={editFormData.rev}
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, rev: e.target.value }))}
+                        onChange={(e) => {
+                          const newRev = e.target.value;
+                          const cleanProj = cleanText(editFormData.project || '');
+                          const rows = drawingControlMap[cleanProj] || [];
+                          let autoRel = '';
+
+                          const exactMatch = rows.find(r => {
+                            const cFull = cleanText(r.fullDeskripsi);
+                            const cName = cleanText(r.drawingName);
+                            const isRevMatch = String(r.rev || '0').trim() === String(newRev).trim();
+                            const isNameMatch = cFull === cleanText(editFormData.taskName) || (cName && cleanText(editFormData.taskName).includes(cName));
+                            return isNameMatch && isRevMatch;
+                          });
+
+                          if (exactMatch && exactMatch.finishDate) {
+                            autoRel = parseToStandardDate(exactMatch.finishDate);
+                          } else {
+                            autoRel = '';
+                          }
+
+                          setEditFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
+                        }}
                         placeholder="0"
                         className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                       />
