@@ -90,6 +90,19 @@ export interface ParsedMember {
   dept: string;
 }
 
+interface ExcelRow {
+  nip: string;
+  nama: string;
+  effectiveHour: number;
+  overtimeHour: number;
+  idleHour: number;
+  timesheetReguler: number;
+  timesheetOvertime: number;
+  terlambat: number;
+  sakit: number;
+  ipm: number;
+}
+
 interface TaskItem {
   id: string;
   biroName: string;
@@ -111,6 +124,17 @@ interface DrawingControlRow {
   fullDeskripsi: string;
   rev: string;
   finishDate: string;
+}
+
+interface SelectedBiroPage {
+  biroName: string;
+  month: string;
+  data: ExcelRow[];
+}
+
+interface SelectedFormPage {
+  biroName: string;
+  deptName: string;
 }
 
 interface SelectOption {
@@ -136,12 +160,8 @@ function SearchableSelect({
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const normalizedOptions = useMemo<SelectOption[]>(() => {
-    try {
-      if (!options || !Array.isArray(options)) return [];
-      return options.map(opt => typeof opt === 'string' ? { value: opt, label: opt } : opt);
-    } catch {
-      return [];
-    }
+    if (!options) return [];
+    return options.map(opt => typeof opt === 'string' ? { value: opt, label: opt } : opt);
   }, [options]);
 
   const selectedOption = useMemo(() => {
@@ -444,10 +464,12 @@ export default function App() {
 
   // Organik Navigation State
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
+  const [selectedBiroPage, setSelectedBiroPage] = useState<SelectedBiroPage | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [tableSearch, setTableSearch] = useState('');
   
   const [formData, setFormData] = useState({
     nama: '',
@@ -837,56 +859,54 @@ export default function App() {
     const map = new Map<string, number>();
     if (!realisasiWorkbook) return map;
 
-    try {
-      realisasiWorkbook.SheetNames.forEach(sheetName => {
-        const sheet = realisasiWorkbook.Sheets[sheetName];
-        if (!sheet) return;
+    realisasiWorkbook.SheetNames.forEach(sheetName => {
+      const sheet = realisasiWorkbook.Sheets[sheetName];
+      if (!sheet) return;
 
-        const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-        if (rawRows.length === 0) return;
+      const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      if (rawRows.length === 0) return;
 
-        let headerIdx = -1;
-        let jobcardCol = -1;
-        let effCol = -1;
-        let otCol = -1;
+      let headerIdx = -1;
+      let jobcardCol = -1;
+      let effCol = -1;
+      let otCol = -1;
 
-        for (let r = 0; r < Math.min(5, rawRows.length); r++) {
-          const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
-          const jcIdx = row.findIndex(c => c.includes('jobcard'));
-          const eIdx = row.findIndex(c => c.includes('effective'));
-          const oIdx = row.findIndex(c => c.includes('overtime'));
+      for (let r = 0; r < Math.min(5, rawRows.length); r++) {
+        const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
+        const jcIdx = row.findIndex(c => c.includes('jobcard'));
+        const eIdx = row.findIndex(c => c.includes('effective'));
+        const oIdx = row.findIndex(c => c.includes('overtime'));
 
-          if (jcIdx !== -1 && (eIdx !== -1 || oIdx !== -1)) {
-            headerIdx = r;
-            jobcardCol = jcIdx;
-            effCol = eIdx;
-            otCol = oIdx;
-            break;
-          }
+        if (jcIdx !== -1 && (eIdx !== -1 || oIdx !== -1)) {
+          headerIdx = r;
+          jobcardCol = jcIdx;
+          effCol = eIdx;
+          otCol = oIdx;
+          break;
         }
+      }
 
-        if (jobcardCol === -1) jobcardCol = 16;
-        if (effCol === -1) effCol = 11;
-        if (otCol === -1) otCol = 12;
+      if (jobcardCol === -1) jobcardCol = 16;
+      if (effCol === -1) effCol = 11;
+      if (otCol === -1) otCol = 12;
 
-        for (let r = Math.max(headerIdx + 1, 1); r < rawRows.length; r++) {
-          const row = rawRows[r];
-          if (!row) continue;
+      for (let r = Math.max(headerIdx + 1, 1); r < rawRows.length; r++) {
+        const row = rawRows[r];
+        if (!row) continue;
 
-          const rawJc = String(row[jobcardCol] || '').trim();
-          if (!rawJc || rawJc.toLowerCase() === 'nan' || rawJc.toLowerCase().includes('jobcard')) continue;
+        const rawJc = String(row[jobcardCol] || '').trim();
+        if (!rawJc || rawJc.toLowerCase() === 'nan' || rawJc.toLowerCase().includes('jobcard')) continue;
 
-          const eff = effCol !== -1 ? parseValToNumber(row[effCol]) : 0;
-          const ot = otCol !== -1 ? parseValToNumber(row[otCol]) : 0;
-          const total = eff + ot;
+        const eff = effCol !== -1 ? parseValToNumber(row[effCol]) : 0;
+        const ot = otCol !== -1 ? parseValToNumber(row[otCol]) : 0;
+        const total = eff + ot;
 
-          const key = cleanText(rawJc);
-          if (key) {
-            map.set(key, (map.get(key) || 0) + total);
-          }
+        const key = cleanText(rawJc);
+        if (key) {
+          map.set(key, (map.get(key) || 0) + total);
         }
-      });
-    } catch {}
+      }
+    });
 
     return map;
   }, [realisasiWorkbook]);
@@ -894,73 +914,69 @@ export default function App() {
   const allParsedFromExcel = useMemo<ParsedMember[]>(() => {
     if (!im4Workbook) return [];
 
-    try {
-      const sheetName = im4Workbook.SheetNames.find(s => s.toLowerCase().includes('education')) || im4Workbook.SheetNames[0];
-      const sheet = im4Workbook.Sheets[sheetName];
-      if (!sheet) return [];
+    const sheetName = im4Workbook.SheetNames.find(s => s.toLowerCase().includes('education')) || im4Workbook.SheetNames[0];
+    const sheet = im4Workbook.Sheets[sheetName];
+    if (!sheet) return [];
 
-      const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-      
-      let headerIdx = -1;
-      for (let r = 0; r < Math.min(15, rawRows.length); r++) {
-        const rowVals = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
-        if (rowVals.includes('nama') && (rowVals.includes('nip') || rowVals.includes('status') || rowVals.includes('jabatan'))) {
-          headerIdx = r;
-          break;
-        }
+    const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    
+    let headerIdx = -1;
+    for (let r = 0; r < Math.min(15, rawRows.length); r++) {
+      const rowVals = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
+      if (rowVals.includes('nama') && (rowVals.includes('nip') || rowVals.includes('status') || rowVals.includes('jabatan'))) {
+        headerIdx = r;
+        break;
       }
-
-      if (headerIdx === -1) return [];
-
-      const headers = rawRows[headerIdx].map(v => String(v).trim().toLowerCase());
-      const namaCol = headers.findIndex(h => h === 'nama');
-      const nipCol = headers.findIndex(h => h === 'nip');
-      const statusCol = headers.findIndex(h => h === 'status');
-      const unitCol = headers.findIndex(h => h.includes('unit'));
-      const jabatanCol = headers.findIndex(h => h.includes('jabatan'));
-
-      let currentDept = '';
-      let currentBiro = '';
-      const results: ParsedMember[] = [];
-
-      for (let r = headerIdx + 1; r < rawRows.length; r++) {
-        const row = rawRows[r];
-        if (!row) continue;
-
-        const nama = String(row[namaCol] || '').trim();
-        if (!nama || nama.toLowerCase() === 'nan' || nama.toLowerCase() === 'nama') continue;
-
-        const nip = String(row[nipCol] || '').trim();
-        const statusRaw = String(row[statusCol] || '').trim();
-        const unit = String(row[unitCol] || '').trim();
-        const jabatan = String(row[jabatanCol] || '').trim();
-
-        if (jabatan.toLowerCase().includes('kepala divisi')) {
-          currentDept = 'Div. Desain';
-          currentBiro = 'Div. Desain';
-        } else if (jabatan.toLowerCase().includes('kepala departemen') || jabatan.toLowerCase().includes('kadep')) {
-          if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
-          else currentDept = jabatan;
-          currentBiro = `Staf ${currentDept}`;
-        } else if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
-          currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').replace(/Kabiro/gi, 'Biro').trim();
-          if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
-        }
-
-        results.push({
-          nama,
-          nip,
-          status: statusRaw || 'PKWTT',
-          jabatan,
-          biro: currentBiro,
-          dept: currentDept
-        });
-      }
-
-      return results;
-    } catch {
-      return [];
     }
+
+    if (headerIdx === -1) return [];
+
+    const headers = rawRows[headerIdx].map(v => String(v).trim().toLowerCase());
+    const namaCol = headers.findIndex(h => h === 'nama');
+    const nipCol = headers.findIndex(h => h === 'nip');
+    const statusCol = headers.findIndex(h => h === 'status');
+    const unitCol = headers.findIndex(h => h.includes('unit'));
+    const jabatanCol = headers.findIndex(h => h.includes('jabatan'));
+
+    let currentDept = '';
+    let currentBiro = '';
+    const results: ParsedMember[] = [];
+
+    for (let r = headerIdx + 1; r < rawRows.length; r++) {
+      const row = rawRows[r];
+      if (!row) continue;
+
+      const nama = String(row[namaCol] || '').trim();
+      if (!nama || nama.toLowerCase() === 'nan' || nama.toLowerCase() === 'nama') continue;
+
+      const nip = String(row[nipCol] || '').trim();
+      const statusRaw = String(row[statusCol] || '').trim();
+      const unit = String(row[unitCol] || '').trim();
+      const jabatan = String(row[jabatanCol] || '').trim();
+
+      if (jabatan.toLowerCase().includes('kepala divisi')) {
+        currentDept = 'Div. Desain';
+        currentBiro = 'Div. Desain';
+      } else if (jabatan.toLowerCase().includes('kepala departemen') || jabatan.toLowerCase().includes('kadep')) {
+        if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
+        else currentDept = jabatan;
+        currentBiro = `Staf ${currentDept}`;
+      } else if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
+        currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').replace(/Kabiro/gi, 'Biro').trim();
+        if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
+      }
+
+      results.push({
+        nama,
+        nip,
+        status: statusRaw || 'PKWTT',
+        jabatan,
+        biro: currentBiro,
+        dept: currentDept
+      });
+    }
+
+    return results;
   }, [im4Workbook]);
 
   const dynamicOutsourcingList = useMemo(() => {
@@ -1022,42 +1038,40 @@ export default function App() {
     });
 
     if (jobcardWorkbook) {
-      try {
-        jobcardWorkbook.SheetNames.forEach(sheetName => {
-          const sheet = jobcardWorkbook.Sheets[sheetName];
-          if (!sheet) return;
-          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      jobcardWorkbook.SheetNames.forEach(sheetName => {
+        const sheet = jobcardWorkbook.Sheets[sheetName];
+        if (!sheet) return;
+        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-          let projCol = 2;
-          for (let r = 0; r < Math.min(5, rows.length); r++) {
-            const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-            const foundIdx = rowVals.findIndex(v => v.includes('proyek') || v.includes('project'));
-            if (foundIdx !== -1) {
-              projCol = foundIdx;
-              break;
-            }
+        let projCol = 2;
+        for (let r = 0; r < Math.min(5, rows.length); r++) {
+          const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+          const foundIdx = rowVals.findIndex(v => v.includes('proyek') || v.includes('project'));
+          if (foundIdx !== -1) {
+            projCol = foundIdx;
+            break;
           }
+        }
 
-          rows.forEach((row, idx) => {
-            if (idx < 1 || !row) return;
-            const raw = String(row[projCol] || '').trim();
-            if (
-              !raw || 
-              raw.toLowerCase() === 'nan' || 
-              raw.toLowerCase().includes('kode proyek') || 
-              raw.toLowerCase() === 'proyek' || 
-              raw.toLowerCase() === 'project'
-            ) return;
+        rows.forEach((row, idx) => {
+          if (idx < 1 || !row) return;
+          const raw = String(row[projCol] || '').trim();
+          if (
+            !raw || 
+            raw.toLowerCase() === 'nan' || 
+            raw.toLowerCase().includes('kode proyek') || 
+            raw.toLowerCase() === 'proyek' || 
+            raw.toLowerCase() === 'project'
+          ) return;
 
-            const cleaned = cleanProjectString(raw);
-            const normKey = getProjectNormKey(cleaned);
+          const cleaned = cleanProjectString(raw);
+          const normKey = getProjectNormKey(cleaned);
 
-            if (cleaned && normKey && !projectMap.has(normKey)) {
-              projectMap.set(normKey, cleaned);
-            }
-          });
+          if (cleaned && normKey && !projectMap.has(normKey)) {
+            projectMap.set(normKey, cleaned);
+          }
         });
-      } catch {}
+      });
     }
 
     Object.values(manualTasks).forEach(tasks => {
@@ -1091,41 +1105,39 @@ export default function App() {
     });
 
     if (jobcardWorkbook) {
-      try {
-        jobcardWorkbook.SheetNames.forEach(sheetName => {
-          const sheet = jobcardWorkbook.Sheets[sheetName];
-          if (!sheet) return;
-          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      jobcardWorkbook.SheetNames.forEach(sheetName => {
+        const sheet = jobcardWorkbook.Sheets[sheetName];
+        if (!sheet) return;
+        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 
-          let taskCol = 3;
-          for (let r = 0; r < Math.min(5, rows.length); r++) {
-            const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-            const foundIdx = rowVals.findIndex(v => v.includes('task') || v.includes('deskripsi') || v.includes('uraian') || v.includes('pekerjaan'));
-            if (foundIdx !== -1) {
-              taskCol = foundIdx;
-              break;
-            }
+        let taskCol = 3;
+        for (let r = 0; r < Math.min(5, rows.length); r++) {
+          const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+          const foundIdx = rowVals.findIndex(v => v.includes('task') || v.includes('deskripsi') || v.includes('uraian') || v.includes('pekerjaan'));
+          if (foundIdx !== -1) {
+            taskCol = foundIdx;
+            break;
           }
+        }
 
-          rows.forEach((row, idx) => {
-            if (idx < 1 || !row) return;
-            const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
-            if (
-              !raw || 
-              raw.toLowerCase() === 'nan' || 
-              raw.toLowerCase().includes('desc pekerjaan') || 
-              raw.toLowerCase() === 'deskripsi'
-            ) return;
+        rows.forEach((row, idx) => {
+          if (idx < 1 || !row) return;
+          const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
+          if (
+            !raw || 
+            raw.toLowerCase() === 'nan' || 
+            raw.toLowerCase().includes('desc pekerjaan') || 
+            raw.toLowerCase() === 'deskripsi'
+          ) return;
 
-            const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
-            const normKey = cleanText(cleaned);
+          const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
+          const normKey = cleanText(cleaned);
 
-            if (cleaned && normKey && !taskMap.has(normKey)) {
-              taskMap.set(normKey, cleaned);
-            }
-          });
+          if (cleaned && normKey && !taskMap.has(normKey)) {
+            taskMap.set(normKey, cleaned);
+          }
         });
-      } catch {}
+      });
     }
 
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
