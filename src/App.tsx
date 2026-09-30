@@ -1615,39 +1615,39 @@ export default function App() {
                     </span>
                   </div>
 
-{/* Navigasi Tab Subkon yang Diperbaiki agar Tidak Menjadi Putih */}
-<div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
-  <button
-    onClick={() => setSubconPageMode('members')}
-    className={`px-3 py-1 rounded transition cursor-pointer ${
-      subconPageMode === 'members' 
-        ? 'bg-amber-600 text-white font-bold shadow' 
-        : 'text-slate-400 hover:text-white hover:bg-slate-900'
-    }`}
-  >
-    Anggota
-  </button>
-  <button
-    onClick={() => setSubconPageMode('form')}
-    className={`px-3 py-1 rounded transition cursor-pointer ${
-      subconPageMode === 'form' 
-        ? 'bg-emerald-600 text-white font-bold shadow' 
-        : 'text-slate-400 hover:text-white hover:bg-slate-900'
-    }`}
-  >
-    Form
-  </button>
-  <button
-    onClick={() => setSubconPageMode('release')}
-    className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${
-      subconPageMode === 'release' 
-        ? 'bg-purple-600 text-white font-bold shadow' 
-        : 'text-purple-300 hover:text-white hover:bg-slate-900'
-    }`}
-  >
-    <FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({subconWorkOrders.length})
-  </button>
-</div>
+                  {/* Navigasi Tab Subkon yang Diperbaiki agar Tidak Menjadi Putih */}
+                  <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
+                    <button
+                      onClick={() => setSubconPageMode('members')}
+                      className={`px-3 py-1 rounded transition cursor-pointer ${
+                        subconPageMode === 'members' 
+                          ? 'bg-amber-600 text-white font-bold shadow' 
+                          : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                      }`}
+                    >
+                      Anggota
+                    </button>
+                    <button
+                      onClick={() => setSubconPageMode('form')}
+                      className={`px-3 py-1 rounded transition cursor-pointer ${
+                        subconPageMode === 'form' 
+                          ? 'bg-emerald-600 text-white font-bold shadow' 
+                          : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                      }`}
+                    >
+                      Form
+                    </button>
+                    <button
+                      onClick={() => setSubconPageMode('release')}
+                      className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${
+                        subconPageMode === 'release' 
+                          ? 'bg-purple-600 text-white font-bold shadow' 
+                          : 'text-purple-300 hover:text-white hover:bg-slate-900'
+                      }`}
+                    >
+                      <FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({subconWorkOrders.length})
+                    </button>
+                  </div>
 
                 {/* TAB 1: ANGGOTA SUBKON (HANYA OUTSOURCING) */}
                 {subconPageMode === 'members' && (
