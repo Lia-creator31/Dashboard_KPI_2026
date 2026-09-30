@@ -1605,7 +1605,7 @@ export default function App() {
               </div>
             )}
 
-{subconSelectedBiro && (
+            {subconSelectedBiro && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
@@ -1650,7 +1650,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA SUBKON (HANYA OUTSOURCING) */}
+                {/* TAB 1: ANGGOTA SUBKON */}
                 {subconPageMode === 'members' && (
                   <div className="space-y-2.5">
                     {activeSubconMembers.length > 0 ? (
@@ -1691,7 +1691,6 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Tabel Tugas Subkon */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
