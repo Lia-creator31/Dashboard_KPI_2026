@@ -12,15 +12,16 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   const [role, setRole] = useState<'kabiro' | 'outsourcing'>('kabiro');
   const [error, setError] = useState('');
 
+  // Cek apakah nama yang diketik adalah admin (Dyan Asih Purwanti atau Hashfi Moch Adam)
+  const cleanNama = nama.trim().toLowerCase();
+  const isAdmin = cleanNama.includes('dyan asih purwanti') || cleanNama.includes('hashfi moch adam');
+
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!nama.trim() || !nip.trim()) {
       setError('Nama dan NIP wajib diisi!');
       return;
     }
-
-    const cleanNama = nama.trim().toLowerCase();
-    const isAdmin = cleanNama.includes('dyan asih purwanti') || cleanNama.includes('hashfi moch adam');
 
     onLogin({
       nama: nama.trim(),
@@ -31,7 +32,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
-      <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
+      <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl animate-fadeIn">
         <div className="text-center space-y-2">
           <h1 className="text-xl font-bold text-white">Sistem Penugasan Job Card</h1>
           <p className="text-xs text-slate-400">Silakan masukkan identitas Anda untuk masuk</p>
@@ -74,36 +75,45 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             </div>
           </div>
 
-          <div>
-            <label className="block text-slate-400 mb-1">Pilih Status</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setRole('kabiro')}
-                className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1.5 transition cursor-pointer ${
-                  role === 'kabiro' 
-                    ? 'bg-blue-600/10 border-blue-500 text-blue-400 font-bold' 
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <Briefcase className="w-4 h-4" />
-                <span>Kabiro</span>
-              </button>
+          {/* Pilihan status baru akan muncul jika BUKAN admin */}
+          {!isAdmin && (
+            <div className="animate-fadeIn">
+              <label className="block text-slate-400 mb-1">Pilih Status</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setRole('kabiro')}
+                  className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1.5 transition cursor-pointer ${
+                    role === 'kabiro' 
+                      ? 'bg-blue-600/10 border-blue-500 text-blue-400 font-bold' 
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <Briefcase className="w-4 h-4" />
+                  <span>Kabiro</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setRole('outsourcing')}
-                className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1.5 transition cursor-pointer ${
-                  role === 'outsourcing' 
-                    ? 'bg-amber-600/10 border-amber-500 text-amber-400 font-bold' 
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <HardHat className="w-4 h-4" />
-                <span>Outsourcing</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setRole('outsourcing')}
+                  className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1.5 transition cursor-pointer ${
+                    role === 'outsourcing' 
+                      ? 'bg-amber-600/10 border-amber-500 text-amber-400 font-bold' 
+                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <HardHat className="w-4 h-4" />
+                  <span>Outsourcing</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
+
+          {isAdmin && (
+            <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-300 text-center font-medium animate-fadeIn">
+              ✨ Akses Admin Rendal Terdeteksi
+            </div>
+          )}
 
           <button
             type="submit"
@@ -114,7 +124,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         </form>
 
         <div className="text-[11px] text-slate-500 text-center border-t border-slate-800 pt-3">
-          *Login sebagai <b>Dyan Asih Purwanti</b> atau <b>Hashfi Moch Adam</b> otomatis dikenali sebagai Admin Rendal.
+          *Masukkan nama <b>Dyan Asih Purwanti</b> atau <b>Hashfi Moch Adam</b> untuk login sebagai Admin Rendal.
         </div>
       </div>
     </div>
