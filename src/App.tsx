@@ -2419,11 +2419,35 @@ const handleDeskripsiChange = (selectedDesc: string) => {
                   <label className="block text-slate-400 mb-1">Kode Proyek</label>
                   <SearchableSelect
                     options={projectOptions}
-                    value={editFormData.project}
                     onChange={(val) => {
-                      setEditFormData(prev => ({ ...prev, project: val }));
-                      fetchDrawingControlForProject(val);
-                    }}
+                        const cleanProj = cleanText(editFormData.project || '');
+                        const rows = drawingControlMap[cleanProj] || [];
+                        let newRelease = '';
+                        let newRev = editFormData.rev;
+                    
+                        const cleanTarget = cleanText(val);
+                        const currentEditRev = String(editFormData.rev || '0').trim();
+                    
+                        // Validasi ketat berdasarkan nama gambar dan nomor revisi (rev)
+                        const exactMatch = rows.find(r => {
+                          const cFull = cleanText(r.fullDeskripsi);
+                          const cDwg = cleanText(r.noDwg);
+                          const cName = cleanText(r.drawingName);
+                          const isRevMatch = String(r.rev || '0').trim() === currentEditRev;
+                          const isNameMatch = cFull === cleanTarget || cleanText(r.drawingName) === cleanTarget || (r.noDwg && cleanTarget.includes(cleanText(r.noDwg)));
+                    
+                          return isNameMatch && isRevMatch;
+                        });
+                    
+                        if (exactMatch) {
+                          if (exactMatch.finishDate) newRelease = parseToStandardDate(exactMatch.finishDate);
+                          if (exactMatch.rev) newRev = exactMatch.rev;
+                        } else {
+                          newRelease = ''; // Kosongkan jika revisi tidak ada di Excel
+                        }
+                    
+                        setEditFormData(prev => ({ ...prev, taskName: val, release: newRelease, rev: newRev }));
+                      }}
                     placeholder="Ketik kode proyek..."
                     required
                   />
