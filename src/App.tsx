@@ -159,7 +159,7 @@ function SearchableSelect({
   const [search, setSearch] = useState('');
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const normalizedOptions = useMemo<SelectOption[]>(() => {
+  const normalizedOptions = useMemo<SelectOption[]>([cite: 1, 2, 3], () => {
     if (!options) return [];
     return options.map(opt => typeof opt === 'string' ? { value: opt, label: opt } : opt);
   }, [options]);
@@ -987,18 +987,6 @@ export default function App() {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.biro, biroName));
   }, [dynamicOutsourcingList]);
 
-  const getSubconCountForDept = useCallback((deptName: string): number => {
-  const dept = (departmentsData || []).find(d => d.name === deptName);
-  if (!dept) return 0;
-
-  // Pakai Set agar orang yang cocok ke lebih dari satu biro tidak terhitung ganda
-  const uniq = new Set<string>();
-  dept.biros.forEach(biro => {
-    getSubconMembersForBiro(biro.name).forEach(p => uniq.add(p.nip || p.nama));
-  });
-  return uniq.size;
-}, [getSubconMembersForBiro]);
-
   const getBiroMembers = useCallback((biroName: string): { nama: string; status: string; jabatan: string }[] => {
     const members = allParsedFromExcel.filter(
       p => isBiroMatch(p.biro, biroName) && !p.status.toLowerCase().includes('outsourcing')
@@ -1022,14 +1010,21 @@ export default function App() {
     return manualTasks[currentActiveBiroKey] || [];
   }, [manualTasks, currentActiveBiroKey]);
 
+  // HANYA MENARIK TUGAS MILIK PERSONEL OUTSOURCING UNTUK PORTAL SUBKON
   const subconWorkOrders = useMemo(() => {
     if (!subconSelectedBiro) return [];
     const prefix = getBiroPrefix(subconSelectedBiro);
-    return currentActiveBiroTasks.map((task, idx) => ({
+    const subconNames = getSubconMembersForBiro(subconSelectedBiro).map(m => cleanText(m.nama));
+    
+    const filteredTasks = currentActiveBiroTasks.filter(t => 
+      subconNames.includes(cleanText(t.pic))
+    );
+
+    return filteredTasks.map((task, idx) => ({
       ...task,
       packageTitle: `${prefix}${idx + 1}`
     }));
-  }, [subconSelectedBiro, currentActiveBiroTasks]);
+  }, [subconSelectedBiro, currentActiveBiroTasks, getSubconMembersForBiro]);
 
   const projectOptions = useMemo((): string[] => {
     const projectMap = new Map<string, string>();
@@ -1396,7 +1391,12 @@ export default function App() {
   );
 
   const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
-  const activeSubconMembers = subconSelectedBiro ? getSubconMembersForBiro(subconSelectedBiro) : [];
+  
+  // HANYA MENGAMBIL PERSONEL OUTSOURCING UNTUK SUBKON
+  const activeSubconMembers = useMemo(() => {
+    if (!subconSelectedBiro) return [];
+    return getSubconMembersForBiro(subconSelectedBiro);
+  }, [subconSelectedBiro, getSubconMembersForBiro]);
 
   const organicBiroTasks = useMemo(() => {
     return currentActiveBiroTasks.filter(t => 
@@ -1579,7 +1579,7 @@ export default function App() {
                 <div className="space-y-2">
                   {subconSelectedDept.biros.map((biro) => {
                     const countInBiro = getSubconMembersForBiro(biro.name).length;
-                    const releaseCount = (manualTasks[cleanText(biro.name)] || []).length;
+                    const releaseCount = subconWorkOrders.length;
 
                     return (
                       <div
@@ -1589,11 +1589,6 @@ export default function App() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-white text-sm">{biro.name}</span>
                           <span className="text-xs text-amber-400 font-mono">({countInBiro} Org)</span>
-                          {releaseCount > 0 && (
-                            <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-300 rounded text-[10px] font-bold">
-                              {releaseCount} Work Order
-                            </span>
-                          )}
                         </div>
 
                         <div className="flex items-center gap-1.5 self-end sm:self-auto">
@@ -1629,7 +1624,7 @@ export default function App() {
                   <div>
                     <h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3>
                     <span className="text-xs text-slate-400 font-mono">
-                      {activeSubconMembers.length} Personel • Kode Biro: <b className="text-amber-400">{getBiroPrefix(subconSelectedBiro)}</b>
+                      {activeSubconMembers.length} Personel Outsourcing • Kode Biro: <b className="text-amber-400">{getBiroPrefix(subconSelectedBiro)}</b>
                     </span>
                   </div>
 
@@ -1655,6 +1650,7 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* TAB 1: ANGGOTA SUBKON (HANYA OUTSOURCING) */}
                 {subconPageMode === 'members' && (
                   <div className="space-y-2.5">
                     {activeSubconMembers.length > 0 ? (
@@ -1695,6 +1691,7 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* Tabel Tugas Subkon */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1779,7 +1776,7 @@ export default function App() {
                       })
                     ) : (
                       <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-                        Tidak ada anggota di biro ini (Silakan upload Master IM4 terlebih dahulu)
+                        Tidak ada personel outsourcing di biro ini
                       </div>
                     )}
                   </div>
@@ -1791,12 +1788,12 @@ export default function App() {
                     <form onSubmit={handleSubmitForm} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                         <div className="md:col-span-2">
-                          <label className="block text-slate-400 mb-1">Nama Drafter / Personel</label>
+                          <label className="block text-slate-400 mb-1">Nama Drafter / Personel (Outsourcing)</label>
                           <SearchableSelect
                             options={activeSubconMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.jabatan})` }))}
                             value={formData.nama}
                             onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
-                            placeholder="Ketik nama drafter / personel..."
+                            placeholder="Ketik nama personel outsourcing..."
                             required
                           />
                         </div>
@@ -1904,7 +1901,7 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-xs text-slate-500">
-                        Belum ada Work Order di biro ini. Tambahkan tugas di tab <b>Form</b> untuk langsung menerbitkan Work Order.
+                        Belum ada Work Order outsourcing di biro ini.
                       </div>
                     )}
                   </div>
@@ -1926,21 +1923,18 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Tombol Update File Master Personel IM4 */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <Users className="w-3.5 h-3.5 text-blue-400" />
                       <span>Update Personel IM4</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
                     </label>
 
-                    {/* Tombol Update File Master JOBCARD_DESAIN */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
                       <span>Update Jobcard Desain</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
                     </label>
 
-                    {/* Tombol Update Realisasi JO.xlsx */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <Clock className="w-3.5 h-3.5 text-emerald-400" />
                       <span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
@@ -2261,7 +2255,7 @@ export default function App() {
                       })
                     ) : (
                       <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-                        Tidak ada personil organik di biro ini (Silakan upload Master IM4 terlebih dahulu)
+                        Tidak ada personil organik di biro ini
                       </div>
                     )}
                   </div>
