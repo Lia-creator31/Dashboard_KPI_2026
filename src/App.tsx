@@ -118,7 +118,6 @@ interface SelectOption {
   label: string;
 }
 
-// ✅ FIX 1: Tambah interface yang hilang
 interface SelectedFormPage {
   biroName: string;
   deptName: string;
@@ -399,7 +398,7 @@ function cleanProjectString(raw: any): string {
   let s = String(raw)
     .replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ')
     .trim();
-  
+   
   s = s.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
   s = s.toUpperCase();
 
@@ -450,7 +449,7 @@ export default function App() {
   const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
 
   const [searchQuery, setSearchQuery] = useState('');
-  
+   
   const [formData, setFormData] = useState({
     nama: '',
     kodeProyek: '',
@@ -631,7 +630,7 @@ export default function App() {
     try {
       const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`;
       const res = await fetch(url);
-      
+       
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
@@ -668,7 +667,7 @@ export default function App() {
           const wb = XLSX.read(csvText, { type: 'string' });
           const sheet = wb.Sheets[wb.SheetNames[0]];
           const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-          
+           
           const rowsList: DrawingControlRow[] = [];
           for (let r = 1; r < rawRows.length; r++) {
             const row = rawRows[r];
@@ -708,33 +707,32 @@ export default function App() {
 
     if (rowsForThisProj.length > 0 && selectedDesc) {
       const cleanTarget = cleanText(selectedDesc);
+      const currentFormRev = String(formData.rev || '0').trim();
 
-      const matches = rowsForThisProj.filter(r => {
+      const exactMatch = rowsForThisProj.find(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
         const cName = cleanText(r.drawingName);
+        const rowRev = String(r.rev || '0').trim();
 
-        if (cFull === cleanTarget) return true;
-        if (cName && (cleanTarget === cName || cleanTarget.includes(cName))) return true;
-        if (cDwg && cleanTarget.includes(cDwg)) return true;
-        return false;
+        const isRevMatch = rowRev === currentFormRev;
+        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
+
+        return isNameMatch && isRevMatch;
       });
 
-      if (matches.length > 0) {
-        const lastRow = matches[matches.length - 1];
-        if (lastRow.finishDate) {
-          autoRelease = parseToStandardDate(lastRow.finishDate);
-        }
-        if (lastRow.rev) {
-          autoRev = lastRow.rev;
-        }
+      if (exactMatch && exactMatch.finishDate) {
+        autoRelease = parseToStandardDate(exactMatch.finishDate);
+        if (exactMatch.rev) autoRev = exactMatch.rev;
+      } else {
+        autoRelease = '';
       }
     }
 
     setFormData(prev => ({
       ...prev,
       taskName: selectedDesc,
-      release: autoRelease || prev.release,
+      release: autoRelease,
       rev: autoRev,
     }));
   };
@@ -790,24 +788,26 @@ export default function App() {
 
     if (rows && rows.length > 0) {
       const cleanTarget = cleanText(task.taskName);
-      const matches = rows.filter(r => {
+      const currentTaskRev = String(task.rev || '0').trim();
+
+      const exactMatch = rows.find(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
         const cName = cleanText(r.drawingName);
-        return cFull === cleanTarget || (cName && cleanTarget.includes(cName)) || (cDwg && cleanTarget.includes(cDwg));
+        const rowRev = String(r.rev || '0').trim();
+        const isRevMatch = rowRev === currentTaskRev;
+        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
+        return isNameMatch && isRevMatch;
       });
 
-      if (matches.length > 0) {
-        const lastRow = matches[matches.length - 1];
-        if (lastRow.finishDate) {
-          const standardDate = parseToStandardDate(lastRow.finishDate);
-          await handleQuickSaveRelease(task.id, standardDate);
-          alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(standardDate)}`);
-          return;
-        }
+      if (exactMatch && exactMatch.finishDate) {
+        const standardDate = parseToStandardDate(exactMatch.finishDate);
+        await handleQuickSaveRelease(task.id, standardDate);
+        alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(standardDate)}`);
+        return;
       }
     }
-    alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}". Silakan edit langsung dengan tombol pensil.`);
+    alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
   };
 
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
@@ -902,7 +902,7 @@ export default function App() {
       if (!sheet) return [];
 
       const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-      
+       
       let headerIdx = -1;
       for (let r = 0; r < Math.min(15, rawRows.length); r++) {
         const rowVals = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
@@ -973,7 +973,6 @@ export default function App() {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.biro, biroName));
   }, [dynamicOutsourcingList]);
 
-  // FUNGSI PENGHITUNG JUMLAH OUTSOURCING PER DEPARTEMEN DENGAN SET AMAN
   const getSubconCountForDept = useCallback((deptName: string): number => {
     try {
       const dept = (departmentsData || []).find(d => d.name === deptName);
@@ -1012,18 +1011,16 @@ export default function App() {
     return manualTasks[currentActiveBiroKey] || [];
   }, [manualTasks, currentActiveBiroKey]);
 
-  // ✅ FIX 2: Tambah variabel yang hilang
   const activeSubconMembers = useMemo(() => {
     if (!subconSelectedBiro) return [];
     return getSubconMembersForBiro(subconSelectedBiro);
   }, [subconSelectedBiro, getSubconMembersForBiro]);
 
-  // HANYA MENARIK TUGAS MILIK PERSONEL OUTSOURCING UNTUK PORTAL SUBKON
   const subconWorkOrders = useMemo(() => {
     if (!subconSelectedBiro) return [];
     const prefix = getBiroPrefix(subconSelectedBiro);
     const subconNames = getSubconMembersForBiro(subconSelectedBiro).map(m => cleanText(m.nama));
-    
+     
     const filteredTasks = currentActiveBiroTasks.filter(t => 
       subconNames.includes(cleanText(t.pic))
     );
@@ -1163,7 +1160,7 @@ export default function App() {
     try {
       let validBiroId: string | null = null;
       const { data: biroList } = await supabase.from('biros').select('id, name');
-      
+       
       if (biroList && biroList.length > 0) {
         const found = biroList.find(b => isBiroMatch(b.name, activeBiro));
         validBiroId = found ? found.id : biroList[0].id;
@@ -1225,7 +1222,6 @@ export default function App() {
       saveLocalRev(insertedRow.id, revVal);
       saveLocalRelease(insertedRow.id, releaseVal);
 
-      // ✅ FIX 3: Perbaiki kodeJc (sebelumnya kode_jc)
       const newTask: TaskItem = {
         id: insertedRow.id,
         biroName: activeBiro,
@@ -1618,7 +1614,7 @@ export default function App() {
               </div>
             )}
 
-{subconSelectedBiro && (
+            {subconSelectedBiro && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
@@ -1628,7 +1624,6 @@ export default function App() {
                     </span>
                   </div>
 
-                  {/* Navigasi Tab Subkon */}
                   <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
                     <button
                       onClick={() => setSubconPageMode('members')}
@@ -1663,11 +1658,9 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA SUBKON (HANYA OUTSOURCING) */}
                 {subconPageMode === 'members' && (
                   <div className="space-y-2.5">
                     {activeSubconMembers.length > 0 ? (
-                      // ✅ FIX 4: Gunakan key yang unik
                       activeSubconMembers.map((person) => {
                         const personTasks = currentActiveBiroTasks.filter(
                           t => cleanText(t.pic) === cleanText(person.nama)
@@ -1705,7 +1698,6 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Tabel Tugas Subkon */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1796,7 +1788,6 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 2: FORM SUBKON */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
@@ -1884,7 +1875,6 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 3: WORK ORDER SUBKON */}
                 {subconPageMode === 'release' && (
                   <div className="space-y-3">
                     {subconWorkOrders.length > 0 ? (
@@ -2064,11 +2054,9 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
-                      // ✅ FIX 5: Gunakan key yang unik
                       currentBiroMembers.map((person) => {
                         const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
                         const isExpanded = !!expandedCards[person.nama];
@@ -2103,7 +2091,6 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* OUTPUT TABEL BERKOLOM */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -2337,13 +2324,35 @@ export default function App() {
                           <input
                             type="text"
                             value={formData.rev}
-                            onChange={(e) => setFormData(prev => ({ ...prev, rev: e.target.value }))}
+                            onChange={(e) => {
+                              const newRev = e.target.value;
+                              const cleanProj = cleanText(formData.kodeProyek || '');
+                              const rows = drawingControlMap[cleanProj] || [];
+                              let autoRel = '';
+
+                              const exactMatch = rows.find(r => {
+                                const cFull = cleanText(r.fullDeskripsi);
+                                const cName = cleanText(r.drawingName);
+                                const isRevMatch = String(r.rev || '0').trim() === String(newRev).trim();
+                                const isNameMatch = cFull === cleanText(formData.taskName) || (cName && cleanText(formData.taskName).includes(cName));
+                                return isNameMatch && isRevMatch;
+                              });
+
+                              if (exactMatch && exactMatch.finishDate) {
+                                autoRel = parseToStandardDate(exactMatch.finishDate);
+                              } else {
+                                autoRel = '';
+                              }
+
+                              setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
+                            }}
                             placeholder="0"
                             className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                           />
                         </div>
 
-                        <div>
+                        {/* DI HIDE / DISEMBUNYIKAN SESUAI PERMINTAAN */}
+                        <div className="hidden">
                           <div className="flex items-center justify-between mb-1">
                             <label className="text-slate-400">Release (Tanggal-Bulan-Tahun)</label>
                             <div className="flex items-center gap-1.5">
@@ -2474,15 +2483,29 @@ export default function App() {
                     onChange={(val) => {
                       const cleanProj = cleanText(editFormData.project || '');
                       const rows = drawingControlMap[cleanProj] || [];
-                      let newRelease = editFormData.release;
+                      let newRelease = '';
                       let newRev = editFormData.rev;
 
                       const cleanTarget = cleanText(val);
-                      const matches = rows.filter(r => cleanText(r.fullDeskripsi) === cleanTarget || cleanText(r.drawingName) === cleanTarget || (r.noDwg && cleanTarget.includes(cleanText(r.noDwg))));
-                      if (matches.length > 0) {
-                        const last = matches[matches.length - 1];
-                        if (last.finishDate) newRelease = parseToStandardDate(last.finishDate);
-                        if (last.rev) newRev = last.rev;
+                      const currentEditRev = String(editFormData.rev || '0').trim();
+
+                      const exactMatch = rows.find(r => {
+                        const cFull = cleanText(r.fullDeskripsi);
+                        const cDwg = cleanText(r.noDwg);
+                        const cName = cleanText(r.drawingName);
+                        const rowRev = String(r.rev || '0').trim();
+
+                        const isRevMatch = rowRev === currentEditRev;
+                        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
+
+                        return isNameMatch && isRevMatch;
+                      });
+
+                      if (exactMatch && exactMatch.finishDate) {
+                        newRelease = parseToStandardDate(exactMatch.finishDate);
+                        if (exactMatch.rev) newRev = exactMatch.rev;
+                      } else {
+                        newRelease = '';
                       }
 
                       setEditFormData(prev => ({ ...prev, taskName: val, release: newRelease, rev: newRev }));
@@ -2499,12 +2522,36 @@ export default function App() {
                       <input
                         type="text"
                         value={editFormData.rev}
-                        onChange={(e) => setEditFormData(prev => ({ ...prev, rev: e.target.value }))}
+                        onChange={(e) => {
+                          const newRev = e.target.value;
+                          const cleanProj = cleanText(editFormData.project || '');
+                          const rows = drawingControlMap[cleanProj] || [];
+                          let autoRel = '';
+
+                          const exactMatch = rows.find(r => {
+                            const cFull = cleanText(r.fullDeskripsi);
+                            const cDwg = cleanText(r.noDwg);
+                            const cName = cleanText(r.drawingName);
+                            const rowRev = String(r.rev || '0').trim();
+                            const isRevMatch = rowRev === String(newRev).trim();
+                            const isNameMatch = cleanText(editFormData.taskName).includes(cDwg) || cleanText(editFormData.taskName).includes(cName) || cFull.includes(cleanText(editFormData.taskName));
+                            return isNameMatch && isRevMatch;
+                          });
+
+                          if (exactMatch && exactMatch.finishDate) {
+                            autoRel = parseToStandardDate(exactMatch.finishDate);
+                          } else {
+                            autoRel = '';
+                          }
+
+                          setEditFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
+                        }}
                         placeholder="0"
                         className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                       />
                     </div>
-                    <div>
+                    {/* DI HIDE / DISEMBUNYIKAN PADA MODAL EDIT */}
+                    <div className="hidden">
                       <label className="block text-slate-400 mb-1">Release</label>
                       <input
                         type="date"
