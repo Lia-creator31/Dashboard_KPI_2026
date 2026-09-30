@@ -139,13 +139,24 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
   const b2 = (biro2 || '').toLowerCase().replace('&', ' dan ').trim();
   if (!b1 || !b2) return false;
   if (b1 === b2) return true;
+
+  // ✅ TAMBAHKAN LOGICA KHUSUS INI
   if (b1.includes('pengembangan') && b2.includes('pengembangan')) return true;
-  if ((b1.includes('kapal selam') || b1.includes('submarine') || b1.includes('scorpne')) && (b2.includes('kapal selam') || b2.includes('submarine') || b2.includes('scorpne'))) return true;
+  if (
+    (b1.includes('kapal selam') || b1.includes('submarine') || b1.includes('scorpne')) &&
+    (b2.includes('kapal selam') || b2.includes('submarine') || b2.includes('scorpne'))
+  ) return true;
   if (b1.includes('non kapal') && b2.includes('non kapal')) return true;
-  if ((b1.includes('kapal permukaan') || b1.includes('surface')) && (b2.includes('kapal permukaan') || b2.includes('surface'))) return true;
+  if (
+    (b1.includes('kapal permukaan') || b1.includes('surface')) &&
+    (b2.includes('kapal permukaan') || b2.includes('surface'))
+  ) return true;
+
   const c1 = cleanText(b1.replace(/biro|departemen|dept|divisi|dan/gi, ''));
   const c2 = cleanText(b2.replace(/biro|departemen|dept|divisi|dan/gi, ''));
-  if (c1 && c2) return c1 === c2 || c1.includes(c2) || c2.includes(c1);
+  if (c1 && c2) {
+    return c1 === c2 || c1.includes(c2) || c2.includes(c1);
+  }
   return false;
 }
 
