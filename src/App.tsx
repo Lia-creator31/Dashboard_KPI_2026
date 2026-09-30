@@ -1612,7 +1612,7 @@ export default function App() {
               </div>
             )}
 
-{subconSelectedBiro && (
+            {subconSelectedBiro && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
@@ -1686,14 +1686,14 @@ export default function App() {
                               </div>
                             </div>
 
-                              <div className="flex items-center gap-3">
-                                <span className="text-xs font-mono text-slate-400 hidden sm:inline">
-                                  {personTasks.length} Tugas
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs font-mono text-slate-400 hidden sm:inline">
+                                {personTasks.length} Tugas
                               </span>
-                                <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-amber-400' : ''}`}>
-                                  {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                                </div>
-                            </div>
+                              <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-amber-400' : ''}`}>
+                                {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                              </div>
+                          </div>
                         </div>
 
                         {isExpanded && (
@@ -1711,69 +1711,69 @@ export default function App() {
                                         <th className="py-2 px-2.5 font-mono">JO</th>
                                         <th className="py-2 px-2.5 text-center w-20">Aksi</th>
                                       </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-800 text-slate-300">
-                                      {personTasks.map((task, tIdx) => {
-                                        const isSameProjectAsAbove = tIdx > 0 && task.project === personTasks[tIdx - 1].project;
+                                  </thead>
+                                <tbody className="divide-y divide-slate-800 text-slate-300">
+                                  {personTasks.map((task, tIdx) => {
+                                    const isSameProjectAsAbove = tIdx > 0 && task.project === personTasks[tIdx - 1].project;
 
-                                        return (
-                                          <tr key={task.id} className="hover:bg-slate-900/40">
-                                            <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
-                                            <td className="py-2 px-2.5 font-mono font-bold text-amber-300">
-                                              {task.kodeJc || `${getBiroPrefix(subconSelectedBiro)}${tIdx + 1}`}
-                                            </td>
-                                            <td className="py-2 px-2.5 font-medium">
-                                              {isSameProjectAsAbove ? (
-                                                <span className="text-slate-500 font-mono text-[11px]" title={task.project}>
-                                                  — s.d.a —
-                                                </span>
-                                              ) : (
-                                                <span className="text-emerald-400">{task.project}</span>
-                                              )}
-                                            </td>
-                                            <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
-                                            <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
-                                              {formatDisplayDate(task.startDate)} s/d {formatDisplayDate(task.endDate)}
-                                            </td>
-                                            <td className="py-2 px-2.5 font-mono text-violet-300">
-                                              {task.jo ? String(task.jo).replace(/^#+/, '') : '-'}
-                                            </td>
-                                            <td className="py-2 px-2.5 text-center">
-                                              <div className="flex items-center justify-center gap-1.5">
-                                                <button 
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleOpenEdit(task);
-                                                  }} 
-                                                  className="p-1 rounded bg-slate-850 hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 transition cursor-pointer"
-                                                  title="Edit Tugas"
-                                                >
-                                                  <Pencil className="w-3.5 h-3.5" />
-                                                </button>
-                                                <button 
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleDeleteTask(task.id);
-                                                  }} 
-                                                  className="p-1 rounded bg-slate-850 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
-                                                  title="Hapus Tugas"
-                                                >
-                                                  <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
-                                              </div>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
-                            ) : (
-                              <div className="text-xs text-slate-500 py-3 text-center italic">
-                                Belum ada tugas. Buka tab <b>Form</b> di atas untuk menambahkan penugasan.
-                              </div>
-                            )}
+                                    return (
+                                      <tr key={task.id} className="hover:bg-slate-900/40">
+                                        <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
+                                        <td className="py-2 px-2.5 font-mono font-bold text-amber-300">
+                                          {task.kodeJc || `${getBiroPrefix(subconSelectedBiro)}${tIdx + 1}`}
+                                        </td>
+                                        <td className="py-2 px-2.5 font-medium">
+                                          {isSameProjectAsAbove ? (
+                                            <span className="text-slate-500 font-mono text-[11px]" title={task.project}>
+                                              — s.d.a —
+                                            </span>
+                                          ) : (
+                                            <span className="text-emerald-400">{task.project}</span>
+                                          )}
+                                        </td>
+                                        <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
+                                          {formatDisplayDate(task.startDate)} s/d {formatDisplayDate(task.endDate)}
+                                        </td>
+                                        <td className="py-2 px-2.5 font-mono text-violet-300">
+                                          {task.jo ? String(task.jo).replace(/^#+/, '') : '-'}
+                                        </td>
+                                        <td className="py-2 px-2.5 text-center">
+                                          <div className="flex items-center justify-center gap-1.5">
+                                            <button 
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleOpenEdit(task);
+                                              }} 
+                                              className="p-1 rounded bg-slate-850 hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 transition cursor-pointer"
+                                              title="Edit Tugas"
+                                            >
+                                              <Pencil className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button 
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeleteTask(task.id);
+                                              }} 
+                                              className="p-1 rounded bg-slate-850 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                                              title="Hapus Tugas"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                            </table>
                           </div>
+                          ) : (
+                            <div className="text-xs text-slate-500 py-3 text-center italic">
+                              Belum ada tugas. Buka tab <b>Form</b> di atas untuk menambahkan penugasan.
+                            </div>
+                          )}
+                        </div>
                         )}
                       </div>
                     );
