@@ -34,8 +34,7 @@ import {
   FileSpreadsheet,
   Users, 
   Laptop, 
-  User,
-  ShieldCheck
+  LucideIcon 
 } from 'lucide-react';
 
 const csvMonthMap: Record<string, string> = {
@@ -119,15 +118,10 @@ interface SelectOption {
   label: string;
 }
 
+// ✅ FIX 1: Tambah interface yang hilang
 interface SelectedFormPage {
   biroName: string;
   deptName: string;
-}
-
-interface UserSession {
-  nama: string;
-  nip: string;
-  role: 'kabiro' | 'outsourcing' | 'admin';
 }
 
 function SearchableSelect({
@@ -405,7 +399,7 @@ function cleanProjectString(raw: any): string {
   let s = String(raw)
     .replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ')
     .trim();
-   
+  
   s = s.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
   s = s.toUpperCase();
 
@@ -442,8 +436,6 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
 }
 
 export default function App() {
-  const [session, setSession] = useState<UserSession | null>(null);
-
   const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
 
   // Subkon Navigation State
@@ -458,7 +450,7 @@ export default function App() {
   const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
 
   const [searchQuery, setSearchQuery] = useState('');
-   
+  
   const [formData, setFormData] = useState({
     nama: '',
     kodeProyek: '',
@@ -639,7 +631,7 @@ export default function App() {
     try {
       const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`;
       const res = await fetch(url);
-       
+      
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
@@ -676,7 +668,7 @@ export default function App() {
           const wb = XLSX.read(csvText, { type: 'string' });
           const sheet = wb.Sheets[wb.SheetNames[0]];
           const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-           
+          
           const rowsList: DrawingControlRow[] = [];
           for (let r = 1; r < rawRows.length; r++) {
             const row = rawRows[r];
@@ -716,32 +708,33 @@ export default function App() {
 
     if (rowsForThisProj.length > 0 && selectedDesc) {
       const cleanTarget = cleanText(selectedDesc);
-      const currentFormRev = String(formData.rev || '0').trim();
 
-      const exactMatch = rowsForThisProj.find(r => {
+      const matches = rowsForThisProj.filter(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
         const cName = cleanText(r.drawingName);
-        const rowRev = String(r.rev || '0').trim();
 
-        const isRevMatch = rowRev === currentFormRev;
-        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
-
-        return isNameMatch && isRevMatch;
+        if (cFull === cleanTarget) return true;
+        if (cName && (cleanTarget === cName || cleanTarget.includes(cName))) return true;
+        if (cDwg && cleanTarget.includes(cDwg)) return true;
+        return false;
       });
 
-      if (exactMatch && exactMatch.finishDate) {
-        autoRelease = parseToStandardDate(exactMatch.finishDate);
-        if (exactMatch.rev) autoRev = exactMatch.rev;
-      } else {
-        autoRelease = '';
+      if (matches.length > 0) {
+        const lastRow = matches[matches.length - 1];
+        if (lastRow.finishDate) {
+          autoRelease = parseToStandardDate(lastRow.finishDate);
+        }
+        if (lastRow.rev) {
+          autoRev = lastRow.rev;
+        }
       }
     }
 
     setFormData(prev => ({
       ...prev,
       taskName: selectedDesc,
-      release: autoRelease,
+      release: autoRelease || prev.release,
       rev: autoRev,
     }));
   };
@@ -759,9 +752,9 @@ export default function App() {
     } catch {}
 
     setManualTasks(prev => {
-      const updated: { [biroKey: string]: TaskItem[] } = {};
-      Object.keys(prev).forEach(k => {
-        updated[k] = prev[k].map(t => t.id === taskId ? { ...t, release: cleanDate } : t);
+      const updated = { ...prev };
+      Object.keys(updated).forEach(k => {
+        updated[k] = updated[k].map(t => t.id === taskId ? { ...t, release: cleanDate } : t);
       });
       return updated;
     });
@@ -797,26 +790,24 @@ export default function App() {
 
     if (rows && rows.length > 0) {
       const cleanTarget = cleanText(task.taskName);
-      const currentTaskRev = String(task.rev || '0').trim();
-
-      const exactMatch = rows.find(r => {
+      const matches = rows.filter(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
         const cName = cleanText(r.drawingName);
-        const rowRev = String(r.rev || '0').trim();
-        const isRevMatch = rowRev === currentTaskRev;
-        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
-        return isNameMatch && isRevMatch;
+        return cFull === cleanTarget || (cName && cleanTarget.includes(cName)) || (cDwg && cleanTarget.includes(cDwg));
       });
 
-      if (exactMatch && exactMatch.finishDate) {
-        const standardDate = parseToStandardDate(exactMatch.finishDate);
-        await handleQuickSaveRelease(task.id, standardDate);
-        alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(standardDate)}`);
-        return;
+      if (matches.length > 0) {
+        const lastRow = matches[matches.length - 1];
+        if (lastRow.finishDate) {
+          const standardDate = parseToStandardDate(lastRow.finishDate);
+          await handleQuickSaveRelease(task.id, standardDate);
+          alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(standardDate)}`);
+          return;
+        }
       }
     }
-    alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
+    alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}". Silakan edit langsung dengan tombol pensil.`);
   };
 
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
@@ -911,7 +902,7 @@ export default function App() {
       if (!sheet) return [];
 
       const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-       
+      
       let headerIdx = -1;
       for (let r = 0; r < Math.min(15, rawRows.length); r++) {
         const rowVals = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
@@ -982,6 +973,7 @@ export default function App() {
     return dynamicOutsourcingList.filter(os => isBiroMatch(os.biro, biroName));
   }, [dynamicOutsourcingList]);
 
+  // FUNGSI PENGHITUNG JUMLAH OUTSOURCING PER DEPARTEMEN DENGAN SET AMAN
   const getSubconCountForDept = useCallback((deptName: string): number => {
     try {
       const dept = (departmentsData || []).find(d => d.name === deptName);
@@ -1020,16 +1012,18 @@ export default function App() {
     return manualTasks[currentActiveBiroKey] || [];
   }, [manualTasks, currentActiveBiroKey]);
 
+  // ✅ FIX 2: Tambah variabel yang hilang
   const activeSubconMembers = useMemo(() => {
     if (!subconSelectedBiro) return [];
     return getSubconMembersForBiro(subconSelectedBiro);
   }, [subconSelectedBiro, getSubconMembersForBiro]);
 
+  // HANYA MENARIK TUGAS MILIK PERSONEL OUTSOURCING UNTUK PORTAL SUBKON
   const subconWorkOrders = useMemo(() => {
     if (!subconSelectedBiro) return [];
     const prefix = getBiroPrefix(subconSelectedBiro);
     const subconNames = getSubconMembersForBiro(subconSelectedBiro).map(m => cleanText(m.nama));
-     
+    
     const filteredTasks = currentActiveBiroTasks.filter(t => 
       subconNames.includes(cleanText(t.pic))
     );
@@ -1040,103 +1034,383 @@ export default function App() {
     }));
   }, [subconSelectedBiro, currentActiveBiroTasks, getSubconMembersForBiro]);
 
-  // Hitung jumlah tugas yang menumpuk/belum disetujui jobcard-nya (Pending/Menunggu Planner)
-  const pendingTasksCount = useMemo(() => {
-    let count = 0;
+  const projectOptions = useMemo((): string[] => {
+    const projectMap = new Map<string, string>();
+
+    GOOGLE_DRIVE_SHEETS.forEach(s => {
+      const cleaned = cleanProjectString(s.projectKey);
+      const normKey = getProjectNormKey(cleaned);
+      if (cleaned && normKey && !projectMap.has(normKey)) {
+        projectMap.set(normKey, cleaned);
+      }
+    });
+
+    if (jobcardWorkbook) {
+      try {
+        jobcardWorkbook.SheetNames.forEach(sheetName => {
+          const sheet = jobcardWorkbook.Sheets[sheetName];
+          if (!sheet) return;
+          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+          let projCol = 2;
+          for (let r = 0; r < Math.min(5, rows.length); r++) {
+            const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+            const foundIdx = rowVals.findIndex(v => v.includes('proyek') || v.includes('project'));
+            if (foundIdx !== -1) {
+              projCol = foundIdx;
+              break;
+            }
+          }
+
+          rows.forEach((row, idx) => {
+            if (idx < 1 || !row) return;
+            const raw = String(row[projCol] || '').trim();
+            if (
+              !raw || 
+              raw.toLowerCase() === 'nan' || 
+              raw.toLowerCase().includes('kode proyek') || 
+              raw.toLowerCase() === 'proyek' || 
+              raw.toLowerCase() === 'project'
+            ) return;
+
+            const cleaned = cleanProjectString(raw);
+            const normKey = getProjectNormKey(cleaned);
+
+            if (cleaned && normKey && !projectMap.has(normKey)) {
+              projectMap.set(normKey, cleaned);
+            }
+          });
+        });
+      } catch {}
+    }
+
     Object.values(manualTasks).forEach(tasks => {
       tasks.forEach(t => {
-        if (!t.kodeJc || t.kodeJc.trim() === '') count++;
+        const raw = String(t.project || '').trim();
+        if (raw) {
+          const cleaned = cleanProjectString(raw);
+          const normKey = getProjectNormKey(cleaned);
+          if (cleaned && normKey && !projectMap.has(normKey)) {
+            projectMap.set(normKey, cleaned);
+          }
+        }
       });
     });
-    return count;
-  }, [manualTasks]);
 
-  // ================= RENDER HALAMAN LOGIN UTAMA =================
-  if (!session) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl animate-fadeIn">
-          <div className="text-center space-y-2">
-            <h1 className="text-xl font-bold text-white">Sistem Penugasan Job Card</h1>
-            <p className="text-xs text-slate-400">Silakan masukkan Nama dan NIP Anda untuk masuk</p>
-          </div>
+    return Array.from(projectMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [jobcardWorkbook, manualTasks]);
 
-          <form onSubmit={(e) => {
-            e.preventDefault();
-            const namaInput = (e.currentTarget.elements.namedItem('nama') as HTMLInputElement).value.trim();
-            const nipInput = (e.currentTarget.elements.namedItem('nip') as HTMLInputElement).value.trim();
-            const roleInput = (e.currentTarget.elements.namedItem('role') as HTMLSelectElement).value as 'kabiro' | 'outsourcing';
+  const dynamicTaskOptions = useMemo((): string[] => {
+    const cleanProj = cleanText(formData.kodeProyek || '');
+    const rowsForThisProj = drawingControlMap[cleanProj] || [];
+    const taskMap = new Map<string, string>();
 
-            if (!namaInput || !nipInput) {
-              alert('Nama dan NIP wajib diisi!');
-              return;
+    rowsForThisProj.forEach(r => {
+      if (r.fullDeskripsi) {
+        const norm = cleanText(r.fullDeskripsi);
+        if (!taskMap.has(norm)) {
+          taskMap.set(norm, r.fullDeskripsi);
+        }
+      }
+    });
+
+    if (jobcardWorkbook) {
+      try {
+        jobcardWorkbook.SheetNames.forEach(sheetName => {
+          const sheet = jobcardWorkbook.Sheets[sheetName];
+          if (!sheet) return;
+          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+          let taskCol = 3;
+          for (let r = 0; r < Math.min(5, rows.length); r++) {
+            const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+            const foundIdx = rowVals.findIndex(v => v.includes('task') || v.includes('deskripsi') || v.includes('uraian') || v.includes('pekerjaan'));
+            if (foundIdx !== -1) {
+              taskCol = foundIdx;
+              break;
             }
+          }
 
-            const cleanNama = namaInput.toLowerCase();
-            const isAdmin = cleanNama.includes('dyan asih purwanti') || cleanNama.includes('hashfi moch adam');
+          rows.forEach((row, idx) => {
+            if (idx < 1 || !row) return;
+            const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
+            if (
+              !raw || 
+              raw.toLowerCase() === 'nan' || 
+              raw.toLowerCase().includes('desc pekerjaan') || 
+              raw.toLowerCase() === 'deskripsi'
+            ) return;
 
-            setSession({
-              nama: namaInput,
-              nip: nipInput,
-              role: isAdmin ? 'admin' : roleInput
-            });
-          }} className="space-y-4 text-xs">
-            <div>
-              <label className="block text-slate-400 mb-1">Nama Lengkap</label>
-              <div className="relative">
-                <input
-                  name="nama"
-                  type="text"
-                  placeholder="Ketik nama Anda..."
-                  required
-                  className="w-full px-3 py-2.5 pl-9 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-                />
-                <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-              </div>
-            </div>
+            const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
+            const normKey = cleanText(cleaned);
 
-            <div>
-              <label className="block text-slate-400 mb-1">NIP</label>
-              <div className="relative">
-                <input
-                  name="nip"
-                  type="text"
-                  placeholder="Ketik NIP Anda..."
-                  required
-                  className="w-full px-3 py-2.5 pl-9 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono focus:outline-none focus:border-blue-500"
-                />
-                <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-              </div>
-            </div>
+            if (cleaned && normKey && !taskMap.has(normKey)) {
+              taskMap.set(normKey, cleaned);
+            }
+          });
+        });
+      } catch {}
+    }
 
-            <div>
-              <label className="block text-slate-400 mb-1">Pilih Status</label>
-              <select
-                name="role"
-                className="w-full px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-              >
-                <option value="kabiro">Kabiro (Organik)</option>
-                <option value="outsourcing">Outsourcing (Subkon)</option>
-              </select>
-            </div>
+    return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [formData.kodeProyek, drawingControlMap, jobcardWorkbook]);
 
-            <button
-              type="submit"
-              className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition cursor-pointer shadow-lg"
-            >
-              Masuk Sistem
-            </button>
-          </form>
+  const handleSubmitForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const activeBiro = currentActiveBiroName;
+    if (!activeBiro) return;
 
-          <div className="text-[11px] text-slate-500 text-center border-t border-slate-800 pt-3">
-            *Login sebagai <b>Dyan Asih Purwanti</b> atau <b>Hashfi Moch Adam</b> otomatis dikenali sebagai Admin Rendal.
-          </div>
-        </div>
-      </div>
+    try {
+      let validBiroId: string | null = null;
+      const { data: biroList } = await supabase.from('biros').select('id, name');
+      
+      if (biroList && biroList.length > 0) {
+        const found = biroList.find(b => isBiroMatch(b.name, activeBiro));
+        validBiroId = found ? found.id : biroList[0].id;
+      }
+
+      const biroKey = cleanText(activeBiro);
+      const currentList = manualTasks[biroKey] || [];
+
+      let autoKode = '';
+      if (accessMode === 'subkon') {
+        const prefix = getBiroPrefix(activeBiro);
+        autoKode = `${prefix}${currentList.length + 1}`;
+      }
+
+      const revVal = (formData.rev && formData.rev.trim() !== '') ? formData.rev.trim() : '0';
+      const releaseVal = formData.release ? formData.release.trim() : '';
+
+      const insertPayload: any = {
+        biro_id: validBiroId,
+        biro_name: activeBiro,
+        personil_name: formData.nama,
+        project_code: formData.kodeProyek,
+        project: formData.kodeProyek,
+        task_name: formData.taskName,
+        start_date: formData.startDate,
+        end_date: formData.endDate,
+        pic: formData.nama,
+        jo: formData.jo,
+        kode_jc: autoKode,
+        status: accessMode === 'subkon' ? 'approved' : 'pending',
+        rev: revVal,
+        release: releaseVal,
+      };
+
+      let insertedRow: any = null;
+      const { data: resData, error } = await supabase
+        .from('job_cards')
+        .insert(insertPayload)
+        .select()
+        .single();
+
+      if (error) {
+        delete insertPayload.rev;
+        delete insertPayload.release;
+        const { data: retryData, error: retryError } = await supabase
+          .from('job_cards')
+          .insert(insertPayload)
+          .select()
+          .single();
+        if (retryError) {
+          alert('Gagal simpan: ' + retryError.message);
+          return;
+        }
+        insertedRow = retryData;
+      } else {
+        insertedRow = resData;
+      }
+
+      saveLocalRev(insertedRow.id, revVal);
+      saveLocalRelease(insertedRow.id, releaseVal);
+
+      // ✅ FIX 3: Perbaiki kodeJc (sebelumnya kode_jc)
+      const newTask: TaskItem = {
+        id: insertedRow.id,
+        biroName: activeBiro,
+        project: formData.kodeProyek,
+        taskName: formData.taskName,
+        startDate: formData.startDate,
+        endDate: formData.endDate,
+        pic: formData.nama,
+        jo: formData.jo,
+        kodeJc: autoKode,
+        rev: revVal,
+        release: releaseVal,
+      };
+
+      setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
+
+      setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
+      setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '', release: '' });
+
+      if (accessMode === 'subkon') {
+        alert(`Tugas tersimpan! Work Order "${autoKode}" langsung terbit dan dapat dilihat di bawah nama personil.`);
+      } else {
+        alert('Tugas tersimpan! Buka Planner untuk approval Jobcard.');
+      }
+      loadAllJobCards();
+    } catch {
+      alert('Koneksi database bermasalah.');
+    }
+  };
+
+  const handleOpenEdit = (task: TaskItem) => {
+    setEditingTask(task);
+    setEditFormData({
+      project: task.project || '',
+      taskName: task.taskName || '',
+      startDate: task.startDate || '',
+      endDate: task.endDate || '',
+      jo: task.jo || '',
+      kodeJc: task.kodeJc || '',
+      rev: task.rev || '0',
+      release: task.release || '',
+    });
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTask) return;
+
+    const revVal = (editFormData.rev && editFormData.rev.trim() !== '') ? editFormData.rev.trim() : '0';
+    const releaseVal = editFormData.release ? editFormData.release.trim() : '';
+
+    const updatePayload: any = {
+      project: editFormData.project,
+      project_code: editFormData.project,
+      task_name: editFormData.taskName,
+      start_date: editFormData.startDate,
+      end_date: editFormData.endDate,
+      jo: editFormData.jo,
+      kode_jc: editFormData.kodeJc,
+      rev: revVal,
+      release: releaseVal,
+    };
+
+    let { error } = await supabase
+      .from('job_cards')
+      .update(updatePayload)
+      .eq('id', editingTask.id);
+
+    if (error && (error.message?.includes('rev') || error.message?.includes('release') || (error as any).details?.includes('rev') || (error as any).details?.includes('release'))) {
+      delete updatePayload.rev;
+      delete updatePayload.release;
+      const retry = await supabase.from('job_cards').update(updatePayload).eq('id', editingTask.id);
+      error = retry.error;
+    }
+
+    if (error) {
+      alert('Gagal mengupdate: ' + error.message);
+      return;
+    }
+
+    saveLocalRev(editingTask.id, revVal);
+    saveLocalRelease(editingTask.id, releaseVal);
+
+    setManualTasks(prev => {
+      const updated = { ...prev };
+      Object.keys(updated).forEach(k => {
+        updated[k] = updated[k].map(t => {
+          if (t.id === editingTask.id) {
+            return {
+              ...t,
+              project: editFormData.project,
+              taskName: editFormData.taskName,
+              startDate: editFormData.startDate,
+              endDate: editFormData.endDate,
+              jo: editFormData.jo,
+              kodeJc: editFormData.kodeJc,
+              rev: revVal,
+              release: releaseVal,
+            };
+          }
+          return t;
+        });
+      });
+      return updated;
+    });
+
+    setEditingTask(null);
+    alert('Penugasan berhasil diperbarui!');
+    loadAllJobCards();
+  };
+
+  const handleVerifyPin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pinInput === PLANNER_PIN) {
+      setIsPlannerUnlocked(true);
+      setPinError(false);
+      setPinInput('');
+    } else {
+      setPinError(true);
+    }
+  };
+
+  const handleSaveKodeJcForTask = async (taskId: string) => {
+    const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase();
+    if (!inputVal) return;
+
+    const { error } = await supabase
+      .from('job_cards')
+      .update({ kode_jc: inputVal, status: 'approved' })
+      .eq('id', taskId);
+
+    if (error) {
+      alert('Gagal simpan Jobcard: ' + error.message);
+      return;
+    }
+
+    setManualTasks(prev => {
+      const updated = { ...prev };
+      Object.keys(updated).forEach(k => {
+        updated[k] = updated[k].map(t => t.id === taskId ? { ...t, kodeJc: inputVal } : t);
+      });
+      return updated;
+    });
+
+    setEditingTaskKode(prev => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+
+    loadAllJobCards();
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (window.confirm('Hapus tugas ini?')) {
+      const { error } = await supabase.from('job_cards').delete().eq('id', taskId);
+      if (error) return;
+
+      setManualTasks(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(k => {
+          updated[k] = updated[k].filter(t => t.id !== taskId);
+        });
+        return updated;
+      });
+      loadAllJobCards();
+    }
+  };
+
+  const filteredDepartments = (departmentsData || []).filter(dept => 
+    dept.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredSubconDepartments = (departmentsData || []).filter(dept => 
+    dept.name.toLowerCase().includes(subconSearch.toLowerCase())
+  );
+
+  const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
+
+  const organicBiroTasks = useMemo(() => {
+    return currentActiveBiroTasks.filter(t => 
+      currentBiroMembers.some(m => cleanText(m.nama) === cleanText(t.pic))
     );
-  }
+  }, [currentActiveBiroTasks, currentBiroMembers]);
 
-  // ================= 4. APLIKASI UTAMA (SETELAH LOGIN) =================
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
       {/* Top Navbar */}
@@ -1157,28 +1431,15 @@ export default function App() {
             </div>
             <div className="flex items-center gap-2">
               <span className="font-bold text-sm text-white">DIVISI DESAIN</span>
-              <span className="text-xs px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-300 border border-slate-700">
-                {session.role === 'admin' ? 'Admin Rendal' : session.role === 'kabiro' ? `Kabiro (${session.nama})` : `Outsourcing (${session.nama})`}
-              </span>
+              {accessMode !== 'landing' && (
+                <span className="text-xs px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-300 border border-slate-700">
+                  {accessMode === 'organik' ? 'Organik' : 'Subkontraktor'}
+                </span>
+              )}
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {session.role === 'admin' && (
-              <button
-                onClick={() => setIsPlannerModalOpen(true)}
-                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer relative"
-              >
-                <Lock className="w-3.5 h-3.5" /> 
-                <span>Planner Panel</span>
-                {pendingTasksCount > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full border border-slate-950 animate-pulse">
-                    {pendingTasksCount}
-                  </span>
-                )}
-              </button>
-            )}
-
             {accessMode !== 'landing' && (
               <button
                 onClick={() => {
@@ -1193,13 +1454,6 @@ export default function App() {
                 Ganti Portal
               </button>
             )}
-
-            <button
-              onClick={() => setSession(null)}
-              className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer"
-            >
-              Keluar
-            </button>
 
             {accessMode === 'subkon' && subconSelectedBiro ? (
               <button onClick={() => setSubconSelectedBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
@@ -1230,7 +1484,7 @@ export default function App() {
           <div className="max-w-2xl mx-auto text-center space-y-8 pt-8">
             <div className="space-y-2">
               <h1 className="text-2xl sm:text-3xl font-bold text-white">Sistem Penugasan Job Card</h1>
-              <p className="text-slate-400 text-sm">Pilih portal akses kerja Anda, {session.nama}</p>
+              <p className="text-slate-400 text-sm">Pilih portal akses kerja Anda</p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1271,21 +1525,17 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {session.role === 'admin' && (
-                      <>
-                        <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                          <Users className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Update Personel IM4</span>
-                          <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
-                        </label>
+                    <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                      <Users className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Update Personel IM4</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
+                    </label>
 
-                        <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                          <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>Update Jobcard Desain</span>
-                          <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
-                        </label>
-                      </>
-                    )}
+                    <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Update Jobcard Desain</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
+                    </label>
 
                     <input
                       type="text"
@@ -1368,7 +1618,7 @@ export default function App() {
               </div>
             )}
 
-            {subconSelectedBiro && (
+{subconSelectedBiro && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
@@ -1378,6 +1628,7 @@ export default function App() {
                     </span>
                   </div>
 
+                  {/* Navigasi Tab Subkon */}
                   <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
                     <button
                       onClick={() => setSubconPageMode('members')}
@@ -1412,9 +1663,11 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* TAB 1: ANGGOTA SUBKON (HANYA OUTSOURCING) */}
                 {subconPageMode === 'members' && (
                   <div className="space-y-2.5">
                     {activeSubconMembers.length > 0 ? (
+                      // ✅ FIX 4: Gunakan key yang unik
                       activeSubconMembers.map((person) => {
                         const personTasks = currentActiveBiroTasks.filter(
                           t => cleanText(t.pic) === cleanText(person.nama)
@@ -1452,6 +1705,7 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* Tabel Tugas Subkon */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1542,6 +1796,7 @@ export default function App() {
                   </div>
                 )}
 
+                {/* TAB 2: FORM SUBKON */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
@@ -1629,6 +1884,7 @@ export default function App() {
                   </div>
                 )}
 
+                {/* TAB 3: WORK ORDER SUBKON */}
                 {subconPageMode === 'release' && (
                   <div className="space-y-3">
                     {subconWorkOrders.length > 0 ? (
@@ -1681,27 +1937,23 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {session.role === 'admin' && (
-                      <>
-                        <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                          <Users className="w-3.5 h-3.5 text-blue-400" />
-                          <span>Update Personel IM4</span>
-                          <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
-                        </label>
+                    <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                      <Users className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Update Personel IM4</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
+                    </label>
 
-                        <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                          <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>Update Jobcard Desain</span>
-                          <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
-                        </label>
+                    <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Update Jobcard Desain</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
+                    </label>
 
-                        <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                          <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
-                          <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
-                        </label>
-                      </>
-                    )}
+                    <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                      <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
+                    </label>
 
                     <input
                       type="text"
@@ -1782,13 +2034,11 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {session.role === 'admin' && (
-                      <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                        <Clock className="w-3 h-3 text-emerald-400" />
-                        <span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
-                        <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
-                      </label>
-                    )}
+                    <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                      <Clock className="w-3 h-3 text-emerald-400" />
+                      <span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
+                    </label>
 
                     <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
                       <button
@@ -1805,25 +2055,20 @@ export default function App() {
                       </button>
                     </div>
 
-                    {session.role === 'admin' && (
-                      <button
-                        onClick={() => setIsPlannerModalOpen(true)}
-                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer relative"
-                      >
-                        <Lock className="w-3 h-3" /> Planner
-                        {pendingTasksCount > 0 && (
-                          <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white text-[9px] font-bold px-1.5 py-0.1 rounded-full border border-slate-950">
-                            {pendingTasksCount}
-                          </span>
-                        )}
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setIsPlannerModalOpen(true)}
+                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Lock className="w-3 h-3" /> Planner
+                    </button>
                   </div>
                 </div>
 
+                {/* TAB 1: ANGGOTA ORGANIK */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
+                      // ✅ FIX 5: Gunakan key yang unik
                       currentBiroMembers.map((person) => {
                         const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
                         const isExpanded = !!expandedCards[person.nama];
@@ -1858,6 +2103,7 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* OUTPUT TABEL BERKOLOM */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1954,32 +2200,30 @@ export default function App() {
                                                     <span className="text-cyan-300 font-semibold">
                                                       {formatDisplayDate(task.release)}
                                                     </span>
-                                                    {session.role === 'admin' && (
-                                                      <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
-                                                        <button
-                                                          onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setEditingReleaseId(task.id);
-                                                            setEditingReleaseVal(parseToStandardDate(task.release) || '');
-                                                          }}
-                                                          className="p-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
-                                                          title="Edit Langsung Tanggal Release"
-                                                        >
-                                                          <Pencil className="w-3 h-3" />
-                                                        </button>
+                                                    <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
+                                                      <button
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          setEditingReleaseId(task.id);
+                                                          setEditingReleaseVal(parseToStandardDate(task.release) || '');
+                                                        }}
+                                                        className="p-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
+                                                        title="Edit Langsung Tanggal Release"
+                                                      >
+                                                        <Pencil className="w-3 h-3" />
+                                                      </button>
 
-                                                        <button
-                                                          onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleSyncReleaseFromDrive(task);
-                                                          }}
-                                                          className="p-0.5 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition cursor-pointer"
-                                                          title="Tarik Otomatis dari Link Google Drive"
-                                                        >
-                                                          <Sparkles className="w-3 h-3" />
-                                                        </button>
-                                                      </div>
-                                                    )}
+                                                      <button
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleSyncReleaseFromDrive(task);
+                                                        }}
+                                                        className="p-0.5 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition cursor-pointer"
+                                                        title="Tarik Otomatis dari Link Google Drive"
+                                                      >
+                                                        <Sparkles className="w-3 h-3" />
+                                                      </button>
+                                                    </div>
                                                   </div>
                                                 )}
                                               </td>
@@ -2093,35 +2337,13 @@ export default function App() {
                           <input
                             type="text"
                             value={formData.rev}
-                            onChange={(e) => {
-                              const newRev = e.target.value;
-                              const cleanProj = cleanText(formData.kodeProyek || '');
-                              const rows = drawingControlMap[cleanProj] || [];
-                              let autoRel = '';
-
-                              const exactMatch = rows.find(r => {
-                                const cFull = cleanText(r.fullDeskripsi);
-                                const cName = cleanText(r.drawingName);
-                                const isRevMatch = String(r.rev || '0').trim() === String(newRev).trim();
-                                const isNameMatch = cFull === cleanText(formData.taskName) || (cName && cleanText(formData.taskName).includes(cName));
-                                return isNameMatch && isRevMatch;
-                              });
-
-                              if (exactMatch && exactMatch.finishDate) {
-                                autoRel = parseToStandardDate(exactMatch.finishDate);
-                              } else {
-                                autoRel = '';
-                              }
-
-                              setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
-                            }}
+                            onChange={(e) => setFormData(prev => ({ ...prev, rev: e.target.value }))}
                             placeholder="0"
                             className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                           />
                         </div>
 
-                        {/* DI HIDE / DISEMBUNYIKAN SESUAI PERMINTAAN */}
-                        <div className="hidden">
+                        <div>
                           <div className="flex items-center justify-between mb-1">
                             <label className="text-slate-400">Release (Tanggal-Bulan-Tahun)</label>
                             <div className="flex items-center gap-1.5">
@@ -2252,29 +2474,15 @@ export default function App() {
                     onChange={(val) => {
                       const cleanProj = cleanText(editFormData.project || '');
                       const rows = drawingControlMap[cleanProj] || [];
-                      let newRelease = '';
+                      let newRelease = editFormData.release;
                       let newRev = editFormData.rev;
 
                       const cleanTarget = cleanText(val);
-                      const currentEditRev = String(editFormData.rev || '0').trim();
-
-                      const exactMatch = rows.find(r => {
-                        const cFull = cleanText(r.fullDeskripsi);
-                        const cDwg = cleanText(r.noDwg);
-                        const cName = cleanText(r.drawingName);
-                        const rowRev = String(r.rev || '0').trim();
-
-                        const isRevMatch = rowRev === currentEditRev;
-                        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
-
-                        return isNameMatch && isRevMatch;
-                      });
-
-                      if (exactMatch && exactMatch.finishDate) {
-                        newRelease = parseToStandardDate(exactMatch.finishDate);
-                        if (exactMatch.rev) newRev = exactMatch.rev;
-                      } else {
-                        newRelease = '';
+                      const matches = rows.filter(r => cleanText(r.fullDeskripsi) === cleanTarget || cleanText(r.drawingName) === cleanTarget || (r.noDwg && cleanTarget.includes(cleanText(r.noDwg))));
+                      if (matches.length > 0) {
+                        const last = matches[matches.length - 1];
+                        if (last.finishDate) newRelease = parseToStandardDate(last.finishDate);
+                        if (last.rev) newRev = last.rev;
                       }
 
                       setEditFormData(prev => ({ ...prev, taskName: val, release: newRelease, rev: newRev }));
@@ -2291,36 +2499,12 @@ export default function App() {
                       <input
                         type="text"
                         value={editFormData.rev}
-                        onChange={(e) => {
-                          const newRev = e.target.value;
-                          const cleanProj = cleanText(editFormData.project || '');
-                          const rows = drawingControlMap[cleanProj] || [];
-                          let autoRel = '';
-
-                          const exactMatch = rows.find(r => {
-                            const cFull = cleanText(r.fullDeskripsi);
-                            const cDwg = cleanText(r.noDwg);
-                            const cName = cleanText(r.drawingName);
-                            const rowRev = String(r.rev || '0').trim();
-                            const isRevMatch = rowRev === String(newRev).trim();
-                            const isNameMatch = cleanText(editFormData.taskName).includes(cDwg) || cleanText(editFormData.taskName).includes(cName) || cFull.includes(cleanText(editFormData.taskName));
-                            return isNameMatch && isRevMatch;
-                          });
-
-                          if (exactMatch && exactMatch.finishDate) {
-                            autoRel = parseToStandardDate(exactMatch.finishDate);
-                          } else {
-                            autoRel = '';
-                          }
-
-                          setEditFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
-                        }}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, rev: e.target.value }))}
                         placeholder="0"
                         className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                       />
                     </div>
-                    {/* DI HIDE / DISEMBUNYIKAN PADA MODAL EDIT */}
-                    <div className="hidden">
+                    <div>
                       <label className="block text-slate-400 mb-1">Release</label>
                       <input
                         type="date"
