@@ -265,49 +265,73 @@ function cleanText(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
 
+const indoMonthsMap: Record<string, string> = {
+  jan: '01', januari: '01', january: '01',
+  feb: '02', februari: '02', february: '02',
+  mar: '03', maret: '03', march: '03',
+  apr: '04', april: '04',
+  mei: '05', may: '05',
+  jun: '06', juni: '06', june: '06',
+  jul: '07', juli: '07', july: '07',
+  agu: '08', ags: '08', agustus: '08', aug: '08', august: '08',
+  sep: '09', september: '09',
+  okt: '10', oktober: '10', oct: '10', october: '10',
+  nov: '11', november: '11',
+  des: '12', desember: '12', dec: '12', december: '12'
+};
+
+// =========================================================================
+// PARSER CERDAS: MENGHAPUS HARI & MENGONVERSI KE FORMAT ISO (YYYY-MM-DD)
+// =========================================================================
 function parseToStandardDate(val: any): string {
   if (!val) return '';
-  const str = String(val).trim();
+  let str = String(val).trim();
   if (!str || str === '-' || str.toLowerCase() === 'nan') return '';
 
-  // ISO Format dari Google Apps Script: 2026-08-14T00:00:00.000Z
-  if (str.includes('T') && str.length >= 10) {
+  // 1. Hapus nama hari di depan (Senin, Selasa, Jumat, Mon, Fri, etc.)
+  str = str.replace(/^(senin|selasa|rabu|kamis|jumat|sabtu|minggu|mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s*/i, '').trim();
+
+  // 2. Format ISO dari Apps Script: 2026-08-14T00:00:00.000Z
+  if (str.toLowerCase().includes('t') && str.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(str)) {
     return str.slice(0, 10);
   }
 
+  // 3. Standar YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
 
-  const indoMonths: Record<string, string> = {
-    jan: '01', feb: '02', mar: '03', apr: '04', mei: '05', jun: '06',
-    jul: '07', agu: '08', ags: '08', sep: '09', okt: '10', nov: '11', des: '12',
-    aug: '08', oct: '10', dec: '12', may: '05'
-  };
-
-  const m1 = str.match(/^(\d{4})[-/]([A-Za-z]{3,4})[-/](\d{1,2})$/);
-  if (m1) {
-    const y = m1[1];
-    const mon = indoMonths[m1[2].toLowerCase().slice(0, 3)] || '01';
-    const d = m1[3].padStart(2, '0');
-    return `${y}-${mon}-${d}`;
+  // 4. Mon DD YYYY (misal: Aug 14 2026 00:00:00 ...)
+  const mJs = str.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})/);
+  if (mJs) {
+    const mon = indoMonthsMap[mJs[1].toLowerCase()] || indoMonthsMap[mJs[1].toLowerCase().slice(0, 3)] || '01';
+    return `${mJs[3]}-${mon}-${mJs[2].padStart(2, '0')}`;
   }
 
-  const m2 = str.match(/^(\d{1,2})[-/]([A-Za-z]{3,4})[-/](\d{2,4})$/);
-  if (m2) {
-    const d = m2[1].padStart(2, '0');
-    const mon = indoMonths[m2[2].toLowerCase().slice(0, 3)] || '01';
-    let y = m2[3];
+  // 5. DD Mon YYYY / DD-Mon-YYYY (misal: 14 Agustus 2026, 14-Agu-2026, 19-Sep-26)
+  const mDdMon = str.match(/^(\d{1,2})[-/\s]+([A-Za-z]+)[-/\s]+(\d{2,4})/);
+  if (mDdMon) {
+    let y = mDdMon[3];
     if (y.length === 2) y = '20' + y;
-    return `${y}-${mon}-${d}`;
+    const mon = indoMonthsMap[mDdMon[2].toLowerCase()] || indoMonthsMap[mDdMon[2].toLowerCase().slice(0, 3)] || '01';
+    return `${y}-${mon}-${mDdMon[1].padStart(2, '0')}`;
   }
 
-  const m3 = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (m3) {
-    return `${m3[1]}-${m3[2].padStart(2, '0')}-${m3[3].padStart(2, '0')}`;
+  // 6. YYYY Mon DD / YYYY-Mon-DD (misal: 2026-Agu-03)
+  const mYMon = str.match(/^(\d{4})[-/\s]+([A-Za-z]+)[-/\s]+(\d{1,2})/);
+  if (mYMon) {
+    const mon = indoMonthsMap[mYMon[2].toLowerCase()] || indoMonthsMap[mYMon[2].toLowerCase().slice(0, 3)] || '01';
+    return `${mYMon[1]}-${mon}-${mYMon[3].padStart(2, '0')}`;
   }
 
-  const m4 = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-  if (m4) {
-    return `${m4[3]}-${m4[2].padStart(2, '0')}-${m4[1].padStart(2, '0')}`;
+  // 7. DD-MM-YYYY atau DD/MM/YYYY
+  const mDmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (mDmy) {
+    return `${mDmy[3]}-${mDmy[2].padStart(2, '0')}-${mDmy[1].padStart(2, '0')}`;
+  }
+
+  // 8. YYYY/MM/DD
+  const mYmd = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (mYmd) {
+    return `${mYmd[1]}-${mYmd[2].padStart(2, '0')}-${mYmd[3].padStart(2, '0')}`;
   }
 
   const num = Number(str);
@@ -317,6 +341,21 @@ function parseToStandardDate(val: any): string {
   }
 
   return str;
+}
+
+// =========================================================================
+// FORMAT TAMPILAN TANGGAL: TANGGAL-BULAN-TAHUN TANPA HARI (DD-MM-YYYY)
+// =========================================================================
+function formatDisplayDate(val: any): string {
+  if (!val) return '-';
+  const iso = parseToStandardDate(val);
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    return `${m[3]}-${m[2]}-${m[1]}`; // Menampilkan: Tanggal-Bulan-Tahun (DD-MM-YYYY)
+  }
+  // Hapus jika masih ada teks hari
+  const clean = String(val).replace(/^(senin|selasa|rabu|kamis|jumat|sabtu|minggu|mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s*/i, '').trim();
+  return clean || '-';
 }
 
 function getLocalRev(id: string, defaultVal: string = '0'): string {
@@ -610,9 +649,7 @@ export default function App() {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
-  // =========================================================================
-  // INTEGRASI API GOOGLE APPS SCRIPT: OTOMATIS BUKA SPREADSHEET DRIVE DENGAN KODE PROYEK
-  // =========================================================================
+  // Integrasi Google Apps Script
   const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
     const cleanProj = cleanText(projectCode);
     if (!cleanProj) return;
@@ -620,7 +657,6 @@ export default function App() {
     setIsFetchingDrawing(true);
 
     try {
-      // Panggil Web App Google Apps Script Anda langsung dengan parameter kode proyek
       const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`;
       const res = await fetch(url);
       
@@ -645,7 +681,7 @@ export default function App() {
       console.warn('Gagal koneksi ke Google Apps Script, mencoba fallback...', err);
     }
 
-    // Fallback: Jika spreadsheet sudah terdaftar di registry ID publik
+    // Fallback registry
     const match = GOOGLE_DRIVE_SHEETS.find(s => 
       cleanText(s.projectKey) === cleanProj || 
       cleanProj.includes(cleanText(s.projectKey)) || 
@@ -733,9 +769,7 @@ export default function App() {
     fetchDrawingControlForProject(newProject);
   };
 
-  // =========================================================================
-  // LOGIKA PENCARIAN BARIS TERAKHIR SENDIRI -> MENGAMBIL FINISH DATE KE RELEASE
-  // =========================================================================
+  // Pemilihan deskripsi: Mengambil nilai finish date baris terakhir tanpa nama hari
   const handleDeskripsiChange = (selectedDesc: string) => {
     const cleanProj = cleanText(formData.kodeProyek || '');
     const rowsForThisProj = drawingControlMap[cleanProj] || [];
@@ -746,7 +780,6 @@ export default function App() {
     if (rowsForThisProj.length > 0 && selectedDesc) {
       const cleanTarget = cleanText(selectedDesc);
 
-      // Cari seluruh baris dengan nilai deskripsi yang sama
       const matches = rowsForThisProj.filter(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
@@ -758,7 +791,7 @@ export default function App() {
         return false;
       });
 
-      // AMBIL NILAI DARI BARIS YANG PALING TERAKHIR SENDIRI
+      // AMBIL BARIS TERAKHIR SENDIRI & HAPUS NAMA HARI
       if (matches.length > 0) {
         const lastRow = matches[matches.length - 1];
         if (lastRow.finishDate) {
@@ -820,7 +853,6 @@ export default function App() {
     return isNaN(num) ? 0 : num;
   };
 
-  // Parser Realisasi JO (Effective + Overtime)
   const realisasiMap = useMemo(() => {
     const map = new Map<string, number>();
     if (!realisasiWorkbook) return map;
@@ -1645,7 +1677,6 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Konten Dropdown: Tabel Kolom Rapi */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1683,7 +1714,7 @@ export default function App() {
                                               </td>
                                               <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
                                               <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
-                                                {task.startDate} s/d {task.endDate}
+                                                {formatDisplayDate(task.startDate)} s/d {formatDisplayDate(task.endDate)}
                                               </td>
                                               <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
                                               <td className="py-2 px-2.5 text-center">
@@ -1843,7 +1874,7 @@ export default function App() {
                               <div className="text-slate-300 text-[11px] bg-slate-950 p-2 rounded border border-slate-800">{pkg.taskName}</div>
                             </div>
                             <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-800 flex justify-between font-mono">
-                              <span>{pkg.startDate} s/d {pkg.endDate}</span>
+                              <span>{formatDisplayDate(pkg.startDate)} s/d {formatDisplayDate(pkg.endDate)}</span>
                               <button onClick={() => alert(`Mencetak Work Order ${pkg.packageTitle}...`)} className="text-amber-400 hover:underline cursor-pointer flex items-center gap-1">
                                 <Printer className="w-3 h-3" /> Cetak
                               </button>
@@ -1996,7 +2027,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK */}
+                {/* TAB 1: ANGGOTA ORGANIK (RELEASE: TANGGAL-BULAN-TAHUN TANPA HARI) */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
@@ -2034,7 +2065,6 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* OUTPUT TABEL BERKOLOM */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -2081,10 +2111,10 @@ export default function App() {
                                                 {task.rev || '0'}
                                               </td>
                                               <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">
-                                                {task.startDate}
+                                                {formatDisplayDate(task.startDate)}
                                               </td>
                                               <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">
-                                                {task.endDate}
+                                                {formatDisplayDate(task.endDate)}
                                               </td>
                                               <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
                                               
@@ -2101,9 +2131,9 @@ export default function App() {
                                                 )}
                                               </td>
 
-                                              {/* Release */}
+                                              {/* Release: Format Bersih Tanggal-Bulan-Tahun (Tanpa Hari) */}
                                               <td className="py-2 px-2.5 font-mono text-[11px] text-cyan-300 font-semibold">
-                                                {task.release || '-'}
+                                                {formatDisplayDate(task.release)}
                                               </td>
 
                                               <td className="py-2 px-2.5 text-center">
@@ -2153,11 +2183,10 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  /* TAB 2: FORM ORGANIK (DENGAN SEARCHABLE SELECT & AUTO RELEASE) */
+                  /* TAB 2: FORM ORGANIK */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* 1. Nama Personel Organik */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Nama Personel (Organik)</label>
                           <SearchableSelect
@@ -2169,7 +2198,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 2. Kode Proyek */}
                         <div>
                           <label className="block text-slate-400 mb-1">Kode Proyek</label>
                           <SearchableSelect
@@ -2181,7 +2209,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 3. Plan JO */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan JO</label>
                           <input
@@ -2195,7 +2222,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 4. Deskripsi */}
                         <div className="md:col-span-2">
                           <div className="flex items-center justify-between mb-1">
                             <label className="text-slate-400">Deskripsi</label>
@@ -2225,13 +2251,13 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 5. Release (Terisi otomatis dari baris terakhir FINISH DATE) */}
+                        {/* Release */}
                         <div>
                           <div className="flex items-center justify-between mb-1">
-                            <label className="text-slate-400">Release (Finish Date)</label>
+                            <label className="text-slate-400">Release (Tanggal-Bulan-Tahun)</label>
                             {formData.release && (
                               <span className="text-[10px] text-emerald-400 font-mono">
-                                ✓ Otomatis dari Google Drive
+                                ✓ {formatDisplayDate(formData.release)}
                               </span>
                             )}
                           </div>
@@ -2282,7 +2308,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= MODAL EDIT PENUGASAN (DENGAN SEARCHABLE SELECT) ================= */}
+        {/* ================= MODAL EDIT PENUGASAN ================= */}
         {editingTask && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-fadeIn">
