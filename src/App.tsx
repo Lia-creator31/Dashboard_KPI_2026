@@ -509,6 +509,10 @@ export default function App() {
     release: '',
   });
 
+  // State Inline Edit Khusus Kolom Release di Tabel
+  const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
+  const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
+
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>({});
 
   const loadAllJobCards = useCallback(async () => {
@@ -780,6 +784,83 @@ export default function App() {
       release: autoRelease || prev.release,
       rev: autoRev,
     }));
+  };
+
+  // =========================================================================
+  // SIMPAN CEPAT / INLINE EDIT KHUSUS KOLOM RELEASE
+  // =========================================================================
+  const handleQuickSaveRelease = async (taskId: string, newVal: string) => {
+    const cleanDate = parseToStandardDate(newVal);
+
+    saveLocalRelease(taskId, cleanDate);
+
+    try {
+      await supabase
+        .from('job_cards')
+        .update({ release: cleanDate })
+        .eq('id', taskId);
+    } catch {}
+
+    setManualTasks(prev => {
+      const updated = { ...prev };
+      Object.keys(updated).forEach(k => {
+        updated[k] = updated[k].map(t => t.id === taskId ? { ...t, release: cleanDate } : t);
+      });
+      return updated;
+    });
+
+    setEditingReleaseId(null);
+  };
+
+  // =========================================================================
+  // TARIK LANGSUNG DARI LINK GOOGLE DRIVE UNTUK TUGAS TERTENTU
+  // =========================================================================
+  const handleSyncReleaseFromDrive = async (task: TaskItem) => {
+    const cleanProj = cleanText(task.project);
+    let rows = drawingControlMap[cleanProj];
+
+    if (!rows || rows.length === 0) {
+      try {
+        const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(task.project.trim())}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && Array.isArray(json.data)) {
+            rows = json.data.map((item: any) => ({
+              noDwg: String(item.noDwg || '').trim(),
+              drawingName: String(item.drawingName || '').trim(),
+              fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
+              rev: String(item.rev || '0').trim(),
+              finishDate: String(item.finishDate || '').trim(),
+            }));
+            setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rows }));
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    if (rows && rows.length > 0) {
+      const cleanTarget = cleanText(task.taskName);
+      const matches = rows.filter(r => {
+        const cFull = cleanText(r.fullDeskripsi);
+        const cDwg = cleanText(r.noDwg);
+        const cName = cleanText(r.drawingName);
+        return cFull === cleanTarget || (cName && cleanTarget.includes(cName)) || (cDwg && cleanTarget.includes(cDwg));
+      });
+
+      if (matches.length > 0) {
+        const lastRow = matches[matches.length - 1];
+        if (lastRow.finishDate) {
+          const standardDate = parseToStandardDate(lastRow.finishDate);
+          await handleQuickSaveRelease(task.id, standardDate);
+          alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(standardDate)}`);
+          return;
+        }
+      }
+    }
+    alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}". Silakan edit langsung dengan tombol pensil.`);
   };
 
   const handleManualUploadExcel = (e: ChangeEvent<HTMLInputElement>) => {
@@ -1689,7 +1770,9 @@ export default function App() {
                                                 {formatDisplayDate(task.startDate)} s/d {formatDisplayDate(task.endDate)}
                                               </td>
                                               {/* Nilai JO tanpa tanda pagar */}
-                                              <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo}</td>
+                                              <td className="py-2 px-2.5 font-mono text-violet-300">
+                                                {task.jo ? String(task.jo).replace(/^#+/, '') : '-'}
+                                              </td>
                                               <td className="py-2 px-2.5 text-center">
                                                 <div className="flex items-center justify-center gap-1.5">
                                                   <button 
@@ -1965,13 +2048,13 @@ export default function App() {
 
                   <div className="flex items-center gap-2 flex-wrap">
                     <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                      <Upload className="w-3.5 h-3.5 text-cyan-400" />
+                      <Upload className="w-3 h-3 text-cyan-400" />
                       <span>{formData.kodeProyek ? `Upload DC (${formData.kodeProyek})` : 'Upload Drawing Control'}</span>
                       <input type="file" accept=".xlsx, .xls, .csv" onChange={handleUploadProjectDrawingControl} className="hidden" />
                     </label>
 
                     <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                      <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                      <Clock className="w-3 h-3 text-emerald-400" />
                       <span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                     </label>
@@ -2000,7 +2083,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK (PLAN JO TANPA TANDA PAGAR #) */}
+                {/* TAB 1: ANGGOTA ORGANIK */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
@@ -2038,7 +2121,7 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* OUTPUT TABEL BERKOLOM: PLAN JO MURNI ANGKA (TANPA #) */}
+                            {/* OUTPUT TABEL BERKOLOM: 2 OPSI EDIT/DRIVE PADA RELEASE & PLAN JO TANPA # */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -2055,6 +2138,7 @@ export default function App() {
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
                                           <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
                                           <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
+                                          {/* Kolom Release: 2 Opsi (Drive & Edit Langsung) */}
                                           <th className="py-2 px-2.5 font-mono text-cyan-300">Release</th>
                                           <th className="py-2 px-2.5 text-center w-20">Aksi</th>
                                         </tr>
@@ -2091,7 +2175,7 @@ export default function App() {
                                                 {formatDisplayDate(task.endDate)}
                                               </td>
 
-                                              {/* PLAN JO TANPA TANDA PAGAR (#) */}
+                                              {/* PLAN JO MURNI ANGKA (TANPA TANDA PAGAR #) */}
                                               <td className="py-2 px-2.5 font-mono text-violet-300">
                                                 {task.jo ? String(task.jo).replace(/^#+/, '') : '-'}
                                               </td>
@@ -2109,9 +2193,66 @@ export default function App() {
                                                 )}
                                               </td>
 
-                                              {/* Release */}
-                                              <td className="py-2 px-2.5 font-mono text-[11px] text-cyan-300 font-semibold">
-                                                {formatDisplayDate(task.release)}
+                                              {/* KOLOM RELEASE DENGAN 2 OPSI: BISA DARI DRIVE & BISA EDIT LANGSUNG */}
+                                              <td className="py-2 px-2.5 font-mono text-[11px]">
+                                                {editingReleaseId === task.id ? (
+                                                  <div className="flex items-center gap-1">
+                                                    <input
+                                                      type="date"
+                                                      value={editingReleaseVal}
+                                                      onChange={(e) => setEditingReleaseVal(e.target.value)}
+                                                      style={{ colorScheme: 'dark' }}
+                                                      className="px-1.5 py-0.5 bg-slate-900 border border-blue-500 rounded text-xs text-white"
+                                                      autoFocus
+                                                    />
+                                                    <button
+                                                      onClick={() => handleQuickSaveRelease(task.id, editingReleaseVal)}
+                                                      className="p-1 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 rounded cursor-pointer"
+                                                      title="Simpan"
+                                                    >
+                                                      <Check className="w-3 h-3" />
+                                                    </button>
+                                                    <button
+                                                      onClick={() => setEditingReleaseId(null)}
+                                                      className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer"
+                                                      title="Batal"
+                                                    >
+                                                      <X className="w-3 h-3" />
+                                                    </button>
+                                                  </div>
+                                                ) : (
+                                                  <div className="flex items-center gap-1.5 group">
+                                                    <span className="text-cyan-300 font-semibold">
+                                                      {formatDisplayDate(task.release)}
+                                                    </span>
+                                                    <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
+                                                      {/* Opsi 1: Edit Langsung Tanggal Release */}
+                                                      <button
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          setEditingReleaseId(task.id);
+                                                          setEditingReleaseVal(parseToStandardDate(task.release) || '');
+                                                        }}
+                                                        className="p-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
+                                                        title="Edit Langsung Tanggal Release"
+                                                      >
+                                                        <Pencil className="w-3 h-3" />
+                                                      </button>
+
+                                                      {/* Opsi 2: Tarik Langsung dari Link Google Drive */}
+                                                      <button
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          handleSyncReleaseFromDrive(task);
+                                                        }}
+                                                        className="p-0.5 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition cursor-pointer"
+                                                        title="Tarik Otomatis dari Link Google Drive"
+                                                      >
+                                                        <Sparkles className="w-3 h-3" />
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                )}
                                               </td>
 
                                               <td className="py-2 px-2.5 text-center">
@@ -2161,7 +2302,7 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  /* TAB 2: FORM ORGANIK */
+                  /* TAB 2: FORM ORGANIK (2 OPSI DI RELEASE: DRIVE & EDIT LANGSUNG) */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2187,7 +2328,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Plan JO Input */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan JO</label>
                           <input
@@ -2230,14 +2370,25 @@ export default function App() {
                           />
                         </div>
 
+                        {/* RELEASE DENGAN 2 OPSI: OTOMATIS DARI DRIVE ATAU EDIT LANGSUNG */}
                         <div>
                           <div className="flex items-center justify-between mb-1">
                             <label className="text-slate-400">Release (Tanggal-Bulan-Tahun)</label>
-                            {formData.release && (
-                              <span className="text-[10px] text-emerald-400 font-mono">
-                                ✓ {formatDisplayDate(formData.release)}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-1.5">
+                              {formData.release && (
+                                <span className="text-[10px] text-cyan-300 font-mono font-semibold">
+                                  {formatDisplayDate(formData.release)}
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeskripsiChange(formData.taskName)}
+                                className="px-1.5 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-[10px] flex items-center gap-1 cursor-pointer"
+                                title="Tarik ulang dari Link Drive"
+                              >
+                                <Sparkles className="w-2.5 h-2.5" /> Dari Drive
+                              </button>
+                            </div>
                           </div>
                           <input 
                             type="date" 
@@ -2382,7 +2533,7 @@ export default function App() {
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-400 mb-1">Release</label>
+                      <label className="block text-slate-400 mb-1">Release (Edit Langsung)</label>
                       <input
                         type="date"
                         value={editFormData.release}
