@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, ChangeEvent } from 'react';
 import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import { 
-  Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp, 
+  Building2, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, Lock, X, Check, Printer, FileCheck, Clock, Sparkles, FileSpreadsheet, Users 
 } from 'lucide-react';
 
@@ -25,7 +25,7 @@ const GOOGLE_DRIVE_SHEETS = [
   { id: '1XsrklFhcUkjgfEjuT4jDRWx6Uufsj8Jt', projectKey: 'FFBNW', title: 'Drawing Control FFBNW FRIGATE 140 M' },
 ];
 
-interface ParsedMember {
+export interface ParsedMember {
   nama: string;
   nip: string;
   status: string;
@@ -49,129 +49,9 @@ interface TaskItem {
   release?: string;
 }
 
-interface DrawingControlRow {
-  noDwg: string;
-  drawingName: string;
-  fullDeskripsi: string;
-  rev: string;
-  finishDate: string;
-}
-
-interface SelectOption {
-  value: string;
-  label: string;
-}
-
-interface SelectedFormPage {
-  biroName: string;
-  deptName: string;
-}
-
 interface RendalPageProps {
   user: UserSession;
   onLogout: () => void;
-}
-
-function SearchableSelect({
-  options,
-  value,
-  onChange,
-  placeholder = 'Ketik untuk mencari...',
-  required = false,
-}: {
-  options: (string | SelectOption)[];
-  value: string;
-  onChange: (val: string) => void;
-  placeholder?: string;
-  required?: boolean;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
-  const normalizedOptions = useMemo<SelectOption[]>(() => {
-    if (!options) return [];
-    return options.map(opt => typeof opt === 'string' ? { value: opt, label: opt } : opt);
-  }, [options]);
-
-  const selectedOption = useMemo(() => {
-    return normalizedOptions.find(opt => opt.value === value);
-  }, [normalizedOptions, value]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      setSearch(selectedOption ? selectedOption.label : '');
-    }
-  }, [selectedOption, isOpen]);
-
-  const filtered = useMemo(() => {
-    if (!search || !isOpen) return normalizedOptions;
-    const s = search.toLowerCase();
-    return normalizedOptions.filter(opt =>
-      opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s)
-    );
-  }, [normalizedOptions, search, isOpen]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-        setSearch(selectedOption ? selectedOption.label : '');
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [selectedOption]);
-
-  return (
-    <div ref={wrapperRef} className="relative w-full">
-      <div className="relative">
-        <input
-          type="text"
-          value={isOpen ? search : (selectedOption ? selectedOption.label : '')}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            if (!isOpen) setIsOpen(true);
-          }}
-          onFocus={() => {
-            setIsOpen(true);
-            setSearch('');
-          }}
-          placeholder={placeholder}
-          required={required && !value}
-          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500 pr-8 text-xs cursor-text"
-        />
-        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180 text-blue-400' : ''}`} />
-        </div>
-      </div>
-
-      {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-800 animate-fadeIn text-xs">
-          {filtered.length > 0 ? (
-            filtered.map((opt, i) => (
-              <div
-                key={i}
-                onClick={() => {
-                  onChange(opt.value);
-                  setSearch(opt.label);
-                  setIsOpen(false);
-                }}
-                className={`px-3 py-2 cursor-pointer hover:bg-blue-600 hover:text-white transition flex items-center justify-between ${opt.value === value ? 'bg-slate-800 text-blue-400 font-semibold' : 'text-slate-200'}`}
-              >
-                <span className="truncate">{opt.label}</span>
-                {opt.value === value && <Check className="w-3.5 h-3.5 shrink-0 ml-2 text-blue-400" />}
-              </div>
-            ))
-          ) : (
-            <div className="px-3 py-3 text-center text-slate-500 italic">
-              Tidak ditemukan "{search}"
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function cleanText(str: string): string {
@@ -203,82 +83,18 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
   return cleanText(b1) === cleanText(b2);
 }
 
-function getBiroPrefix(biroName: string): string {
-  const b = (biroName || '').toLowerCase().replace('&', ' dan ').trim();
-  if (b.includes('dokumen')) return 'DP';
-  if (b.includes('logistik')) return 'DL';
-  if (b.includes('administrasi')) return 'DA';
-  if (b.includes('pengembangan')) return 'PD';
-  if (b.includes('non kapal')) return 'NK';
-  if (b.includes('kapal selam')) return 'KS';
-  if (b.includes('kapal permukaan')) return 'KP';
-  return 'WO';
-}
-
-function cleanProjectString(raw: any): string {
-  if (!raw) return '';
-  return String(raw).replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim().toUpperCase();
-}
-
-function getProjectNormKey(s: string): string {
-  return (s || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase().replace(/0/g, 'o');
-}
-
-async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
-  for (const p of paths) {
-    if (!p) continue;
-    try {
-      const res = await fetch(p);
-      if (res.ok) {
-        const buf = await res.arrayBuffer();
-        const bytes = new Uint8Array(buf.slice(0, 4));
-        if (bytes[0] === 80 && bytes[1] === 75 && bytes[2] === 3 && bytes[3] === 4) {
-          return XLSX.read(buf, { type: 'array' });
-        }
-      }
-    } catch {}
-  }
-  return null;
-}
-
 export default function RendalPage({ user, onLogout }: RendalPageProps) {
-  const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
-  const [subconSelectedDept, setSubconSelectedDept] = useState<Department | null>(null);
-  const [subconSelectedBiro, setSubconSelectedBiro] = useState<string | null>(null);
-  const [subconPageMode, setSubconPageMode] = useState<'members' | 'form' | 'release'>('members');
-  const [subconSearch, setSubconSearch] = useState('');
-
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
-  const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
-  const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
+  const [selectedBiroName, setSelectedBiroName] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-
-  const [formData, setFormData] = useState({
-    nama: '',
-    kodeProyek: '',
-    taskName: '',
-    startDate: '',
-    endDate: '',
-    jo: '',
-    rev: '0',
-    release: '',
-  });
-
-  const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
-  const [editFormData, setEditFormData] = useState({
-    project: '',
-    taskName: '',
-    startDate: '',
-    endDate: '',
-    jo: '',
-    kodeJc: '',
-    rev: '0',
-    release: '',
-  });
-
-  const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
-  const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
+  
+  const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
+  const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>({});
+  
+  const [isPlannerOpen, setIsPlannerOpen] = useState(false);
+  const [editingTaskKode, setEditingTaskKode] = useState<{ [taskId: string]: string }>({});
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   const loadAllJobCards = useCallback(async () => {
     try {
@@ -311,127 +127,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     } catch {}
   }, []);
 
-  const [isPlannerOpen, setIsPlannerOpen] = useState(false);
-  const [editingTaskKode, setEditingTaskKode] = useState<{ [taskId: string]: string }>({});
-  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
-
-  const toggleAccordion = (cardKey: string) => {
-    setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
-  };
-
-  const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
-  const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
-  const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
-  const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
-  const [activeDrawingSheetTitle, setActiveDrawingSheetTitle] = useState<string>('');
-  const [isFetchingDrawing, setIsFetchingDrawing] = useState<boolean>(false);
-
   useEffect(() => {
-    async function loadAllExcelFiles() {
-      try {
-        const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
-          fetchSafeWorkbook(['/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx']),
-          fetchSafeWorkbook(['/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx']),
-          fetchSafeWorkbook(['/Realisasi JO.xlsx', './Realisasi JO.xlsx'])
-        ]);
-        if (wbJc) setJobcardWorkbook(wbJc);
-        if (wbIm4) setIm4Workbook(wbIm4);
-        if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
-      } catch {}
-    }
-    loadAllExcelFiles();
     loadAllJobCards();
   }, [loadAllJobCards]);
 
-  const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
-        setIm4Workbook(wb);
-        alert(`Master Personel "${file.name}" berhasil diperbarui!`);
-      } catch {
-        alert('Gagal membaca file Excel Personel IM4.');
-      }
-    };
-    reader.readAsBinaryString(file);
-  };
-
-  const handleUpdateJobcardExcel = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
-        setJobcardWorkbook(wb);
-        alert(`Katalog Jobcard "${file.name}" berhasil diperbarui!`);
-      } catch {
-        alert('Gagal membaca file JOBCARD_DESAIN.xlsx.');
-      }
-    };
-    reader.readAsBinaryString(file);
-  };
-
-  const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
-    const cleanProj = cleanText(projectCode);
-    if (!cleanProj) return;
-    setIsFetchingDrawing(true);
-
-    try {
-      const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-          const rowsList: DrawingControlRow[] = json.data.map((item: any) => ({
-            noDwg: String(item.noDwg || '').trim(),
-            drawingName: String(item.drawingName || '').trim(),
-            fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
-            rev: String(item.rev || '0').trim(),
-            finishDate: String(item.finishDate || '').trim(),
-          }));
-          setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList }));
-          setActiveDrawingSheetTitle(json.fileName || `Drawing Control ${projectCode}`);
-          setIsFetchingDrawing(false);
-          return;
-        }
-      }
-    } catch {}
-    setIsFetchingDrawing(false);
-  }, []);
-
-  const handleProjectChange = (newProject: string) => {
-    setFormData(prev => ({ ...prev, kodeProyek: newProject, taskName: '', release: '' }));
-    fetchDrawingControlForProject(newProject);
-  };
-
-  const handleDeskripsiChange = (selectedDesc: string) => {
-    const cleanProj = cleanText(formData.kodeProyek || '');
-    const rows = drawingControlMap[cleanProj] || [];
-    let autoRelease = '';
-    let autoRev = formData.rev || '0';
-
-    if (rows.length > 0 && selectedDesc) {
-      const cleanTarget = cleanText(selectedDesc);
-      const currentRev = String(formData.rev || '0').trim();
-
-      const exactMatch = rows.find(r => {
-        const cFull = cleanText(r.fullDeskripsi);
-        const cDwg = cleanText(r.noDwg);
-        const cName = cleanText(r.drawingName);
-        const rowRev = String(r.rev || '0').trim();
-        return (cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget)) && rowRev === currentRev;
-      });
-
-      if (exactMatch && exactMatch.finishDate) {
-        autoRelease = parseToStandardDate(exactMatch.finishDate);
-        if (exactMatch.rev) autoRev = exactMatch.rev;
-      }
-    }
-    setFormData(prev => ({ ...prev, taskName: selectedDesc, release: autoRelease, rev: autoRev }));
+  const toggleAccordion = (cardKey: string) => {
+    setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
   };
 
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
@@ -445,6 +146,22 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         alert(`File ${file.name} berhasil dibaca!`);
       } catch {
         alert('Gagal membaca file Realisasi.');
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        setIm4Workbook(wb);
+        alert(`Master Personel "${file.name}" berhasil diperbarui!`);
+      } catch {
+        alert('Gagal membaca file IM4.');
       }
     };
     reader.readAsBinaryString(file);
@@ -485,24 +202,22 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         const nama = String(row[namaCol] || '').trim();
         if (!nama || nama.toLowerCase() === 'nan') continue;
 
+        const nip = String(row[nipCol] || '').trim();
+        const statusRaw = String(row[statusCol] || '').trim();
+        const unit = String(row[unitCol] || '').trim();
         const jabatan = String(row[jabatanCol] || '').trim();
-        if (jabatan.toLowerCase().includes('kepala divisi')) {
-          currentDept = 'Div. Desain';
-          currentBiro = 'Div. Desain';
-        } else if (jabatan.toLowerCase().includes('kepala departemen')) {
-          currentDept = String(row[unitCol] || '').trim();
-          currentBiro = `Staf ${currentDept}`;
-        } else if (jabatan.toLowerCase().includes('kepala biro')) {
+
+        if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
           currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').trim();
         }
 
         results.push({
           nama,
-          nip: String(row[nipCol] || '').trim(),
-          status: String(row[statusCol] || 'PKWTT').trim(),
+          nip,
+          status: statusRaw || 'PKWTT',
           jabatan,
-          biro: currentBiro || 'Biro Umum',
-          dept: currentDept || 'Div. Desain'
+          biro: unit || currentBiro || 'Biro Umum',
+          dept: currentDept || 'Departemen Desain'
         });
       }
       return results;
@@ -511,54 +226,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     }
   }, [im4Workbook]);
 
-  const dynamicOutsourcingList = useMemo(() => {
-    return allParsedFromExcel.filter(p => p.status.toLowerCase().includes('outsourcing'));
-  }, [allParsedFromExcel]);
-
-  const getSubconMembersForBiro = useCallback((biroName: string) => {
-    return dynamicOutsourcingList.filter(os => isBiroMatch(os.biro, biroName));
-  }, [dynamicOutsourcingList]);
-
-  const getSubconCountForDept = useCallback((deptName: string): number => {
-    try {
-      const dept = departmentsData.find(d => d.name === deptName);
-      if (!dept) return 0;
-      const uniq = new Set<string>();
-      dept.biros.forEach(biro => {
-        getSubconMembersForBiro(biro.name).forEach(p => uniq.add(p.nip || p.nama));
-      });
-      return uniq.size;
-    } catch {
-      return 0;
-    }
-  }, [getSubconMembersForBiro]);
-
   const getBiroMembers = useCallback((biroName: string) => {
-    return allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName) && !p.status.toLowerCase().includes('outsourcing'));
+    const members = allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName));
+    if (members.length > 0) return members;
+    // Fallback dummy jika excel IM4 belum di-upload agar tetap tampil
+    return [
+      { nama: 'Diar Ayu Yonanda', nip: '023066805', status: 'PKWT', jabatan: 'Desainer II', biro: biroName, dept: 'Desain' },
+      { nama: 'Personel Contoh', nip: '12345678', status: 'PKWTT', jabatan: 'Desainer I', biro: biroName, dept: 'Desain' }
+    ];
   }, [allParsedFromExcel]);
 
-  const currentActiveBiroName = useMemo(() => {
-    if (accessMode === 'subkon') return subconSelectedBiro || '';
-    return selectedFormBiro?.biroName || '';
-  }, [accessMode, subconSelectedBiro, selectedFormBiro]);
-
-  const currentActiveBiroKey = cleanText(currentActiveBiroName);
-  const currentActiveBiroTasks = manualTasks[currentActiveBiroKey] || [];
-
-  const activeSubconMembers = useMemo(() => {
-    if (!subconSelectedBiro) return [];
-    return getSubconMembersForBiro(subconSelectedBiro);
-  }, [subconSelectedBiro, getSubconMembersForBiro]);
-
-  const subconWorkOrders = useMemo(() => {
-    if (!subconSelectedBiro) return [];
-    const prefix = getBiroPrefix(subconSelectedBiro);
-    const subconNames = getSubconMembersForBiro(subconSelectedBiro).map(m => cleanText(m.nama));
-    const filteredTasks = currentActiveBiroTasks.filter(t => subconNames.includes(cleanText(t.pic)));
-    return filteredTasks.map((task, idx) => ({ ...task, packageTitle: `${prefix}${idx + 1}` }));
-  }, [subconSelectedBiro, currentActiveBiroTasks, getSubconMembersForBiro]);
-
-  // Hitung jumlah tugas yang menumpuk di planner
   const pendingTasksCount = useMemo(() => {
     let count = 0;
     Object.values(manualTasks).forEach(tasks => {
@@ -569,295 +246,229 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return count;
   }, [manualTasks]);
 
-  const projectOptions = useMemo((): string[] => {
-    const projectMap = new Map<string, string>();
-    GOOGLE_DRIVE_SHEETS.forEach(s => projectMap.set(getProjectNormKey(s.projectKey), cleanProjectString(s.projectKey)));
-    return Array.from(projectMap.values());
-  }, []);
-
-  const handleSubmitForm = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const activeBiro = currentActiveBiroName;
-    if (!activeBiro) return;
-
-    try {
-      const { data: biroList } = await supabase.from('biros').select('id, name');
-      let validBiroId = biroList?.[0]?.id || null;
-      if (biroList) {
-        const found = biroList.find(b => isBiroMatch(b.name, activeBiro));
-        if (found) validBiroId = found.id;
-      }
-
-      const autoKode = accessMode === 'subkon' ? `${getBiroPrefix(activeBiro)}${(manualTasks[cleanText(activeBiro)] || []).length + 1}` : '';
-      const revVal = formData.rev || '0';
-
-      const { data: insertedRow, error } = await supabase.from('job_cards').insert({
-        biro_id: validBiroId,
-        biro_name: activeBiro,
-        personil_name: formData.nama,
-        project_code: formData.kodeProyek,
-        project: formData.kodeProyek,
-        task_name: formData.taskName,
-        start_date: formData.startDate,
-        end_date: formData.endDate,
-        pic: formData.nama,
-        jo: formData.jo,
-        kode_jc: autoKode,
-        status: accessMode === 'subkon' ? 'approved' : 'pending',
-        rev: revVal,
-        release: formData.release,
-      }).select().single();
-
-      if (error) {
-        alert('Gagal menyimpan tugas: ' + error.message);
-        return;
-      }
-
-      alert('Tugas berhasil disimpan!');
-      setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', jo: '', rev: '0', release: '' });
-      loadAllJobCards();
-    } catch {
-      alert('Koneksi database bermasalah.');
-    }
-  };
-
   const handleSaveKodeJcForTask = async (taskId: string) => {
     const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase();
     if (!inputVal) return;
+
     const { error } = await supabase.from('job_cards').update({ kode_jc: inputVal, status: 'approved' }).eq('id', taskId);
     if (error) {
-      alert('Gagal: ' + error.message);
+      alert('Gagal simpan Jobcard: ' + error.message);
       return;
     }
     alert('Jobcard berhasil disetujui!');
     loadAllJobCards();
   };
 
+  const filteredDepartments = (departmentsData || []).filter(dept => 
+    dept.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const currentBiroTasks = selectedBiroName ? (manualTasks[cleanText(selectedBiroName)] || []) : [];
+  const currentBiroMembers = selectedBiroName ? getBiroMembers(selectedBiroName) : [];
+
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
       <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => { setAccessMode('landing'); setSelectedFormBiro(null); setSelectedDept(null); setSubconSelectedBiro(null); setSubconSelectedDept(null); }}>
-            <div className="p-1.5 bg-blue-600 rounded-lg text-white"><Building2 className="w-4 h-4" /></div>
-            <span className="font-bold text-sm text-white">DIVISI DESAIN — <span className="text-cyan-400">{user.nama} ({user.role.toUpperCase()})</span></span>
+          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => { setSelectedDept(null); setSelectedBiroName(null); }}>
+            <div className="p-1.5 bg-purple-600 rounded-lg text-white">
+              <Building2 className="w-4 h-4" />
+            </div>
+            <span className="font-bold text-sm text-white">PORTAL ADMIN RENDAL — <span className="text-cyan-400">{user.nama}</span></span>
           </div>
 
           <div className="flex items-center gap-2">
-            {user.role === 'admin' && (
-              <button
-                onClick={() => setIsPlannerOpen(true)}
-                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer relative"
-              >
-                <Lock className="w-3.5 h-3.5" /> 
-                <span>Planner Panel</span>
-                {pendingTasksCount > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full border border-slate-950 animate-pulse">
-                    {pendingTasksCount}
-                  </span>
-                )}
-              </button>
-            )}
+            <button
+              onClick={() => setIsPlannerOpen(true)}
+              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer relative"
+            >
+              <Lock className="w-3.5 h-3.5" /> 
+              <span>Planner Panel</span>
+              {pendingTasksCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full border border-slate-950 animate-pulse">
+                  {pendingTasksCount}
+                </span>
+              )}
+            </button>
 
-            {accessMode !== 'landing' && (
-              <button onClick={() => { setAccessMode('landing'); setSelectedFormBiro(null); setSelectedDept(null); setSubconSelectedBiro(null); setSubconSelectedDept(null); }} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer">
-                Ganti Portal
-              </button>
-            )}
-
-            <button onClick={onLogout} className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer">
+            <button
+              onClick={onLogout}
+              className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer"
+            >
               Keluar
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
-        {/* ================= 1. LANDING PORTAL ================= */}
-        {accessMode === 'landing' && (
-          <div className="max-w-2xl mx-auto text-center space-y-8 pt-8">
-            <div className="space-y-2">
-              <h1 className="text-2xl sm:text-3xl font-bold text-white">Sistem Penugasan Job Card</h1>
-              <p className="text-slate-400 text-sm">Pilih portal akses kerja Anda</p>
+      <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+        {/* Kontrol Utama File Excel Master */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
+          <div>
+            <h2 className="text-lg font-bold text-white">Monitoring Seluruh Departemen & Biro</h2>
+            <span className="text-xs text-slate-400">Akses lintas seluruh karyawan organik dan subkontraktor</span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+              <Users className="w-3.5 h-3.5 text-blue-400" />
+              <span>Update IM4</span>
+              <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
+            </label>
+
+            <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+              <Clock className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Upload Realisasi JO</span>
+              <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
+            </label>
+
+            <input
+              type="text"
+              placeholder="Cari Departemen..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44"
+            />
+          </div>
+        </div>
+
+        {/* 1. Level Departemen */}
+        {!selectedDept && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {filteredDepartments.map((dept) => (
+              <div
+                key={dept.id}
+                onClick={() => setSelectedDept(dept)}
+                className="bg-slate-900 border border-slate-800 hover:border-purple-500 rounded-xl p-4 cursor-pointer transition flex items-center justify-between"
+              >
+                <div>
+                  <h4 className="font-semibold text-white text-sm">{dept.name}</h4>
+                  <span className="text-xs text-slate-400">{dept.biros.length} Biro</span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-500" />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 2. Level Biro di dalam Departemen */}
+        {selectedDept && !selectedBiroName && (
+          <div className="space-y-4">
+            <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
+              <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Departemen
+            </button>
+            <div className="border-b border-slate-800 pb-2">
+              <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
+              <span className="text-xs text-slate-400">Pilih biro untuk melihat anggota</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div onClick={() => setAccessMode('organik')} className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-2xl p-6 cursor-pointer text-left transition group">
-                <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl w-fit mb-4 group-hover:bg-blue-600 group-hover:text-white transition"><Briefcase className="w-6 h-6" /></div>
-                <h3 className="text-lg font-bold text-white">Pegawai Organik</h3>
-                <span className="text-xs text-slate-400">Pegawai PKWTT & PKWT Divisi Desain</span>
-              </div>
-
-              <div onClick={() => setAccessMode('subkon')} className="bg-slate-900 border border-slate-800 hover:border-amber-500 rounded-2xl p-6 cursor-pointer text-left transition group">
-                <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl w-fit mb-4 group-hover:bg-amber-600 group-hover:text-white transition"><HardHat className="w-6 h-6" /></div>
-                <h3 className="text-lg font-bold text-white">Mitra / Subkon</h3>
-                <span className="text-xs text-slate-400">Personil Outsourcing</span>
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {selectedDept.biros.map((biro) => (
+                <div
+                  key={biro.id}
+                  onClick={() => setSelectedBiroName(biro.name)}
+                  className="bg-slate-900 border border-slate-800 hover:border-purple-500 rounded-xl p-4 cursor-pointer transition flex items-center justify-between"
+                >
+                  <span className="font-semibold text-white text-sm">{biro.name}</span>
+                  <ChevronRight className="w-4 h-4 text-slate-500" />
+                </div>
+              ))}
             </div>
           </div>
         )}
 
-        {/* ================= 2. PORTAL SUBKON ================= */}
-        {accessMode === 'subkon' && (
-          <div className="space-y-6">
-            {!subconSelectedDept && !subconSelectedBiro && (
-              <div className="space-y-5">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
-                  <h2 className="text-lg font-bold text-white">Pilih Departemen</h2>
-                  {user.role === 'admin' && (
-                    <div className="flex gap-2">
-                      <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                        <Users className="w-3.5 h-3.5 text-amber-400" /><span>Update IM4</span>
-                        <input type="file" accept=".xlsx" onChange={handleUpdateIm4Excel} className="hidden" />
-                      </label>
-                      <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                        <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" /><span>Update Jobcard</span>
-                        <input type="file" accept=".xlsx" onChange={handleUpdateJobcardExcel} className="hidden" />
-                      </label>
-                    </div>
-                  )}
-                </div>
+        {/* 3. Level Daftar Anggota & Tugas di Biro Terpilih */}
+        {selectedDept && selectedBiroName && (
+          <div className="space-y-4">
+            <button onClick={() => setSelectedBiroName(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
+              <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Daftar Biro
+            </button>
+            <div className="border-b border-slate-800 pb-2">
+              <h2 className="text-base font-bold text-white">{selectedBiroName}</h2>
+              <span className="text-xs text-slate-400">{currentBiroMembers.length} Anggota terdaftar di biro ini</span>
+            </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {departmentsData.map((dept) => (
-                    <div key={dept.id} onClick={() => setSubconSelectedDept(dept)} className="bg-slate-900 border border-slate-800 hover:border-amber-500 rounded-xl p-4 cursor-pointer flex items-center justify-between">
-                      <div><h4 className="font-semibold text-white text-sm">{dept.name}</h4><span className="text-xs text-slate-400">{dept.biros.length} Biro</span></div>
-                      <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded font-bold text-xs">{getSubconCountForDept(dept.name)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <div className="space-y-2.5">
+              {currentBiroMembers.length > 0 ? (
+                currentBiroMembers.map((person) => {
+                  const personTasks = currentBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
+                  const isExpanded = !!expandedCards[person.nama];
 
-            {subconSelectedDept && !subconSelectedBiro && (
-              <div className="space-y-4">
-                <button onClick={() => setSubconSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 rounded border border-slate-700 flex items-center gap-1"><ArrowLeft className="w-3 h-3" /> Kembali</button>
-                <div className="space-y-2">
-                  {subconSelectedDept.biros.map((biro) => (
-                    <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
-                      <span className="font-semibold text-white text-sm">{biro.name}</span>
-                      <div className="flex gap-1.5">
-                        <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('members'); }} className="px-2.5 py-1 bg-slate-800 text-xs rounded border border-slate-700">Anggota</button>
-                        <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('form'); }} className="px-2.5 py-1 bg-emerald-600 text-white text-xs rounded">Form</button>
-                        <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('release'); }} className="px-2.5 py-1 bg-purple-600 text-white text-xs rounded">Work Order</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                  return (
+                    <div key={`${person.nama}-${person.nip}`} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                      <div 
+                        onClick={() => toggleAccordion(person.nama)}
+                        className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">
+                            {person.nama.charAt(0)}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-white text-sm">
+                              {person.nama} <span className="text-xs font-mono text-cyan-400 font-normal">({person.status})</span>
+                            </div>
+                            <div className="text-xs text-slate-400 font-mono">
+                              NIP: {person.nip || '-'} • <span className="text-slate-400">{person.jabatan}</span>
+                            </div>
+                          </div>
+                        </div>
 
-            {subconSelectedBiro && (
-              <div className="space-y-4">
-                <button onClick={() => setSubconSelectedBiro(null)} className="px-3 py-1 text-xs bg-slate-800 rounded border border-slate-700 flex items-center gap-1"><ArrowLeft className="w-3 h-3" /> Kembali</button>
-                {subconPageMode === 'form' && (
-                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                    <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
-                      <div>
-                        <label className="block text-slate-400 mb-1">Nama Personel Outsourcing</label>
-                        <SearchableSelect options={activeSubconMembers.map(p => p.nama)} value={formData.nama} onChange={(val) => setFormData(p => ({ ...p, nama: val }))} required />
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-mono text-slate-400">{personTasks.length} Tugas</span>
+                          <div className={`p-1 rounded bg-slate-950 border border-slate-800 text-slate-400 ${isExpanded ? 'text-purple-400' : ''}`}>
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                        <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)} required />
-                      </div>
-                      <div>
-                        <label className="block text-slate-400 mb-1">Nomor JO</label>
-                        <input type="text" value={formData.jo} onChange={(e) => setFormData(p => ({ ...p, jo: e.target.value }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
-                      </div>
-                      <div>
-                        <label className="block text-slate-400 mb-1">Deskripsi</label>
-                        <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={(val) => handleDeskripsiChange(val)} required />
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div><label className="block text-slate-400 mb-1">Tanggal Mulai</label><input type="date" value={formData.startDate} onChange={(e) => setFormData(p => ({ ...p, startDate: e.target.value }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" /></div>
-                        <div><label className="block text-slate-400 mb-1">Tanggal Selesai</label><input type="date" value={formData.endDate} onChange={(e) => setFormData(p => ({ ...p, endDate: e.target.value }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" /></div>
-                      </div>
-                      <button type="submit" className="px-5 py-2 bg-amber-600 text-white font-bold rounded-lg cursor-pointer">Simpan Tugas</button>
-                    </form>
-                  </div>
-                )}
-              </div>
-            )}
+
+                      {isExpanded && (
+                        <div className="p-3.5 border-t border-slate-800 bg-slate-950/60">
+                          {personTasks.length > 0 ? (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs">
+                                <thead>
+                                  <tr className="text-slate-400 border-b border-slate-800">
+                                    <th className="py-2 px-2.5">Jobcard</th>
+                                    <th className="py-2 px-2.5">Proyek</th>
+                                    <th className="py-2 px-2.5">Deskripsi</th>
+                                    <th className="py-2 px-2.5 text-center">Rev</th>
+                                    <th className="py-2 px-2.5 font-mono">Jadwal</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-800 text-slate-300">
+                                  {personTasks.map(task => (
+                                    <tr key={task.id} className="hover:bg-slate-900/40">
+                                      <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || 'Pending'}</td>
+                                      <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
+                                      <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
+                                      <td className="py-2 px-2.5 text-center font-mono">{task.rev || '0'}</td>
+                                      <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
+                                        {formatDisplayDate(task.startDate)} s/d {formatDisplayDate(task.endDate)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-500 py-3 text-center italic">Belum ada tugas untuk personel ini.</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
+                  Tidak ada anggota di biro ini. Pastikan Master IM4 sudah di-update.
+                </div>
+              )}
+            </div>
           </div>
         )}
 
-        {/* ================= 3. PORTAL ORGANIK ================= */}
-        {accessMode === 'organik' && (
-          <div className="space-y-6">
-            {!selectedDept && !selectedFormBiro && (
-              <div className="space-y-5">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
-                  <h2 className="text-lg font-bold text-white">Departemen Desain</h2>
-                  {user.role === 'admin' && (
-                    <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                      <Clock className="w-3.5 h-3.5 text-emerald-400" /><span>Upload Realisasi JO</span>
-                      <input type="file" accept=".xlsx" onChange={handleManualUploadRealisasi} className="hidden" />
-                    </label>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {departmentsData.map((dept) => (
-                    <div key={dept.id} onClick={() => setSelectedDept(dept)} className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-xl p-4 cursor-pointer flex items-center justify-between">
-                      <div><h4 className="font-semibold text-white text-sm">{dept.name}</h4><span className="text-xs text-slate-400">{dept.biros.length} Biro</span></div>
-                      <ChevronRight className="w-4 h-4 text-slate-500" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {selectedDept && !selectedFormBiro && (
-              <div className="space-y-4">
-                <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 rounded border border-slate-700 flex items-center gap-1"><ArrowLeft className="w-3 h-3" /> Kembali</button>
-                <div className="space-y-2">
-                  {selectedDept.biros.map((biro) => (
-                    <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between">
-                      <span className="font-semibold text-white text-sm">{biro.name}</span>
-                      <div className="flex gap-1.5">
-                        <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('members'); }} className="px-2.5 py-1 bg-blue-600 text-white text-xs rounded">Anggota</button>
-                        <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }} className="px-2.5 py-1 bg-emerald-600 text-white text-xs rounded">Form</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {selectedFormBiro && formPageMode === 'form' && (
-              <div className="space-y-4">
-                <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 rounded border border-slate-700 flex items-center gap-1"><ArrowLeft className="w-3 h-3" /> Kembali</button>
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                  <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
-                    <div>
-                      <label className="block text-slate-400 mb-1">Nama Personel Organik</label>
-                      <SearchableSelect options={getBiroMembers(selectedFormBiro.biroName).map(p => p.nama)} value={formData.nama} onChange={(val) => setFormData(p => ({ ...p, nama: val }))} required />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                      <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)} required />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Plan JO</label>
-                      <input type="text" value={formData.jo} onChange={(e) => setFormData(p => ({ ...p, jo: e.target.value }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Deskripsi</label>
-                      <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={(val) => handleDeskripsiChange(val)} required />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div><label className="block text-slate-400 mb-1">Plan Start</label><input type="date" value={formData.startDate} onChange={(e) => setFormData(p => ({ ...p, startDate: e.target.value }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" /></div>
-                      <div><label className="block text-slate-400 mb-1">Plan Finish</label><input type="date" value={formData.endDate} onChange={(e) => setFormData(p => ({ ...p, endDate: e.target.value }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white" /></div>
-                    </div>
-                    <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-lg cursor-pointer">Simpan Tugas</button>
-                  </form>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ================= MODAL PLANNER (ADMIN RENDAL) ================= */}
+        {/* Modal / Panel Planner (Tanpa Password untuk Admin Rendal) */}
         {isPlannerOpen && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
@@ -865,27 +476,35 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 <span className="font-bold text-xs text-white flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard ({pendingTasksCount} Menunggu)
                 </span>
-                <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+                <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
 
               <div className="p-4 max-h-96 overflow-y-auto space-y-2">
-                {Object.entries(manualTasks).flatMap(([_, tasks]) => tasks).filter(t => !t.kodeJc || t.kodeJc.trim() === '').length > 0 ? (
-                  Object.entries(manualTasks).flatMap(([_, tasks]) => tasks).filter(t => !t.kodeJc || t.kodeJc.trim() === '').map((task) => (
+                {Object.values(manualTasks).flatMap(tasks => tasks).filter(t => !t.kodeJc || t.kodeJc.trim() === '').length > 0 ? (
+                  Object.values(manualTasks).flatMap(tasks => tasks).filter(t => !t.kodeJc || t.kodeJc.trim() === '').map((task, idx) => (
                     <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
                       <div>
-                        <div className="font-semibold text-white">{task.pic}</div>
+                        <div className="font-semibold text-white">{task.pic} <span className="font-mono text-slate-500">#{idx + 1}</span></div>
                         <div className="text-slate-400 text-[11px]">{task.taskName}</div>
                         <div className="text-emerald-400 font-mono text-[10px]">{task.project} • {task.biroName}</div>
                       </div>
-                      <div className="flex items-center gap-1.5">
+
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <input
                           type="text"
                           value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
                           onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
                           placeholder="No Jobcard..."
-                          className="w-36 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase"
+                          className="w-36 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none"
                         />
-                        <button onClick={() => handleSaveKodeJcForTask(task.id)} className="px-2.5 py-1 bg-amber-600 text-white font-bold rounded text-xs">Simpan</button>
+                        <button
+                          onClick={() => handleSaveKodeJcForTask(task.id)}
+                          className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer"
+                        >
+                          Simpan
+                        </button>
                       </div>
                     </div>
                   ))
