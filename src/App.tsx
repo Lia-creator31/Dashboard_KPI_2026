@@ -698,7 +698,7 @@ export default function App() {
     fetchDrawingControlForProject(newProject);
   };
 
-  const handleDeskripsiChange = (selectedDesc: string) => {
+const handleDeskripsiChange = (selectedDesc: string) => {
     const cleanProj = cleanText(formData.kodeProyek || '');
     const rowsForThisProj = drawingControlMap[cleanProj] || [];
 
@@ -709,23 +709,25 @@ export default function App() {
       const cleanTarget = cleanText(selectedDesc);
       const currentFormRev = String(formData.rev || '0').trim();
 
+      // Cari baris yang mencocokkan nomor drawing/nama DAN nomor revisi (rev) secara fleksibel
       const exactMatch = rowsForThisProj.find(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
         const cName = cleanText(r.drawingName);
-        const isRevMatch = String(r.rev || '0').trim() === currentFormRev;
-        const isNameMatch = cFull === cleanTarget || (cName && (cleanTarget === cName || cleanTarget.includes(cName))) || (cDwg && cleanTarget.includes(cDwg));
+        const rowRev = String(r.rev || '0').trim();
+
+        // Cek apakah nomor revisi sama (mendukung angka maupun string seperti '2')
+        const isRevMatch = rowRev === currentFormRev;
+
+        // Cek kecocokan teks deskripsi
+        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
 
         return isNameMatch && isRevMatch;
       });
 
-      if (exactMatch) {
-        if (exactMatch.finishDate) {
-          autoRelease = parseToStandardDate(exactMatch.finishDate);
-        }
-        if (exactMatch.rev) {
-          autoRev = exactMatch.rev;
-        }
+      if (exactMatch && exactMatch.finishDate) {
+        autoRelease = parseToStandardDate(exactMatch.finishDate);
+        if (exactMatch.rev) autoRev = exactMatch.rev;
       } else {
         autoRelease = '';
       }
