@@ -700,51 +700,45 @@ export default function App() {
 
 const handleDeskripsiChange = (selectedDesc: string) => {
     const cleanProj = cleanText(formData.kodeProyek || '');
-    const rowsForThisProj = drawingControlMap[cleanProj] || '';
+    const rowsForThisProj = drawingControlMap[cleanProj] || [];
 
     let autoRelease = '';
     let autoRev = formData.rev || '0';
 
     if (rowsForThisProj.length > 0 && selectedDesc) {
       const cleanTarget = cleanText(selectedDesc);
+      const currentFormRev = String(formData.rev || '0').trim();
 
-      const matches = rowsForThisProj.filter(r => {
+      // Cari baris di Excel/Drive yang cocok dengan nama gambar DAN nomor revisi (rev) yang sedang aktif
+      const exactMatch = rowsForThisProj.find(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
         const cName = cleanText(r.drawingName);
+        const isRevMatch = String(r.rev || '0').trim() === currentFormRev;
 
-        if (cFull === cleanTarget) return true;
-        if (cName && (cleanTarget === cName || cleanTarget.includes(cName))) return true;
-        if (cDwg && cleanTarget.includes(cDwg)) return true;
-        return false;
+        const isNameMatch = cFull === cleanTarget || (cName && (cleanTarget === cName || cleanTarget.includes(cName))) || (cDwg && cleanTarget.includes(cDwg));
+
+        return isNameMatch && isRevMatch;
       });
 
-      if (matches.length > 0) {
-        const lastRow = matches[matches.length - 1];
-        
-        // TAMBAHAN / PENYESUAIAN DI SINI:
-        // Cek apakah revisi / tanggal finish benar-benar ada di data sumber
-        if (lastRow.finishDate && lastRow.rev === formData.rev) {
-          autoRelease = parseToStandardDate(lastRow.finishDate);
-        } else {
-          autoRelease = ''; // Kosongkan jika revisi baru belum ada di Excel/Drive
+      if (exactMatch) {
+        // Jika revisi tersebut ADA di Excel/Drive, ambil tanggalnya
+        if (exactMatch.finishDate) {
+          autoRelease = parseToStandardDate(exactMatch.finishDate);
         }
-
-        if (lastRow.rev) {
-          autoRev = lastRow.rev;
+        if (exactMatch.rev) {
+          autoRev = exactMatch.rev;
         }
       } else {
-        // Jika data gambar tidak ditemukan sama sekali di sumber
+        // Jika revisi (misal Rev 3) TIDAK ADA di Excel/Drive, kosongkan release!
         autoRelease = '';
       }
-    } else {
-      autoRelease = '';
     }
 
     setFormData(prev => ({
       ...prev,
       taskName: selectedDesc,
-      release: autoRelease, // Langsung set sesuai hasil pengecekan (kosong jika tidak ada)
+      release: autoRelease,
       rev: autoRev,
     }));
   };
