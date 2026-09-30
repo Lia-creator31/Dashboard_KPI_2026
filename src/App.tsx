@@ -159,7 +159,7 @@ function SearchableSelect({
   const [search, setSearch] = useState('');
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const normalizedOptions = useMemo<SelectOption[]>([cite: 1, 2, 3], () => {
+  const normalizedOptions = useMemo<SelectOption[]>(() => {
     if (!options) return [];
     return options.map(opt => typeof opt === 'string' ? { value: opt, label: opt } : opt);
   }, [options]);
@@ -1391,12 +1391,6 @@ export default function App() {
   );
 
   const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
-  
-  // HANYA MENGAMBIL PERSONEL OUTSOURCING UNTUK SUBKON
-  const activeSubconMembers = useMemo(() => {
-    if (!subconSelectedBiro) return [];
-    return getSubconMembersForBiro(subconSelectedBiro);
-  }, [subconSelectedBiro, getSubconMembersForBiro]);
 
   const organicBiroTasks = useMemo(() => {
     return currentActiveBiroTasks.filter(t => 
@@ -1579,7 +1573,6 @@ export default function App() {
                 <div className="space-y-2">
                   {subconSelectedDept.biros.map((biro) => {
                     const countInBiro = getSubconMembersForBiro(biro.name).length;
-                    const releaseCount = subconWorkOrders.length;
 
                     return (
                       <div
@@ -2255,7 +2248,7 @@ export default function App() {
                       })
                     ) : (
                       <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-                        Tidak ada personil organik di biro ini
+                        Tidak ada personil organik di biro ini (Silakan upload Master IM4 terlebih dahulu)
                       </div>
                     )}
                   </div>
