@@ -31,23 +31,11 @@ import {
   FileCheck, 
   Clock, 
   Sparkles, 
-  Wrench, 
-  CircleDollarSign, 
+  FileSpreadsheet,
   Users, 
-  Truck, 
-  ShieldCheck, 
   Laptop, 
   LucideIcon 
 } from 'lucide-react';
-
-const iconMap: Record<string, LucideIcon> = {
-  Wrench,
-  CircleDollarSign,
-  Users,
-  Truck,
-  ShieldCheck,
-  Laptop,
-};
 
 const csvMonthMap: Record<string, string> = {
   januari: csvJan,
@@ -70,7 +58,6 @@ const excelGlobUrls = import.meta.glob('./*.xlsx', {
   eager: true 
 }) as Record<string, string>;
 
-// URL Google Apps Script Web App untuk Drawing Control Google Drive
 const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
 
 interface DriveSheetInfo {
@@ -496,7 +483,6 @@ export default function App() {
     release: '',
   });
 
-  // State Modal Edit Tugas
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
   const [editFormData, setEditFormData] = useState({
     project: '',
@@ -509,7 +495,6 @@ export default function App() {
     release: '',
   });
 
-  // State Inline Edit Khusus Kolom Release di Tabel
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
 
@@ -572,7 +557,7 @@ export default function App() {
     setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
   };
 
-  // File Excel & Drawing Control State
+  // State File Excel Utama
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
@@ -626,6 +611,42 @@ export default function App() {
     loadAllExcelFiles();
     loadAllJobCards();
   }, [loadAllJobCards]);
+
+  // Handler Update File Master: AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL.xlsx
+  const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        setIm4Workbook(wb);
+        alert(`Master Personel "${file.name}" berhasil diperbarui!`);
+      } catch {
+        alert('Gagal membaca file Excel Personel IM4.');
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // Handler Update File Master: JOBCARD_DESAIN.xlsx
+  const handleUpdateJobcardExcel = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        setJobcardWorkbook(wb);
+        alert(`Katalog Jobcard "${file.name}" berhasil diperbarui!`);
+      } catch {
+        alert('Gagal membaca file JOBCARD_DESAIN.xlsx.');
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
 
   // Integrasi Google Apps Script
   const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
@@ -700,47 +721,6 @@ export default function App() {
     setIsFetchingDrawing(false);
   }, []);
 
-  const handleUploadProjectDrawingControl = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-
-        let foundKey = cleanText(formData.kodeProyek || '');
-        if (!foundKey) {
-          const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(file.name).includes(cleanText(s.projectKey)));
-          foundKey = match ? cleanText(match.projectKey) : 'm000313';
-        }
-
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-        const parsed: DrawingControlRow[] = [];
-        for (let r = 1; r < rawRows.length; r++) {
-          const row = rawRows[r];
-          if (!row) continue;
-          const noDwg = String(row[0] || '').trim();
-          const dwgName = String(row[1] || '').trim();
-          const rev = String(row[14] || '0').trim();
-          const finishRaw = String(row[15] || '').trim();
-          if (!noDwg && !dwgName) continue;
-          const fullDeskripsi = (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg);
-          parsed.push({ noDwg, drawingName: dwgName, fullDeskripsi, rev, finishDate: finishRaw });
-        }
-
-        setDrawingControlMap(prev => ({ ...prev, [foundKey]: parsed }));
-        setActiveDrawingSheetTitle(file.name);
-        alert(`Berhasil memuat ${parsed.length} baris gambar dari ${file.name}!`);
-      } catch {
-        alert('Gagal membaca file Drawing Control.');
-      }
-    };
-    reader.readAsBinaryString(file);
-  };
-
   const handleProjectChange = (newProject: string) => {
     setFormData(prev => ({ ...prev, kodeProyek: newProject, taskName: '', release: '' }));
     fetchDrawingControlForProject(newProject);
@@ -786,9 +766,6 @@ export default function App() {
     }));
   };
 
-  // =========================================================================
-  // SIMPAN CEPAT / INLINE EDIT KHUSUS KOLOM RELEASE
-  // =========================================================================
   const handleQuickSaveRelease = async (taskId: string, newVal: string) => {
     const cleanDate = parseToStandardDate(newVal);
 
@@ -812,9 +789,6 @@ export default function App() {
     setEditingReleaseId(null);
   };
 
-  // =========================================================================
-  // TARIK LANGSUNG DARI LINK GOOGLE DRIVE UNTUK TUGAS TERTENTU
-  // =========================================================================
   const handleSyncReleaseFromDrive = async (task: TaskItem) => {
     const cleanProj = cleanText(task.project);
     let rows = drawingControlMap[cleanProj];
@@ -861,23 +835,6 @@ export default function App() {
       }
     }
     alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}". Silakan edit langsung dengan tombol pensil.`);
-  };
-
-  const handleManualUploadExcel = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        setIm4Workbook(wb);
-        alert(`File ${file.name} berhasil dibaca.`);
-      } catch {
-        alert('Gagal membaca file Excel.');
-      }
-    };
-    reader.readAsBinaryString(file);
   };
 
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
@@ -1488,7 +1445,6 @@ export default function App() {
               </button>
             )}
 
-            {/* Tombol Kembali Dinamis */}
             {accessMode === 'subkon' && subconSelectedBiro ? (
               <button onClick={() => setSubconSelectedBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                 <ArrowLeft className="w-3.5 h-3.5" /> Biro
@@ -1556,17 +1512,25 @@ export default function App() {
           <div className="space-y-6">
             {!subconSelectedDept && !subconSelectedBiro && (
               <div className="space-y-5">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
                   <div>
                     <h2 className="text-lg font-bold text-white">Pilih Departemen</h2>
                     <span className="text-xs text-slate-400">Total {dynamicOutsourcingList.length} Personel Outsourcing</span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Tombol Update File Master Personel IM4 */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                      <Upload className="w-3.5 h-3.5 text-amber-400" />
-                      <span>{dynamicOutsourcingList.length > 0 ? 'Update Excel' : 'Upload IM4'}</span>
-                      <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadExcel} className="hidden" />
+                      <Users className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Update Personel IM4</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
+                    </label>
+
+                    {/* Tombol Update File Master JOBCARD_DESAIN */}
+                    <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Update Jobcard Desain</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
                     </label>
 
                     <input
@@ -1729,7 +1693,6 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Tabel Subkon */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1769,7 +1732,6 @@ export default function App() {
                                               <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
                                                 {formatDisplayDate(task.startDate)} s/d {formatDisplayDate(task.endDate)}
                                               </td>
-                                              {/* Nilai JO tanpa tanda pagar */}
                                               <td className="py-2 px-2.5 font-mono text-violet-300">
                                                 {task.jo ? String(task.jo).replace(/^#+/, '') : '-'}
                                               </td>
@@ -1955,13 +1917,28 @@ export default function App() {
           <div className="space-y-6">
             {!selectedDept && !selectedBiroPage && !selectedFormBiro && (
               <div className="space-y-5">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
                   <div>
                     <h2 className="text-lg font-bold text-white">Departemen Desain</h2>
                     <span className="text-xs text-slate-400">Akses Pegawai Organik (PKWTT & PKWT)</span>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Tombol Update File Master Personel IM4 */}
+                    <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                      <Users className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Update Personel IM4</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
+                    </label>
+
+                    {/* Tombol Update File Master JOBCARD_DESAIN */}
+                    <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Update Jobcard Desain</span>
+                      <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
+                    </label>
+
+                    {/* Tombol Update Realisasi JO.xlsx */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <Clock className="w-3.5 h-3.5 text-emerald-400" />
                       <span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
@@ -2047,14 +2024,9 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
+                    {/* Tombol Update Realisasi JO */}
                     <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                      <Upload className="w-3 h-3 text-cyan-400" />
-                      <span>{formData.kodeProyek ? `Upload DC (${formData.kodeProyek})` : 'Upload Drawing Control'}</span>
-                      <input type="file" accept=".xlsx, .xls, .csv" onChange={handleUploadProjectDrawingControl} className="hidden" />
-                    </label>
-
-                    <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                      <Clock className="w-3 h-3 text-emerald-400" />
+                      <Clock className="w-3.5 h-3.5 text-emerald-400" />
                       <span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                     </label>
@@ -2121,7 +2093,6 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* OUTPUT TABEL BERKOLOM: 2 OPSI EDIT/DRIVE PADA RELEASE & PLAN JO TANPA # */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -2138,7 +2109,6 @@ export default function App() {
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
                                           <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
                                           <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
-                                          {/* Kolom Release: 2 Opsi (Drive & Edit Langsung) */}
                                           <th className="py-2 px-2.5 font-mono text-cyan-300">Release</th>
                                           <th className="py-2 px-2.5 text-center w-20">Aksi</th>
                                         </tr>
@@ -2174,13 +2144,9 @@ export default function App() {
                                               <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">
                                                 {formatDisplayDate(task.endDate)}
                                               </td>
-
-                                              {/* PLAN JO MURNI ANGKA (TANPA TANDA PAGAR #) */}
                                               <td className="py-2 px-2.5 font-mono text-violet-300">
                                                 {task.jo ? String(task.jo).replace(/^#+/, '') : '-'}
                                               </td>
-                                              
-                                              {/* Real JO */}
                                               <td className="py-2 px-2.5 font-mono font-bold">
                                                 {calculatedRealHours !== undefined ? (
                                                   <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
@@ -2192,8 +2158,6 @@ export default function App() {
                                                   <span className="text-slate-600 font-normal">-</span>
                                                 )}
                                               </td>
-
-                                              {/* KOLOM RELEASE DENGAN 2 OPSI: BISA DARI DRIVE & BISA EDIT LANGSUNG */}
                                               <td className="py-2 px-2.5 font-mono text-[11px]">
                                                 {editingReleaseId === task.id ? (
                                                   <div className="flex items-center gap-1">
@@ -2226,7 +2190,6 @@ export default function App() {
                                                       {formatDisplayDate(task.release)}
                                                     </span>
                                                     <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
-                                                      {/* Opsi 1: Edit Langsung Tanggal Release */}
                                                       <button
                                                         onClick={(e) => {
                                                           e.stopPropagation();
@@ -2239,7 +2202,6 @@ export default function App() {
                                                         <Pencil className="w-3 h-3" />
                                                       </button>
 
-                                                      {/* Opsi 2: Tarik Langsung dari Link Google Drive */}
                                                       <button
                                                         onClick={(e) => {
                                                           e.stopPropagation();
@@ -2302,7 +2264,7 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  /* TAB 2: FORM ORGANIK (2 OPSI DI RELEASE: DRIVE & EDIT LANGSUNG) */
+                  /* TAB 2: FORM ORGANIK */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2370,7 +2332,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* RELEASE DENGAN 2 OPSI: OTOMATIS DARI DRIVE ATAU EDIT LANGSUNG */}
                         <div>
                           <div className="flex items-center justify-between mb-1">
                             <label className="text-slate-400">Release (Tanggal-Bulan-Tahun)</label>
@@ -2533,7 +2494,7 @@ export default function App() {
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-400 mb-1">Release (Edit Langsung)</label>
+                      <label className="block text-slate-400 mb-1">Release</label>
                       <input
                         type="date"
                         value={editFormData.release}
