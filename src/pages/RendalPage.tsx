@@ -8,6 +8,12 @@ import {
   Pencil, Trash2, Lock, X, Check, Printer, FileCheck, Clock, Sparkles, FileSpreadsheet, Users 
 } from 'lucide-react';
 
+const excelGlobUrls = import.meta.glob('./*.xlsx', { 
+  query: '?url', 
+  import: 'default', 
+  eager: true 
+}) as Record<string, string>;
+
 const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
 
 const GOOGLE_DRIVE_SHEETS = [
@@ -191,10 +197,34 @@ function formatDisplayDate(val: any): string {
 }
 
 function isBiroMatch(biro1: string, biro2: string): boolean {
-  const b1 = cleanText((biro1 || '').replace(/biro|departemen|dept|divisi|dan/gi, ''));
-  const b2 = cleanText((biro2 || '').replace(/biro|departemen|dept|divisi|dan/gi, ''));
+  const b1 = (biro1 || '').toLowerCase().replace('&', ' dan ').trim();
+  const b2 = (biro2 || '').toLowerCase().replace('&', ' dan ').trim();
   if (!b1 || !b2) return false;
-  return b1 === b2 || b1.includes(b2) || b2.includes(b1);
+  if (b1 === b2) return true;
+
+  const c1 = cleanText(b1.replace(/biro|departemen|dept|divisi|dan/gi, ''));
+  const c2 = cleanText(b2.replace(/biro|departemen|dept|divisi|dan/gi, ''));
+  if (c1 && c2) {
+    return c1 === c2 || c1.includes(c2) || c2.includes(c1);
+  }
+  return false;
+}
+
+async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
+  for (const p of paths) {
+    if (!p) continue;
+    try {
+      const res = await fetch(p);
+      if (res.ok) {
+        const buf = await res.arrayBuffer();
+        const bytes = new Uint8Array(buf.slice(0, 4));
+        if (bytes[0] === 80 && bytes[1] === 75 && bytes[2] === 3 && bytes[3] === 4) {
+          return XLSX.read(buf, { type: 'array' });
+        }
+      }
+    } catch {}
+  }
+  return null;
 }
 
 export default function RendalPage({ user, onLogout }: RendalPageProps) {
@@ -242,6 +272,17 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   }, []);
 
   useEffect(() => {
+    async function initMasterFiles() {
+      let im4Url = '';
+      Object.entries(excelGlobUrls).forEach(([path, url]) => {
+        if (path.toLowerCase().includes('im4') || path.toLowerCase().includes('drawing') || path.toLowerCase().includes('akses')) {
+          im4Url = url;
+        }
+      });
+      const wb = await fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx']);
+      if (wb) setIm4Workbook(wb);
+    }
+    initMasterFiles();
     loadAllJobCards();
   }, [loadAllJobCards]);
 
@@ -281,6 +322,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     reader.readAsBinaryString(file);
   };
 
+  // Logika parsing IM4 persis seperti program awal Anda agar hirarki Biro terbaca dengan benar
   const allParsedFromExcel = useMemo<ParsedMember[]>(() => {
     if (!im4Workbook) return [];
     try {
@@ -292,7 +334,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       let headerIdx = -1;
       for (let r = 0; r < Math.min(15, rawRows.length); r++) {
         const rowVals = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
-        if (rowVals.includes('nama') && (rowVals.includes('nip') || rowVals.includes('status'))) {
+        if (rowVals.includes('nama') && (rowVals.includes('nip') || rowVals.includes('status') || rowVals.includes('jabatan'))) {
           headerIdx = r;
           break;
         }
@@ -314,17 +356,23 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         const row = rawRows[r];
         if (!row) continue;
         const nama = String(row[namaCol] || '').trim();
-        if (!nama || nama.toLowerCase() === 'nan') continue;
+        if (!nama || nama.toLowerCase() === 'nan' || nama.toLowerCase() === 'nama') continue;
 
         const nip = String(row[nipCol] || '').trim();
         const statusRaw = String(row[statusCol] || '').trim();
         const unit = String(row[unitCol] || '').trim();
         const jabatan = String(row[jabatanCol] || '').trim();
 
-        if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
-          currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').trim();
-        } else if (unit && unit.toLowerCase() !== 'nan') {
-          currentBiro = unit;
+        if (jabatan.toLowerCase().includes('kepala divisi')) {
+          currentDept = 'Div. Desain';
+          currentBiro = 'Div. Desain';
+        } else if (jabatan.toLowerCase().includes('kepala departemen') || jabatan.toLowerCase().includes('kadep')) {
+          if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
+          else currentDept = jabatan;
+          currentBiro = `Staf ${currentDept}`;
+        } else if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
+          currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').replace(/Kabiro/gi, 'Biro').trim();
+          if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
         }
 
         results.push({
@@ -332,8 +380,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           nip,
           status: statusRaw || 'PKWTT',
           jabatan,
-          biro: currentBiro || 'Biro Umum',
-          dept: currentDept || 'Departemen Desain'
+          biro: currentBiro,
+          dept: currentDept
         });
       }
       return results;
@@ -343,15 +391,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   }, [im4Workbook]);
 
   const getBiroMembers = useCallback((biroName: string) => {
-    let members = allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName));
-    if (members.length === 0) {
-      // Fallback data sampel jika file IM4 belum ter-load sempurna agar nama tetap muncul
-      members = [
-        { nama: 'Diar Ayu Yonanda', nip: '023066805', status: 'PKWT', jabatan: 'Desainer II', biro: biroName, dept: 'Desain' },
-        { nama: 'Personel Organik Biro', nip: '11223344', status: 'PKWTT', jabatan: 'Desainer Utama', biro: biroName, dept: 'Desain' }
-      ];
-    }
-    return members;
+    return allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName));
   }, [allParsedFromExcel]);
 
   const pendingTasksCount = useMemo(() => {
@@ -420,7 +460,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        {/* Kontrol Utama File Excel Master */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
           <div>
             <h2 className="text-lg font-bold text-white">Monitoring Seluruh Departemen & Biro</h2>
@@ -469,7 +508,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         )}
 
-        {/* 2. Level Biro di dalam Departemen */}
+        {/* 2. Level Biro */}
         {selectedDept && !selectedBiroName && (
           <div className="space-y-4">
             <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
@@ -495,7 +534,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         )}
 
-        {/* 3. Level Daftar Anggota & Tugas di Biro Terpilih */}
+        {/* 3. Level Daftar Anggota */}
         {selectedDept && selectedBiroName && (
           <div className="space-y-4">
             <button onClick={() => setSelectedBiroName(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
@@ -579,14 +618,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 })
               ) : (
                 <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-                  Tidak ada anggota di biro ini. Pastikan Master IM4 sudah di-update.
+                  Tidak ada anggota terdaftar di biro ini dari master IM4.
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* Modal / Panel Planner (Tanpa Password untuk Admin Rendal) */}
+        {/* Modal Planner Panel */}
         {isPlannerOpen && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
