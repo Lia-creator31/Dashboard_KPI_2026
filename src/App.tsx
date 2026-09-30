@@ -122,7 +122,6 @@ function cleanText(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
 
-// Helper penyimpanan lokal khusus nilai Rev & Release
 function getLocalRev(id: string, defaultVal: string = '0'): string {
   try {
     const map = JSON.parse(localStorage.getItem('task_rev_map') || '{}');
@@ -182,7 +181,6 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
   return false;
 }
 
-// Inisial Unik Kode Biro untuk Work Order Subkon
 function getBiroPrefix(biroName: string): string {
   const b = (biroName || '').toLowerCase().replace('&', ' dan ').trim();
   if (b.includes('dokumen') || (b.includes('perencanaan') && b.includes('biro'))) return 'DP';
@@ -717,7 +715,6 @@ export default function App() {
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook]);
 
-  // Submit Form: Menyimpan ke Supabase & LocalStorage untuk Rev & Release
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeBiro = currentActiveBiroName;
@@ -769,7 +766,6 @@ export default function App() {
         .single();
 
       if (error) {
-        // Fallback jika Supabase belum punya kolom rev atau release
         delete insertPayload.rev;
         delete insertPayload.release;
         const { data: retryData, error: retryError } = await supabase
@@ -786,7 +782,6 @@ export default function App() {
         insertedRow = resData;
       }
 
-      // Simpan rev dan release ke localStorage
       saveLocalRev(insertedRow.id, revVal);
       saveLocalRelease(insertedRow.id, releaseVal);
 
@@ -820,7 +815,6 @@ export default function App() {
     }
   };
 
-  // Buka Modal Edit
   const handleOpenEdit = (task: TaskItem) => {
     setEditingTask(task);
     setEditFormData({
@@ -835,7 +829,6 @@ export default function App() {
     });
   };
 
-  // Simpan Perubahan Edit
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTask) return;
@@ -872,11 +865,9 @@ export default function App() {
       return;
     }
 
-    // Update penyimpanan lokal
     saveLocalRev(editingTask.id, revVal);
     saveLocalRelease(editingTask.id, releaseVal);
 
-    // Update state tampilan
     setManualTasks(prev => {
       const updated = { ...prev };
       Object.keys(updated).forEach(k => {
@@ -1270,7 +1261,6 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Konten Dropdown: Tabel Kolom Rapi */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1596,7 +1586,7 @@ export default function App() {
 
                   <div className="flex items-center gap-2 flex-wrap">
                     <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                      <Clock className="w-3 h-3 text-emerald-400" />
+                      <Clock className="w-3.5 h-3.5 text-emerald-400" />
                       <span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                     </label>
@@ -1625,7 +1615,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK (TABEL LENGKAP: REV, PLAN START, PLAN FINISH, RELEASE, PLAN JO, REAL JO) */}
+                {/* TAB 1: ANGGOTA ORGANIK (KOLOM: RELEASE SETELAH REAL JO) */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
@@ -1664,7 +1654,7 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* OUTPUT TABEL BERKOLOM */}
+                            {/* OUTPUT TABEL BERKOLOM (RELEASE SETELAH REAL JO) */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1679,10 +1669,10 @@ export default function App() {
                                           <th className="py-2 px-2.5 text-center font-mono">Rev</th>
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
-                                          {/* Kolom Baru: Release */}
-                                          <th className="py-2 px-2.5 font-mono text-emerald-400">Release</th>
                                           <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
                                           <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
+                                          {/* Kolom Release Diletakkan Setelah Real JO */}
+                                          <th className="py-2 px-2.5 font-mono text-cyan-300">Release</th>
                                           <th className="py-2 px-2.5 text-center w-20">Aksi</th>
                                         </tr>
                                       </thead>
@@ -1717,10 +1707,6 @@ export default function App() {
                                               <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">
                                                 {task.endDate}
                                               </td>
-                                              {/* Nilai Kolom Release */}
-                                              <td className="py-2 px-2.5 font-mono text-[11px] text-emerald-400">
-                                                {task.release || '-'}
-                                              </td>
                                               <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
                                               
                                               {/* Kolom Real JO */}
@@ -1734,6 +1720,11 @@ export default function App() {
                                                 ) : (
                                                   <span className="text-slate-600 font-normal">-</span>
                                                 )}
+                                              </td>
+
+                                              {/* Kolom Release Setelah Real JO */}
+                                              <td className="py-2 px-2.5 font-mono text-[11px] text-cyan-300">
+                                                {task.release || '-'}
                                               </td>
 
                                               <td className="py-2 px-2.5 text-center">
@@ -1856,7 +1847,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Input Release */}
                         <div>
                           <label className="block text-slate-400 mb-1">Release</label>
                           <input 
@@ -1906,7 +1896,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= MODAL EDIT PENUGASAN (ORGANIK & SUBKON) ================= */}
+        {/* ================= MODAL EDIT PENUGASAN ================= */}
         {editingTask && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-fadeIn">
@@ -2055,7 +2045,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= MODAL PLANNER (INPUT JOBCARD ORGANIK) ================= */}
+        {/* ================= MODAL PLANNER ================= */}
         {isPlannerModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
