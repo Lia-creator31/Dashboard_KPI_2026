@@ -1,17 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
-import { departmentsData, Department } from '../data'; // Pastikan path benar
+import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
-import { UserSession } from '../App'; // Import tipe UserSession dari App.tsx
-
-// Import Ikon Lucide
+import { UserSession } from '../App';
 import {
   Building2, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, Lock, X, Check, Printer, FileCheck, Clock, Sparkles, 
-  FileSpreadsheet, Users, Search, KeyRound, Upload
+  FileSpreadsheet, Users, Search, KeyRound, Upload, Briefcase, HardHat
 } from 'lucide-react';
 
-// --- Konstanta Global (Disalin dari App.tsx) ---
+// --- Konstanta Global ---
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
   query: '?url',
   import: 'default',
@@ -35,7 +33,7 @@ const GOOGLE_DRIVE_SHEETS = [
   { id: '1XsrklFhcUkjgfEjuT4jDRWx6Uufsj8Jt', projectKey: 'FFBNW', title: 'Drawing Control FFBNW FRIGATE 140 M' },
 ];
 
-// --- Interface (Disalin dari App.tsx) ---
+// --- Interfaces ---
 export interface ParsedMember {
   nama: string;
   nip: string;
@@ -78,16 +76,24 @@ interface RendalPageProps {
   onLogout: () => void;
 }
 
-// --- Helper Functions (Disalin dari App.tsx) ---
+// --- Helper Functions (LENGKAP dari App.tsx) ---
 function cleanText(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
 
 const indoMonthsMap: Record<string, string> = {
-  jan: '01', januari: '01', january: '01', feb: '02', februari: '02', february: '02',
-  mar: '03', maret: '03', march: '03', apr: '04', april: '04', mei: '05', may: '05',
-  jun: '06', juni: '06', june: '06', jul: '07', juli: '07', july: '07', agu: '08', ags: '08', agustus: '08', aug: '08', august: '08',
-  sep: '09', september: '09', okt: '10', oktober: '10', oct: '10', october: '10', nov: '11', november: '11', des: '12', desember: '12', dec: '12', december: '12'
+  jan: '01', januari: '01', january: '01',
+  feb: '02', februari: '02', february: '02',
+  mar: '03', maret: '03', march: '03',
+  apr: '04', april: '04',
+  mei: '05', may: '05',
+  jun: '06', juni: '06', june: '06',
+  jul: '07', juli: '07', july: '07',
+  agu: '08', ags: '08', agustus: '08', aug: '08', august: '08',
+  sep: '09', september: '09',
+  okt: '10', oktober: '10', oct: '10', october: '10',
+  nov: '11', november: '11',
+  des: '12', desember: '12', dec: '12', december: '12'
 };
 
 function parseToStandardDate(val: any): string {
@@ -134,13 +140,33 @@ function formatDisplayDate(val: any): string {
   return clean || '-';
 }
 
+function getLocalRev(id: string, defaultVal: string = '0'): string {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_rev_map') || '{}');
+    return map[id] !== undefined ? String(map[id]) : defaultVal;
+  } catch { return defaultVal; }
+}
+
+function getLocalRelease(id: string, defaultVal: string = ''): string {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_release_map') || '{}');
+    return map[id] !== undefined ? String(map[id]) : defaultVal;
+  } catch { return defaultVal; }
+}
+
+function saveLocalRelease(id: string, val: string) {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_release_map') || '{}');
+    map[id] = val;
+    localStorage.setItem('task_release_map', JSON.stringify(map));
+  } catch {}
+}
+
 function isBiroMatch(biro1: string, biro2: string): boolean {
   const b1 = (biro1 || '').toLowerCase().replace('&', ' dan ').trim();
   const b2 = (biro2 || '').toLowerCase().replace('&', ' dan ').trim();
   if (!b1 || !b2) return false;
   if (b1 === b2) return true;
-
-  // ✅ TAMBAHKAN LOGICA KHUSUS INI
   if (b1.includes('pengembangan') && b2.includes('pengembangan')) return true;
   if (
     (b1.includes('kapal selam') || b1.includes('submarine') || b1.includes('scorpne')) &&
@@ -151,12 +177,9 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
     (b1.includes('kapal permukaan') || b1.includes('surface')) &&
     (b2.includes('kapal permukaan') || b2.includes('surface'))
   ) return true;
-
   const c1 = cleanText(b1.replace(/biro|departemen|dept|divisi|dan/gi, ''));
   const c2 = cleanText(b2.replace(/biro|departemen|dept|divisi|dan/gi, ''));
-  if (c1 && c2) {
-    return c1 === c2 || c1.includes(c2) || c2.includes(c1);
-  }
+  if (c1 && c2) return c1 === c2 || c1.includes(c2) || c2.includes(c1);
   return false;
 }
 
@@ -177,27 +200,22 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
   return null;
 }
 
-// --- Komponen SearchableSelect (Disalin dari App.tsx) ---
+// --- Komponen SearchableSelect ---
 function SearchableSelect({ options, value, onChange, placeholder = 'Ketik untuk mencari...', required = false }: { options: (string | SelectOption)[]; value: string; onChange: (val: string) => void; placeholder?: string; required?: boolean; }) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const wrapperRef = useRef<HTMLDivElement>(null);
-
   const normalizedOptions = useMemo<SelectOption[]>(() => {
     if (!options) return [];
     return options.map(opt => typeof opt === 'string' ? { value: opt, label: opt } : opt);
   }, [options]);
-
   const selectedOption = useMemo(() => normalizedOptions.find(opt => opt.value === value), [normalizedOptions, value]);
-
   useEffect(() => { if (!isOpen) setSearch(selectedOption ? selectedOption.label : ''); }, [selectedOption, isOpen]);
-
   const filtered = useMemo(() => {
     if (!search || !isOpen) return normalizedOptions;
     const s = search.toLowerCase();
     return normalizedOptions.filter(opt => opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s));
   }, [normalizedOptions, search, isOpen]);
-
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
@@ -208,7 +226,6 @@ function SearchableSelect({ options, value, onChange, placeholder = 'Ketik untuk
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [selectedOption]);
-
   return (
     <div ref={wrapperRef} className="relative w-full">
       <div className="relative">
@@ -242,11 +259,11 @@ function SearchableSelect({ options, value, onChange, placeholder = 'Ketik untuk
 
 // --- Komponen Utama RendalPage ---
 export default function RendalPage({ user, onLogout }: RendalPageProps) {
-  
   // State Navigasi
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedBiroName, setSelectedBiroName] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [memberTab, setMemberTab] = useState<'organic' | 'outsourcing'>('organic');
   
   // State Data Master (Excel)
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
@@ -265,7 +282,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
 
-  // State Drawing Control Fetching
+  // State Drawing Control
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
   const [isFetchingDrawing, setIsFetchingDrawing] = useState<boolean>(false);
 
@@ -281,9 +298,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           if (!biroKey) return;
           if (!grouped[biroKey]) grouped[biroKey] = [];
           
-          // Ambil rev/release dari DB atau LocalStorage jika kosong di DB (sesuai logic awal)
-          const persistedRev = (row.rev !== undefined && row.rev !== null && String(row.rev).trim() !== '') ? String(row.rev) : '0';
-          const persistedRelease = (row.release !== undefined && row.release !== null && String(row.release).trim() !== '') ? String(row.release) : '';
+          const persistedRev = (row.rev !== undefined && row.rev !== null && String(row.rev).trim() !== '')
+            ? String(row.rev)
+            : getLocalRev(row.id, '0');
+          const persistedRelease = (row.release !== undefined && row.release !== null && String(row.release).trim() !== '')
+            ? String(row.release)
+            : getLocalRelease(row.id, '');
 
           grouped[biroKey].push({
             id: row.id,
@@ -306,42 +326,34 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   }, []);
 
   // Initial Load Excel Files
-useEffect(() => {
-  async function initMasterFiles() {
-    try {
-      let im4Url = '';
-      let jcUrl = '';
-      let realisasiUrl = '';
+  useEffect(() => {
+    async function initMasterFiles() {
+      try {
+        let jcUrl = '';
+        let im4Url = '';
+        let realisasiUrl = '';
 
-      Object.entries(excelGlobUrls).forEach(([path, url]) => {
-        const pLower = path.toLowerCase();
-        if (pLower.includes('jobcard') && !pLower.includes('realisasi')) jcUrl = url;
-        else if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
-        else if (pLower.includes('realisasi')) realisasiUrl = url;
-      });
+        Object.entries(excelGlobUrls).forEach(([path, url]) => {
+          const pLower = path.toLowerCase();
+          if (pLower.includes('jobcard') && !pLower.includes('realisasi')) jcUrl = url;
+          else if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
+          else if (pLower.includes('realisasi')) realisasiUrl = url;
+        });
 
-      // ✅ TAMBAHKAN LOGGING UNTUK DEBUG
-      console.log('🔍 Excel files found:', { im4Url, jcUrl, realisasiUrl });
+        const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
+          fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx']),
+          fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx']),
+          fetchSafeWorkbook([realisasiUrl, '/Realisasi JO.xlsx', './Realisasi JO.xlsx'])
+        ]);
 
-      const [wbIm4, wbJc, wbRealisasi] = await Promise.all([
-        fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx']),
-        fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx']),
-        fetchSafeWorkbook([realisasiUrl, '/Realisasi JO.xlsx', './Realisasi JO.xlsx'])
-      ]);
-
-      if (wbIm4) {
-        setIm4Workbook(wbIm4);
-        console.log('✅ IM4 workbook loaded');
-      } else {
-        console.warn('⚠️ IM4 workbook NOT loaded - file tidak ditemukan');
-      }
-    } catch (err) {
-      console.error('❌ Error loading Excel files:', err);
+        if (wbJc) setJobcardWorkbook(wbJc);
+        if (wbIm4) setIm4Workbook(wbIm4);
+        if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
+      } catch {}
     }
-  }
-  initMasterFiles();
-  loadAllJobCards();
-}, [loadAllJobCards]);
+    initMasterFiles();
+    loadAllJobCards();
+  }, [loadAllJobCards]);
 
   // Handlers Upload Excel
   const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
@@ -374,7 +386,7 @@ useEffect(() => {
     reader.readAsBinaryString(file);
   };
 
-  // Parse Realisasi Map (untuk menghitung jam kerja)
+  // Parse Realisasi Map
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
     if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -454,9 +466,19 @@ useEffect(() => {
     } catch { return []; }
   }, [im4Workbook]);
 
-  const getBiroMembers = useCallback((biroName: string) => {
-    // Untuk Rendal, kita tampilkan SEMUA anggota (Organik & Outsourcing) di biro tersebut
-    return allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName));
+  // ✅ PISAHKAN: Organik (PKWT/PKWTT) vs Outsourcing
+  const getOrganicBiroMembers = useCallback((biroName: string) => {
+    return allParsedFromExcel.filter(p => 
+      isBiroMatch(p.biro, biroName) && 
+      !p.status.toLowerCase().includes('outsourcing')
+    );
+  }, [allParsedFromExcel]);
+
+  const getOutsourcingBiroMembers = useCallback((biroName: string) => {
+    return allParsedFromExcel.filter(p => 
+      isBiroMatch(p.biro, biroName) && 
+      p.status.toLowerCase().includes('outsourcing')
+    );
   }, [allParsedFromExcel]);
 
   const toggleAccordion = (cardKey: string) => {
@@ -470,7 +492,6 @@ useEffect(() => {
     const { error } = await supabase.from('job_cards').update({ kode_jc: inputVal, status: 'approved' }).eq('id', taskId);
     if (error) { alert('Gagal simpan Jobcard: ' + error.message); return; }
     
-    // Update local state immediately
     setManualTasks(prev => {
       const updated = { ...prev };
       Object.keys(updated).forEach(k => {
@@ -485,17 +506,10 @@ useEffect(() => {
   // Quick Save Release
   const handleQuickSaveRelease = async (taskId: string, newVal: string) => {
     const cleanDate = parseToStandardDate(newVal);
-    // Simpan ke localStorage juga sebagai backup/cache seperti di App.tsx
-    try {
-      const map = JSON.parse(localStorage.getItem('task_release_map') || '{}');
-      map[taskId] = cleanDate;
-      localStorage.setItem('task_release_map', JSON.stringify(map));
-    } catch {}
-
+    saveLocalRelease(taskId, cleanDate);
     try {
       await supabase.from('job_cards').update({ release: cleanDate }).eq('id', taskId);
     } catch {}
-
     setManualTasks(prev => {
       const updated = { ...prev };
       Object.keys(updated).forEach(k => {
@@ -537,7 +551,6 @@ useEffect(() => {
       const cleanTarget = cleanText(task.taskName);
       const currentTaskRev = String(task.rev || '0').trim();
       
-      // Cari match berdasarkan Nama Gambar/DWG dan Rev
       const exactMatch = rows.find(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
@@ -563,9 +576,9 @@ useEffect(() => {
   );
 
   const currentBiroTasks = selectedBiroName ? (manualTasks[cleanText(selectedBiroName)] || []) : [];
-  const currentBiroMembers = selectedBiroName ? getBiroMembers(selectedBiroName) : [];
+  const currentOrganicMembers = selectedBiroName ? getOrganicBiroMembers(selectedBiroName) : [];
+  const currentOutsourcingMembers = selectedBiroName ? getOutsourcingBiroMembers(selectedBiroName) : [];
   
-  // Hitung jumlah pending tasks untuk badge planner
   const pendingTasksCount = useMemo(() => {
     let count = 0;
     Object.values(manualTasks).forEach(tasks => {
@@ -575,6 +588,175 @@ useEffect(() => {
     });
     return count;
   }, [manualTasks]);
+
+  // Fungsi untuk render tabel tugas (dipakai di organik & outsourcing)
+  const renderTaskTable = (members: ParsedMember[]) => (
+    <div className="space-y-2.5">
+      {members.length > 0 ? (
+        members.map((person) => {
+          const personTasks = currentBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
+          const isExpanded = !!expandedCards[person.nama];
+
+          return (
+            <div key={`${person.nama}-${person.nip}`} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+              <div
+                onClick={() => toggleAccordion(person.nama)}
+                className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition"
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
+                    memberTab === 'organic' 
+                      ? 'bg-blue-500/10 border border-blue-500/20 text-blue-400' 
+                      : 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+                  }`}>
+                    {person.nama.charAt(0)}
+                  </div>
+                  <div>
+                    <div className="font-semibold text-white text-sm">
+                      {person.nama} <span className="text-xs font-mono text-cyan-400 font-normal">({person.status})</span>
+                    </div>
+                    <div className="text-xs text-slate-400 font-mono">
+                      NIP: {person.nip || '-'} • <span className="text-slate-400">{person.jabatan}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono text-slate-400">{personTasks.length} Tugas</span>
+                  <div className={`p-1 rounded bg-slate-950 border border-slate-800 text-slate-400 ${isExpanded ? (memberTab === 'organic' ? 'text-blue-400' : 'text-amber-400') : ''}`}>
+                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </div>
+                </div>
+              </div>
+
+              {isExpanded && (
+                <div className="p-3.5 border-t border-slate-800 bg-slate-950/60">
+                  {personTasks.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="text-slate-400 border-b border-slate-800">
+                            <th className="py-2 px-2.5 w-8">#</th>
+                            <th className="py-2 px-2.5 font-mono text-amber-400">Jobcard</th>
+                            <th className="py-2 px-2.5">Proyek</th>
+                            <th className="py-2 px-2.5">Deskripsi</th>
+                            <th className="py-2 px-2.5 text-center font-mono">Rev</th>
+                            <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
+                            <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
+                            <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
+                            <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
+                            <th className="py-2 px-2.5 font-mono text-cyan-300">Release</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 text-slate-300">
+                          {personTasks.map((task, tIdx) => {
+                            const jcKey = cleanText(task.kodeJc || '');
+                            const calculatedRealHours = jcKey ? realisasiMap.get(jcKey) : undefined;
+
+                            return (
+                              <tr key={task.id} className="hover:bg-slate-900/40">
+                                <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
+                                <td className="py-2 px-2.5 font-mono font-bold text-amber-300">
+                                  {task.kodeJc || <span className="text-rose-400 font-normal">Pending</span>}
+                                </td>
+                                <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
+                                <td className="py-2 px-2.5 text-slate-200 truncate max-w-[200px]" title={task.taskName}>{task.taskName}</td>
+                                <td className="py-2 px-2.5 text-center font-mono">{task.rev || '0'}</td>
+                                <td className="py-2 px-2.5 font-mono text-[11px]">{formatDisplayDate(task.startDate)}</td>
+                                <td className="py-2 px-2.5 font-mono text-[11px]">{formatDisplayDate(task.endDate)}</td>
+                                <td className="py-2 px-2.5 font-mono text-violet-300">
+                                  {task.jo ? String(task.jo).replace(/^#+/, '') : '-'}
+                                </td>
+                                <td className="py-2 px-2.5 font-mono font-bold">
+                                  {calculatedRealHours !== undefined ? (
+                                    <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
+                                      {Math.round(calculatedRealHours * 100) / 100} Jam
+                                    </span>
+                                  ) : task.kodeJc ? (
+                                    <span className="text-slate-500 font-normal">0 Jam</span>
+                                  ) : (
+                                    <span className="text-slate-600 font-normal">-</span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-2.5 font-mono text-[11px]">
+                                  {editingReleaseId === task.id ? (
+                                    <div className="flex items-center gap-1">
+                                      <input
+                                        type="date"
+                                        value={editingReleaseVal}
+                                        onChange={(e) => setEditingReleaseVal(e.target.value)}
+                                        style={{ colorScheme: 'dark' }}
+                                        className="px-1.5 py-0.5 bg-slate-900 border border-blue-500 rounded text-xs text-white"
+                                        autoFocus
+                                      />
+                                      <button
+                                        onClick={() => handleQuickSaveRelease(task.id, editingReleaseVal)}
+                                        className="p-1 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 rounded cursor-pointer"
+                                        title="Simpan"
+                                      >
+                                        <Check className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        onClick={() => setEditingReleaseId(null)}
+                                        className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer"
+                                        title="Batal"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1.5 group">
+                                      <span className="text-cyan-300 font-semibold">
+                                        {formatDisplayDate(task.release)}
+                                      </span>
+                                      <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditingReleaseId(task.id);
+                                            setEditingReleaseVal(parseToStandardDate(task.release) || '');
+                                          }}
+                                          className="p-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
+                                          title="Edit Langsung Tanggal Release"
+                                        >
+                                          <Pencil className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleSyncReleaseFromDrive(task);
+                                          }}
+                                          className="p-0.5 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition cursor-pointer"
+                                          title="Tarik Otomatis dari Link Google Drive"
+                                        >
+                                          <Sparkles className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 py-3 text-center italic">Belum ada tugas untuk personel ini.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })
+      ) : (
+        <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
+          {memberTab === 'organic' 
+            ? 'Tidak ada pegawai organik (PKWT/PKWTT) terdaftar di biro ini.' 
+            : 'Tidak ada personel outsourcing terdaftar di biro ini.'}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
@@ -678,7 +860,7 @@ useEffect(() => {
               {selectedDept.biros.map((biro) => (
                 <div
                   key={biro.id}
-                  onClick={() => setSelectedBiroName(biro.name)}
+                  onClick={() => { setSelectedBiroName(biro.name); setMemberTab('organic'); }}
                   className="bg-slate-900 border border-slate-800 hover:border-purple-500 rounded-xl p-4 cursor-pointer transition flex items-center justify-between"
                 >
                   <span className="font-semibold text-white text-sm">{biro.name}</span>
@@ -689,7 +871,7 @@ useEffect(() => {
           </div>
         )}
 
-        {/* 3. Level Daftar Anggota & Tabel Tugas */}
+        {/* 3. Level Daftar Anggota & Tabel Tugas (DENGAN TAB ORGANIK / OUTSOURCING) */}
         {selectedDept && selectedBiroName && (
           <div className="space-y-4">
             <button onClick={() => setSelectedBiroName(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
@@ -697,168 +879,42 @@ useEffect(() => {
             </button>
             <div className="border-b border-slate-800 pb-2">
               <h2 className="text-base font-bold text-white">{selectedBiroName}</h2>
-              <span className="text-xs text-slate-400">{currentBiroMembers.length} Anggota terdaftar di biro ini</span>
+              <span className="text-xs text-slate-400">
+                {currentOrganicMembers.length} Organik • {currentOutsourcingMembers.length} Outsourcing
+              </span>
             </div>
-            
-            <div className="space-y-2.5">
-              {currentBiroMembers.length > 0 ? (
-                currentBiroMembers.map((person) => {
-                  const personTasks = currentBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
-                  const isExpanded = !!expandedCards[person.nama];
 
-                  return (
-                    <div key={`${person.nama}-${person.nip}`} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                      <div
-                        onClick={() => toggleAccordion(person.nama)}
-                        className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">
-                            {person.nama.charAt(0)}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-white text-sm">
-                              {person.nama} <span className="text-xs font-mono text-cyan-400 font-normal">({person.status})</span>
-                            </div>
-                            <div className="text-xs text-slate-400 font-mono">
-                              NIP: {person.nip || '-'} • <span className="text-slate-400">{person.jabatan}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs font-mono text-slate-400">{personTasks.length} Tugas</span>
-                          <div className={`p-1 rounded bg-slate-950 border border-slate-800 text-slate-400 ${isExpanded ? 'text-purple-400' : ''}`}>
-                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                          </div>
-                        </div>
-                      </div>
-
-                      {isExpanded && (
-                        <div className="p-3.5 border-t border-slate-800 bg-slate-950/60">
-                          {personTasks.length > 0 ? (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-left text-xs">
-                                <thead>
-                                  <tr className="text-slate-400 border-b border-slate-800">
-                                    <th className="py-2 px-2.5">#</th>
-                                    <th className="py-2 px-2.5 font-mono text-amber-400">Jobcard</th>
-                                    <th className="py-2 px-2.5">Proyek</th>
-                                    <th className="py-2 px-2.5">Deskripsi</th>
-                                    <th className="py-2 px-2.5 text-center font-mono">Rev</th>
-                                    <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
-                                    <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
-                                    <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
-                                    <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
-                                    <th className="py-2 px-2.5 font-mono text-cyan-300">Release</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-800 text-slate-300">
-                                  {personTasks.map((task, tIdx) => {
-                                    const jcKey = cleanText(task.kodeJc || '');
-                                    const calculatedRealHours = jcKey ? realisasiMap.get(jcKey) : undefined;
-
-                                    return (
-                                      <tr key={task.id} className="hover:bg-slate-900/40">
-                                        <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
-                                        <td className="py-2 px-2.5 font-mono font-bold text-amber-300">
-                                          {task.kodeJc || <span className="text-rose-400 font-normal">Pending</span>}
-                                        </td>
-                                        <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
-                                        <td className="py-2 px-2.5 text-slate-200 truncate max-w-[200px]" title={task.taskName}>{task.taskName}</td>
-                                        <td className="py-2 px-2.5 text-center font-mono">{task.rev || '0'}</td>
-                                        <td className="py-2 px-2.5 font-mono text-[11px]">{formatDisplayDate(task.startDate)}</td>
-                                        <td className="py-2 px-2.5 font-mono text-[11px]">{formatDisplayDate(task.endDate)}</td>
-                                        <td className="py-2 px-2.5 font-mono text-violet-300">
-                                          {task.jo ? String(task.jo).replace(/^#+/, '') : '-'}
-                                        </td>
-                                        <td className="py-2 px-2.5 font-mono font-bold">
-                                          {calculatedRealHours !== undefined ? (
-                                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
-                                              {Math.round(calculatedRealHours * 100) / 100} Jam
-                                            </span>
-                                          ) : task.kodeJc ? (
-                                            <span className="text-slate-500 font-normal">0 Jam</span>
-                                          ) : (
-                                            <span className="text-slate-600 font-normal">-</span>
-                                          )}
-                                        </td>
-                                        <td className="py-2 px-2.5 font-mono text-[11px]">
-                                          {editingReleaseId === task.id ? (
-                                            <div className="flex items-center gap-1">
-                                              <input
-                                                type="date"
-                                                value={editingReleaseVal}
-                                                onChange={(e) => setEditingReleaseVal(e.target.value)}
-                                                style={{ colorScheme: 'dark' }}
-                                                className="px-1.5 py-0.5 bg-slate-900 border border-blue-500 rounded text-xs text-white"
-                                                autoFocus
-                                              />
-                                              <button
-                                                onClick={() => handleQuickSaveRelease(task.id, editingReleaseVal)}
-                                                className="p-1 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 rounded cursor-pointer"
-                                                title="Simpan"
-                                              >
-                                                <Check className="w-3 h-3" />
-                                              </button>
-                                              <button
-                                                onClick={() => setEditingReleaseId(null)}
-                                                className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer"
-                                                title="Batal"
-                                              >
-                                                <X className="w-3 h-3" />
-                                              </button>
-                                            </div>
-                                          ) : (
-                                            <div className="flex items-center gap-1.5 group">
-                                              <span className="text-cyan-300 font-semibold">
-                                                {formatDisplayDate(task.release)}
-                                              </span>
-                                              <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
-                                                <button
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setEditingReleaseId(task.id);
-                                                    setEditingReleaseVal(parseToStandardDate(task.release) || '');
-                                                  }}
-                                                  className="p-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"
-                                                  title="Edit Langsung Tanggal Release"
-                                                >
-                                                  <Pencil className="w-3 h-3" />
-                                                </button>
-                                                <button
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleSyncReleaseFromDrive(task);
-                                                  }}
-                                                  className="p-0.5 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition cursor-pointer"
-                                                  title="Tarik Otomatis dari Link Google Drive"
-                                                >
-                                                  <Sparkles className="w-3 h-3" />
-                                                </button>
-                                              </div>
-                                            </div>
-                                          )}
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
-                          ) : (
-                            <div className="text-xs text-slate-500 py-3 text-center italic">Belum ada tugas untuk personel ini.</div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-                  Tidak ada anggota terdaftar di biro ini dari master IM4.
-                </div>
-              )}
+            {/* TAB SWITCHER */}
+            <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold w-fit">
+              <button
+                onClick={() => setMemberTab('organic')}
+                className={`px-4 py-2 rounded transition cursor-pointer flex items-center gap-2 ${
+                  memberTab === 'organic' 
+                    ? 'bg-blue-600 text-white font-bold shadow' 
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <Briefcase className="w-3.5 h-3.5" />
+                Organik (PKWT/PKWTT)
+                <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px]">{currentOrganicMembers.length}</span>
+              </button>
+              <button
+                onClick={() => setMemberTab('outsourcing')}
+                className={`px-4 py-2 rounded transition cursor-pointer flex items-center gap-2 ${
+                  memberTab === 'outsourcing' 
+                    ? 'bg-amber-600 text-white font-bold shadow' 
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <HardHat className="w-3.5 h-3.5" />
+                Outsourcing
+                <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px]">{currentOutsourcingMembers.length}</span>
+              </button>
             </div>
+
+            {/* KONTEN TAB */}
+            {memberTab === 'organic' && renderTaskTable(currentOrganicMembers)}
+            {memberTab === 'outsourcing' && renderTaskTable(currentOutsourcingMembers)}
           </div>
         )}
       </main>
