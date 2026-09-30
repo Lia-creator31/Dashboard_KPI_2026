@@ -12,9 +12,11 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   const [role, setRole] = useState<'kabiro' | 'outsourcing'>('kabiro');
   const [error, setError] = useState('');
 
-  // Cek apakah nama yang diketik adalah admin (Dyan Asih Purwanti atau Hashfi Moch Adam)
   const cleanNama = nama.trim().toLowerCase();
   const isAdmin = cleanNama.includes('dyan asih purwanti') || cleanNama.includes('hashfi moch adam');
+  
+  // Status hanya muncul jika kolom nama sudah diisi dan bukan admin
+  const showRoleSelector = nama.trim().length > 0 && !isAdmin;
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +34,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
-      <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl animate-fadeIn">
+      <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
         <div className="text-center space-y-2">
           <h1 className="text-xl font-bold text-white">Sistem Penugasan Job Card</h1>
           <p className="text-xs text-slate-400">Silakan masukkan identitas Anda untuk masuk</p>
@@ -75,9 +77,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             </div>
           </div>
 
-          {/* Pilihan status baru akan muncul jika BUKAN admin */}
-          {!isAdmin && (
-            <div className="animate-fadeIn">
+          {/* Bagian Pilih Status yang tadinya langsung muncul, sekarang dibungkus kondisi showRoleSelector */}
+          {showRoleSelector && (
+            <div className="transition-all duration-300 space-y-1">
               <label className="block text-slate-400 mb-1">Pilih Status</label>
               <div className="grid grid-cols-2 gap-3">
                 <button
@@ -110,7 +112,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           )}
 
           {isAdmin && (
-            <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-300 text-center font-medium animate-fadeIn">
+            <div className="p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-300 text-center font-medium">
               ✨ Akses Admin Rendal Terdeteksi
             </div>
           )}
