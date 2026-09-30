@@ -1,11 +1,32 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
 import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
+
 import { 
-  Building2, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
-  Pencil, Trash2, Lock, X, Check, Printer, FileCheck, Clock, Sparkles, FileSpreadsheet, Users 
+  Building2, 
+  Briefcase, 
+  HardHat, 
+  ArrowLeft, 
+  Search, 
+  ChevronRight, 
+  ChevronDown, 
+  ChevronUp, 
+  Pencil,
+  Trash2, 
+  Lock, 
+  KeyRound, 
+  X, 
+  Check, 
+  Upload, 
+  Printer, 
+  FileCheck, 
+  Clock, 
+  Sparkles, 
+  FileSpreadsheet,
+  Users, 
+  Laptop 
 } from 'lucide-react';
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', { 
@@ -16,7 +37,13 @@ const excelGlobUrls = import.meta.glob('./*.xlsx', {
 
 const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
 
-const GOOGLE_DRIVE_SHEETS = [
+interface DriveSheetInfo {
+  id: string;
+  projectKey: string;
+  title: string;
+}
+
+const GOOGLE_DRIVE_SHEETS: DriveSheetInfo[] = [
   { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)' },
   { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000304', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
   { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000305', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
@@ -66,6 +93,11 @@ interface DrawingControlRow {
 interface SelectOption {
   value: string;
   label: string;
+}
+
+interface SelectedFormPage {
+  biroName: string;
+  deptName: string;
 }
 
 interface RendalPageProps {
@@ -196,6 +228,40 @@ function formatDisplayDate(val: any): string {
   return String(val) || '-';
 }
 
+function getLocalRev(id: string, defaultVal: string = '0'): string {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_rev_map') || '{}');
+    return map[id] !== undefined ? String(map[id]) : defaultVal;
+  } catch {
+    return defaultVal;
+  }
+}
+
+function saveLocalRev(id: string, val: string) {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_rev_map') || '{}');
+    map[id] = val;
+    localStorage.setItem('task_rev_map', JSON.stringify(map));
+  } catch {}
+}
+
+function getLocalRelease(id: string, defaultVal: string = ''): string {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_release_map') || '{}');
+    return map[id] !== undefined ? String(map[id]) : defaultVal;
+  } catch {
+    return defaultVal;
+  }
+}
+
+function saveLocalRelease(id: string, val: string) {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_release_map') || '{}');
+    map[id] = val;
+    localStorage.setItem('task_release_map', JSON.stringify(map));
+  } catch {}
+}
+
 function isBiroMatch(biro1: string, biro2: string): boolean {
   const b1 = (biro1 || '').toLowerCase().replace('&', ' dan ').trim();
   const b2 = (biro2 || '').toLowerCase().replace('&', ' dan ').trim();
@@ -208,6 +274,27 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
     return c1 === c2 || c1.includes(c2) || c2.includes(c1);
   }
   return false;
+}
+
+function getBiroPrefix(biroName: string): string {
+  const b = (biroName || '').toLowerCase().replace('&', ' dan ').trim();
+  if (b.includes('dokumen')) return 'DP';
+  if (b.includes('logistik')) return 'DL';
+  if (b.includes('administrasi')) return 'DA';
+  if (b.includes('pengembangan')) return 'PD';
+  if (b.includes('non kapal')) return 'NK';
+  if (b.includes('kapal selam')) return 'KS';
+  if (b.includes('kapal permukaan')) return 'KP';
+  return 'WO';
+}
+
+function cleanProjectString(raw: any): string {
+  if (!raw) return '';
+  return String(raw).replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim().toUpperCase();
+}
+
+function getProjectNormKey(s: string): string {
+  return (s || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase().replace(/0/g, 'o');
 }
 
 async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
@@ -229,16 +316,38 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
 
 export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
-  const [selectedBiroName, setSelectedBiroName] = useState<string | null>(null);
+  const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
+  const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
   const [searchQuery, setSearchQuery] = useState('');
-  
-  const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
-  const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
+
+  const [formData, setFormData] = useState({
+    nama: '',
+    kodeProyek: '',
+    taskName: '',
+    startDate: '',
+    endDate: '',
+    pic: '',
+    jo: '',
+    rev: '0',
+    realJo: '',
+    release: '',
+  });
+
+  const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    project: '',
+    taskName: '',
+    startDate: '',
+    endDate: '',
+    jo: '',
+    kodeJc: '',
+    rev: '0',
+    release: '',
+  });
+
+  const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
+  const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>({});
-  
-  const [isPlannerOpen, setIsPlannerOpen] = useState(false);
-  const [editingTaskKode, setEditingTaskKode] = useState<{ [taskId: string]: string }>({});
-  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   const loadAllJobCards = useCallback(async () => {
     try {
@@ -251,6 +360,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           if (!biroKey) return;
           if (!grouped[biroKey]) grouped[biroKey] = [];
 
+          const persistedRev = (row.rev !== undefined && row.rev !== null && String(row.rev).trim() !== '') ? String(row.rev) : getLocalRev(row.id, '0');
+          const persistedRelease = (row.release !== undefined && row.release !== null && String(row.release).trim() !== '') ? String(row.release) : getLocalRelease(row.id, '');
+
           grouped[biroKey].push({
             id: row.id,
             biroName: row.biro_name || '',
@@ -261,8 +373,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             pic: row.pic || '',
             jo: row.jo || '',
             kodeJc: row.kode_jc || '',
-            rev: String(row.rev || '0'),
-            release: row.release || '',
+            rev: persistedRev,
+            release: persistedRelease,
             realJo: row.real_jc || row.realJo || '',
           });
         });
@@ -271,23 +383,140 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     } catch {}
   }, []);
 
-  useEffect(() => {
-    async function initMasterFiles() {
-      let im4Url = '';
-      Object.entries(excelGlobUrls).forEach(([path, url]) => {
-        if (path.toLowerCase().includes('im4') || path.toLowerCase().includes('drawing') || path.toLowerCase().includes('akses')) {
-          im4Url = url;
-        }
-      });
-      const wb = await fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx']);
-      if (wb) setIm4Workbook(wb);
-    }
-    initMasterFiles();
-    loadAllJobCards();
-  }, [loadAllJobCards]);
+  const [isPlannerModalOpen, setIsPlannerModalOpen] = useState(false);
+  const [editingTaskKode, setEditingTaskKode] = useState<{ [taskId: string]: string }>({});
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   const toggleAccordion = (cardKey: string) => {
     setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
+  };
+
+  const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
+  const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
+
+  const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
+  const [activeDrawingSheetTitle, setActiveDrawingSheetTitle] = useState<string>('');
+  const [isFetchingDrawing, setIsFetchingDrawing] = useState<boolean>(false);
+
+  useEffect(() => {
+    async function loadAllExcelFiles() {
+      try {
+        let jcUrl = '';
+        let im4Url = '';
+        let realisasiUrl = '';
+
+        Object.entries(excelGlobUrls).forEach(([path, url]) => {
+          const pLower = path.toLowerCase();
+          if (pLower.includes('jobcard') && !pLower.includes('realisasi')) jcUrl = url;
+          else if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
+          else if (pLower.includes('realisasi')) realisasiUrl = url;
+        });
+
+        const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
+          fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx']),
+          fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx']),
+          fetchSafeWorkbook([realisasiUrl, '/Realisasi JO.xlsx', './Realisasi JO.xlsx'])
+        ]);
+
+        if (wbJc) setJobcardWorkbook(wbJc);
+        if (wbIm4) setIm4Workbook(wbIm4);
+        if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
+      } catch {}
+    }
+    loadAllExcelFiles();
+    loadAllJobCards();
+  }, [loadAllJobCards]);
+
+  const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        setIm4Workbook(wb);
+        alert(`Master Personel "${file.name}" berhasil diperbarui!`);
+      } catch {
+        alert('Gagal membaca file Excel Personel IM4.');
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleUpdateJobcardExcel = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        setJobcardWorkbook(wb);
+        alert(`Katalog Jobcard "${file.name}" berhasil diperbarui!`);
+      } catch {
+        alert('Gagal membaca file JOBCARD_DESAIN.xlsx.');
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
+    const cleanProj = cleanText(projectCode);
+    if (!cleanProj) return;
+
+    setIsFetchingDrawing(true);
+    try {
+      const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          const rowsList: DrawingControlRow[] = json.data.map((item: any) => ({
+            noDwg: String(item.noDwg || '').trim(),
+            drawingName: String(item.drawingName || '').trim(),
+            fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
+            rev: String(item.rev || '0').trim(),
+            finishDate: String(item.finishDate || '').trim(),
+          }));
+          setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList }));
+          setActiveDrawingSheetTitle(json.fileName || `Drawing Control ${projectCode}`);
+          setIsFetchingDrawing(false);
+          return;
+        }
+      }
+    } catch {}
+    setIsFetchingDrawing(false);
+  }, []);
+
+  const handleProjectChange = (newProject: string) => {
+    setFormData(prev => ({ ...prev, kodeProyek: newProject, taskName: '', release: '' }));
+    fetchDrawingControlForProject(newProject);
+  };
+
+  const handleDeskripsiChange = (selectedDesc: string) => {
+    const cleanProj = cleanText(formData.kodeProyek || '');
+    const rows = drawingControlMap[cleanProj] || [];
+    let autoRelease = '';
+    let autoRev = formData.rev || '0';
+
+    if (rows.length > 0 && selectedDesc) {
+      const cleanTarget = cleanText(selectedDesc);
+      const currentRev = String(formData.rev || '0').trim();
+
+      const exactMatch = rows.find(r => {
+        const cFull = cleanText(r.fullDeskripsi);
+        const cDwg = cleanText(r.noDwg);
+        const cName = cleanText(r.drawingName);
+        const rowRev = String(r.rev || '0').trim();
+        return rowRev === currentRev && (cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget));
+      });
+
+      if (exactMatch && exactMatch.finishDate) {
+        autoRelease = parseToStandardDate(exactMatch.finishDate);
+        if (exactMatch.rev) autoRev = exactMatch.rev;
+      }
+    }
+    setFormData(prev => ({ ...prev, taskName: selectedDesc, release: autoRelease, rev: autoRev }));
   };
 
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
@@ -306,23 +535,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     reader.readAsBinaryString(file);
   };
 
-  const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
-        setIm4Workbook(wb);
-        alert(`Master Personel "${file.name}" berhasil diperbarui!`);
-      } catch {
-        alert('Gagal membaca file IM4.');
-      }
-    };
-    reader.readAsBinaryString(file);
-  };
-
-  // Logika parsing IM4 persis seperti program awal Anda agar hirarki Biro terbaca dengan benar
   const allParsedFromExcel = useMemo<ParsedMember[]>(() => {
     if (!im4Workbook) return [];
     try {
@@ -367,8 +579,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           currentDept = 'Div. Desain';
           currentBiro = 'Div. Desain';
         } else if (jabatan.toLowerCase().includes('kepala departemen') || jabatan.toLowerCase().includes('kadep')) {
-          if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
-          else currentDept = jabatan;
+          currentDept = unit && unit.toLowerCase() !== 'nan' ? unit : jabatan;
           currentBiro = `Staf ${currentDept}`;
         } else if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
           currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').replace(/Kabiro/gi, 'Biro').trim();
@@ -394,6 +605,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName));
   }, [allParsedFromExcel]);
 
+  const currentActiveBiroName = selectedFormBiro?.biroName || '';
+  const currentActiveBiroKey = cleanText(currentActiveBiroName);
+  const currentActiveBiroTasks = manualTasks[currentActiveBiroKey] || [];
+  const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
+
   const pendingTasksCount = useMemo(() => {
     let count = 0;
     Object.values(manualTasks).forEach(tasks => {
@@ -404,16 +620,76 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return count;
   }, [manualTasks]);
 
+  const projectOptions = useMemo((): string[] => {
+    const projectMap = new Map<string, string>();
+    GOOGLE_DRIVE_SHEETS.forEach(s => projectMap.set(getProjectNormKey(s.projectKey), cleanProjectString(s.projectKey)));
+    return Array.from(projectMap.values());
+  }, []);
+
+  const dynamicTaskOptions = useMemo((): string[] => {
+    const cleanProj = cleanText(formData.kodeProyek || '');
+    const rows = drawingControlMap[cleanProj] || [];
+    const taskMap = new Map<string, string>();
+    rows.forEach(r => {
+      if (r.fullDeskripsi) taskMap.set(cleanText(r.fullDeskripsi), r.fullDeskripsi);
+    });
+    return Array.from(taskMap.values());
+  }, [formData.kodeProyek, drawingControlMap]);
+
+  const handleSubmitForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const activeBiro = currentActiveBiroName;
+    if (!activeBiro) return;
+
+    try {
+      const { data: biroList } = await supabase.from('biros').select('id, name');
+      let validBiroId = biroList?.[0]?.id || null;
+      if (biroList) {
+        const found = biroList.find(b => isBiroMatch(b.name, activeBiro));
+        if (found) validBiroId = found.id;
+      }
+
+      const revVal = formData.rev || '0';
+      const { error } = await supabase.from('job_cards').insert({
+        biro_id: validBiroId,
+        biro_name: activeBiro,
+        personil_name: formData.nama,
+        project_code: formData.kodeProyek,
+        project: formData.kodeProyek,
+        task_name: formData.taskName,
+        start_date: formData.startDate,
+        end_date: formData.endDate,
+        pic: formData.nama,
+        jo: formData.jo,
+        kode_jc: '',
+        status: 'pending',
+        rev: revVal,
+        release: formData.release,
+      });
+
+      if (error) {
+        alert('Gagal simpan: ' + error.message);
+        return;
+      }
+
+      alert('Tugas tersimpan! Buka Planner untuk approval Jobcard.');
+      setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '', release: '' });
+      loadAllJobCards();
+    } catch {
+      alert('Koneksi database bermasalah.');
+    }
+  };
+
   const handleSaveKodeJcForTask = async (taskId: string) => {
     const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase();
     if (!inputVal) return;
 
     const { error } = await supabase.from('job_cards').update({ kode_jc: inputVal, status: 'approved' }).eq('id', taskId);
     if (error) {
-      alert('Gagal simpan Jobcard: ' + error.message);
+      alert('Gagal: ' + error.message);
       return;
     }
-    alert('Jobcard berhasil disetujui!');
+    alert('Jobcard disetujui!');
     loadAllJobCards();
   };
 
@@ -421,27 +697,29 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     dept.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const currentBiroTasks = selectedBiroName ? (manualTasks[cleanText(selectedBiroName)] || []) : [];
-  const currentBiroMembers = selectedBiroName ? getBiroMembers(selectedBiroName) : [];
-
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
       <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => { setSelectedDept(null); setSelectedBiroName(null); }}>
+          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => { setSelectedDept(null); setSelectedFormBiro(null); }}>
             <div className="p-1.5 bg-purple-600 rounded-lg text-white">
               <Building2 className="w-4 h-4" />
             </div>
-            <span className="font-bold text-sm text-white">PORTAL ADMIN RENDAL — <span className="text-cyan-400">{user.nama}</span></span>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-sm text-white">DIVISI DESAIN</span>
+              <span className="text-xs px-2 py-0.5 rounded font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                Admin Rendal ({user.nama})
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setIsPlannerOpen(true)}
+              onClick={() => setIsPlannerModalOpen(true)}
               className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer relative"
             >
               <Lock className="w-3.5 h-3.5" /> 
-              <span>Planner Panel</span>
+              <span>Planner</span>
               {pendingTasksCount > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full border border-slate-950 animate-pulse">
                   {pendingTasksCount}
@@ -449,10 +727,19 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               )}
             </button>
 
-            <button
-              onClick={onLogout}
-              className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer"
-            >
+            {selectedFormBiro && (
+              <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer flex items-center gap-1">
+                <ArrowLeft className="w-3 h-3" /> Biro
+              </button>
+            )}
+
+            {selectedDept && !selectedFormBiro && (
+              <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer flex items-center gap-1">
+                <ArrowLeft className="w-3 h-3" /> Dept
+              </button>
+            )}
+
+            <button onClick={onLogout} className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer">
               Keluar
             </button>
           </div>
@@ -460,73 +747,42 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
-          <div>
-            <h2 className="text-lg font-bold text-white">Monitoring Seluruh Departemen & Biro</h2>
-            <span className="text-xs text-slate-400">Akses lintas seluruh karyawan organik dan subkontraktor</span>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-              <Users className="w-3.5 h-3.5 text-blue-400" />
-              <span>Update IM4</span>
-              <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
-            </label>
-
-            <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-              <Clock className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Upload Realisasi JO</span>
-              <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
-            </label>
-
-            <input
-              type="text"
-              placeholder="Cari Departemen..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44"
-            />
-          </div>
-        </div>
-
-        {/* 1. Level Departemen */}
-        {!selectedDept && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {filteredDepartments.map((dept) => (
-              <div
-                key={dept.id}
-                onClick={() => setSelectedDept(dept)}
-                className="bg-slate-900 border border-slate-800 hover:border-purple-500 rounded-xl p-4 cursor-pointer transition flex items-center justify-between"
-              >
-                <div>
-                  <h4 className="font-semibold text-white text-sm">{dept.name}</h4>
-                  <span className="text-xs text-slate-400">{dept.biros.length} Biro</span>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-500" />
+        {!selectedDept && !selectedFormBiro && (
+          <div className="space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
+              <div>
+                <h2 className="text-lg font-bold text-white">Departemen Desain (Rendal Access)</h2>
+                <span className="text-xs text-slate-400">Akses penuh seluruh pegawai organik divisi desain</span>
               </div>
-            ))}
-          </div>
-        )}
 
-        {/* 2. Level Biro */}
-        {selectedDept && !selectedBiroName && (
-          <div className="space-y-4">
-            <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-              <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Departemen
-            </button>
-            <div className="border-b border-slate-800 pb-2">
-              <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
-              <span className="text-xs text-slate-400">Pilih biro untuk melihat anggota</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                  <Users className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Update Personel IM4</span>
+                  <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
+                </label>
+
+                <input
+                  type="text"
+                  placeholder="Cari Departemen..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44"
+                />
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {selectedDept.biros.map((biro) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {filteredDepartments.map((dept) => (
                 <div
-                  key={biro.id}
-                  onClick={() => setSelectedBiroName(biro.name)}
+                  key={dept.id}
+                  onClick={() => setSelectedDept(dept)}
                   className="bg-slate-900 border border-slate-800 hover:border-purple-500 rounded-xl p-4 cursor-pointer transition flex items-center justify-between"
                 >
-                  <span className="font-semibold text-white text-sm">{biro.name}</span>
+                  <div>
+                    <h4 className="font-semibold text-white text-sm">{dept.name}</h4>
+                    <span className="text-xs text-slate-400">{dept.biros.length} Biro</span>
+                  </div>
                   <ChevronRight className="w-4 h-4 text-slate-500" />
                 </div>
               ))}
@@ -534,106 +790,253 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         )}
 
-        {/* 3. Level Daftar Anggota */}
-        {selectedDept && selectedBiroName && (
+        {selectedDept && !selectedFormBiro && (
           <div className="space-y-4">
-            <button onClick={() => setSelectedBiroName(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-              <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Daftar Biro
-            </button>
             <div className="border-b border-slate-800 pb-2">
-              <h2 className="text-base font-bold text-white">{selectedBiroName}</h2>
-              <span className="text-xs text-slate-400">{currentBiroMembers.length} Anggota terdaftar di biro ini</span>
+              <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
+              <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
             </div>
 
-            <div className="space-y-2.5">
-              {currentBiroMembers.length > 0 ? (
-                currentBiroMembers.map((person) => {
-                  const personTasks = currentBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
-                  const isExpanded = !!expandedCards[person.nama];
+            <div className="space-y-2">
+              {selectedDept.biros.map((biro) => (
+                <div
+                  key={biro.id}
+                  className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                >
+                  <span className="font-semibold text-white text-sm">{biro.name}</span>
 
-                  return (
-                    <div key={`${person.nama}-${person.nip}`} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-                      <div 
-                        onClick={() => toggleAccordion(person.nama)}
-                        className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">
-                            {person.nama.charAt(0)}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-white text-sm">
-                              {person.nama} <span className="text-xs font-mono text-cyan-400 font-normal">({person.status})</span>
-                            </div>
-                            <div className="text-xs text-slate-400 font-mono">
-                              NIP: {person.nip || '-'} • <span className="text-slate-400">{person.jabatan}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs font-mono text-slate-400">{personTasks.length} Tugas</span>
-                          <div className={`p-1 rounded bg-slate-950 border border-slate-800 text-slate-400 ${isExpanded ? 'text-purple-400' : ''}`}>
-                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                          </div>
-                        </div>
-                      </div>
-
-                      {isExpanded && (
-                        <div className="p-3.5 border-t border-slate-800 bg-slate-950/60">
-                          {personTasks.length > 0 ? (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-left text-xs">
-                                <thead>
-                                  <tr className="text-slate-400 border-b border-slate-800">
-                                    <th className="py-2 px-2.5">Jobcard</th>
-                                    <th className="py-2 px-2.5">Proyek</th>
-                                    <th className="py-2 px-2.5">Deskripsi</th>
-                                    <th className="py-2 px-2.5 text-center">Rev</th>
-                                    <th className="py-2 px-2.5 font-mono">Jadwal</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-800 text-slate-300">
-                                  {personTasks.map(task => (
-                                    <tr key={task.id} className="hover:bg-slate-900/40">
-                                      <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || 'Pending'}</td>
-                                      <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
-                                      <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
-                                      <td className="py-2 px-2.5 text-center font-mono">{task.rev || '0'}</td>
-                                      <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
-                                        {formatDisplayDate(task.startDate)} s/d {formatDisplayDate(task.endDate)}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          ) : (
-                            <div className="text-xs text-slate-500 py-3 text-center italic">Belum ada tugas untuk personel ini.</div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-                  Tidak ada anggota terdaftar di biro ini dari master IM4.
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('members'); }}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer"
+                    >
+                      Anggota
+                    </button>
+                    <button
+                      onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer"
+                    >
+                      Form
+                    </button>
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
           </div>
         )}
 
-        {/* Modal Planner Panel */}
-        {isPlannerOpen && (
+        {selectedFormBiro && (
+          <div className="space-y-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
+                <div className="text-xs text-slate-400 font-mono flex items-center gap-2 mt-0.5">
+                  <span>{currentBiroMembers.length} Pegawai Organik</span>
+                  {activeDrawingSheetTitle && (
+                    <span className="text-emerald-400 flex items-center gap-1">
+                      • <Sparkles className="w-3 h-3 text-amber-400" /> {activeDrawingSheetTitle}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                <button
+                  onClick={() => setFormPageMode('members')}
+                  className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'members' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Anggota ({currentBiroMembers.length})
+                </button>
+                <button
+                  onClick={() => setFormPageMode('form')}
+                  className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'form' ? 'bg-emerald-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
+                >
+                  Form
+                </button>
+              </div>
+            </div>
+
+            {formPageMode === 'members' ? (
+              <div className="space-y-2.5">
+                {currentBiroMembers.length > 0 ? (
+                  currentBiroMembers.map((person) => {
+                    const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
+                    const isExpanded = !!expandedCards[person.nama];
+
+                    return (
+                      <div key={`${person.nama}-${person.nip}`} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden transition-all duration-200">
+                        <div 
+                          onClick={() => toggleAccordion(person.nama)}
+                          className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/40 transition"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">
+                              {person.nama.charAt(0)}
+                            </div>
+                            <div>
+                              <div className="font-semibold text-white text-sm">
+                                {person.nama} <span className="text-xs font-mono text-cyan-400 font-normal">({person.status})</span>
+                              </div>
+                              <div className="text-xs text-slate-400 font-mono">
+                                NIP: {person.nip || '-'} • <span className="text-slate-400">{person.jabatan}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-mono text-slate-400 hidden sm:inline">
+                              {personTasks.length} Tugas
+                            </span>
+                            <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-blue-400' : ''}`}>
+                              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            </div>
+                          </div>
+                        </div>
+
+                        {isExpanded && (
+                          <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
+                            {personTasks.length > 0 ? (
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-left text-xs">
+                                  <thead>
+                                    <tr className="text-slate-400 border-b border-slate-800">
+                                      <th className="py-2 px-2.5 w-8">#</th>
+                                      <th className="py-2 px-2.5 font-mono text-amber-400">Jobcard</th>
+                                      <th className="py-2 px-2.5">Proyek</th>
+                                      <th className="py-2 px-2.5">Deskripsi</th>
+                                      <th className="py-2 px-2.5 text-center font-mono">Rev</th>
+                                      <th className="py-2 px-2.5 font-mono text-cyan-400">Jadwal</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-800 text-slate-300">
+                                    {personTasks.map((task, tIdx) => (
+                                      <tr key={task.id} className="hover:bg-slate-900/40">
+                                        <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
+                                        <td className="py-2 px-2.5 font-mono font-bold text-amber-300">
+                                          {task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}
+                                        </td>
+                                        <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
+                                        <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
+                                        <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">
+                                          {formatDisplayDate(task.startDate)} s/d {formatDisplayDate(task.endDate)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <div className="text-xs text-slate-500 py-3 text-center italic">
+                                Belum ada tugas untuk personel ini.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
+                    Tidak ada personil organik di biro ini (Silakan upload Master IM4 terlebih dahulu)
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-slate-400 mb-1">Nama Personel (Organik)</label>
+                      <SearchableSelect
+                        options={currentBiroMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.status})` }))}
+                        value={formData.nama}
+                        onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
+                        placeholder="Ketik nama personel organik..."
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1">Kode Proyek</label>
+                      <SearchableSelect
+                        options={projectOptions}
+                        value={formData.kodeProyek}
+                        onChange={(val) => handleProjectChange(val)}
+                        placeholder="Ketik kode proyek..."
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1">Plan JO</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={formData.jo}
+                        onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9]/g, '') }))}
+                        placeholder="Contoh: 300426"
+                        required
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-slate-400 mb-1">Deskripsi</label>
+                      <SearchableSelect
+                        options={dynamicTaskOptions}
+                        value={formData.taskName}
+                        onChange={(val) => handleDeskripsiChange(val)}
+                        placeholder="Ketik deskripsi tugas..."
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1">Plan Start</label>
+                      <input 
+                        type="date" 
+                        value={formData.startDate} 
+                        onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))} 
+                        required 
+                        style={{ colorScheme: 'dark' }}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" 
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-400 mb-1">Plan Finish</label>
+                      <input 
+                        type="date" 
+                        value={formData.endDate} 
+                        onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))} 
+                        required 
+                        style={{ colorScheme: 'dark' }}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-2">
+                    <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer">
+                      Simpan Tugas
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ================= MODAL PLANNER ================= */}
+        {isPlannerModalOpen && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
               <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
                 <span className="font-bold text-xs text-white flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard ({pendingTasksCount} Menunggu)
                 </span>
-                <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
+                <button onClick={() => setIsPlannerModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
                   <X className="w-4 h-4" />
                 </button>
               </div>
