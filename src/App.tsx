@@ -70,6 +70,11 @@ const excelGlobUrls = import.meta.glob('./*.xlsx', {
   eager: true 
 }) as Record<string, string>;
 
+// =========================================================================
+// URL GOOGLE APPS SCRIPT WEB APP UNTUK DRIVE DRAWING CONTROL
+// =========================================================================
+const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
+
 interface DriveSheetInfo {
   id: string;
   projectKey: string;
@@ -264,6 +269,11 @@ function parseToStandardDate(val: any): string {
   if (!val) return '';
   const str = String(val).trim();
   if (!str || str === '-' || str.toLowerCase() === 'nan') return '';
+
+  // ISO Format dari Google Apps Script: 2026-08-14T00:00:00.000Z
+  if (str.includes('T') && str.length >= 10) {
+    return str.slice(0, 10);
+  }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
 
@@ -600,119 +610,82 @@ export default function App() {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
-  const parseDrawingWorkbook = useCallback((wb: XLSX.WorkBook, projKey: string): DrawingControlRow[] => {
-    const rowsList: DrawingControlRow[] = [];
-    
-    const targetSheetName = wb.SheetNames.find(s => {
-      const sl = s.toLowerCase();
-      return sl.includes('drawing control') || sl.includes('dc') || sl.includes('drawing');
-    }) || wb.SheetNames[0];
-
-    const sheet = wb.Sheets[targetSheetName];
-    if (!sheet) return rowsList;
-
-    const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-    if (rawRows.length === 0) return rowsList;
-
-    let headerIdx = -1;
-    let noDwgCol = -1;
-    let dwgNameCol = -1;
-    let revCol = -1;
-    let finishCol = -1;
-
-    for (let r = 0; r < Math.min(10, rawRows.length); r++) {
-      const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
-      const nCol = row.findIndex(c => c.includes('no dwg') || c.includes('drw. nr') || c.includes('pal nr') || c.includes('no. dwg') || c === 'atch');
-      const dCol = row.findIndex(c => c.includes('drawing name') || c === 'drawing' || c.includes('file location'));
-      const rCol = row.findIndex(c => c === 'rev' || c.startsWith('rev'));
-      const fCol = row.findIndex(c => c.includes('finish date') || c === 'finish' || c === '1211');
-
-      if (nCol !== -1 || dCol !== -1) {
-        headerIdx = r;
-        noDwgCol = nCol !== -1 ? nCol : 0;
-        dwgNameCol = dCol !== -1 ? dCol : 1;
-        revCol = rCol !== -1 ? rCol : 14;
-        finishCol = fCol !== -1 ? fCol : 15;
-        break;
-      }
-    }
-
-    if (noDwgCol === -1) noDwgCol = 0;
-    if (dwgNameCol === -1) dwgNameCol = 1;
-    if (revCol === -1) revCol = 14;
-    if (finishCol === -1) finishCol = 15;
-
-    for (let r = Math.max(headerIdx + 1, 1); r < rawRows.length; r++) {
-      const row = rawRows[r];
-      if (!row) continue;
-
-      const noDwg = String(row[noDwgCol] || '').trim();
-      const dwgName = String(row[dwgNameCol] || '').trim();
-      const rev = String(row[revCol] || '').trim();
-      const finishRaw = String(row[finishCol] || '').trim();
-
-      if (!noDwg && !dwgName) continue;
-      if (dwgName.toLowerCase().includes('drawing name')) continue;
-
-      let fullDeskripsi = '';
-      if (noDwg && dwgName) fullDeskripsi = `${noDwg}-${dwgName}`;
-      else if (dwgName) fullDeskripsi = dwgName;
-      else fullDeskripsi = noDwg;
-
-      rowsList.push({
-        noDwg,
-        drawingName: dwgName,
-        fullDeskripsi,
-        rev: rev || '0',
-        finishDate: finishRaw,
-      });
-    }
-
-    return rowsList;
-  }, []);
-
+  // =========================================================================
+  // INTEGRASI API GOOGLE APPS SCRIPT: OTOMATIS BUKA SPREADSHEET DRIVE DENGAN KODE PROYEK
+  // =========================================================================
   const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
     const cleanProj = cleanText(projectCode);
     if (!cleanProj) return;
 
-    const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(s.projectKey) === cleanProj || cleanProj.includes(cleanText(s.projectKey)) || cleanText(s.title).includes(cleanProj));
-    if (!match) return;
-
-    setActiveDrawingSheetTitle(match.title);
     setIsFetchingDrawing(true);
 
     try {
-      const url = `https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`;
+      // Panggil Web App Google Apps Script Anda langsung dengan parameter kode proyek
+      const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`;
       const res = await fetch(url);
+      
       if (res.ok) {
-        const csvText = await res.text();
-        const wb = XLSX.read(csvText, { type: 'string' });
-        const parsedRows = parseDrawingWorkbook(wb, match.projectKey);
-        if (parsedRows.length > 0) {
-          setDrawingControlMap(prev => ({ ...prev, [cleanProj]: parsedRows }));
-          setIsFetchingDrawing(false);
-          return;
-        }
-      }
-    } catch {}
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          const rowsList: DrawingControlRow[] = json.data.map((item: any) => ({
+            noDwg: String(item.noDwg || '').trim(),
+            drawingName: String(item.drawingName || '').trim(),
+            fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
+            rev: String(item.rev || '0').trim(),
+            finishDate: String(item.finishDate || '').trim(),
+          }));
 
-    try {
-      const url2 = `https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv`;
-      const res2 = await fetch(url2);
-      if (res2.ok) {
-        const csvText2 = await res2.text();
-        const wb2 = XLSX.read(csvText2, { type: 'string' });
-        const parsedRows2 = parseDrawingWorkbook(wb2, match.projectKey);
-        if (parsedRows2.length > 0) {
-          setDrawingControlMap(prev => ({ ...prev, [cleanProj]: parsedRows2 }));
+          setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList }));
+          setActiveDrawingSheetTitle(json.fileName || `Drawing Control ${projectCode}`);
           setIsFetchingDrawing(false);
           return;
         }
       }
-    } catch {}
+    } catch (err) {
+      console.warn('Gagal koneksi ke Google Apps Script, mencoba fallback...', err);
+    }
+
+    // Fallback: Jika spreadsheet sudah terdaftar di registry ID publik
+    const match = GOOGLE_DRIVE_SHEETS.find(s => 
+      cleanText(s.projectKey) === cleanProj || 
+      cleanProj.includes(cleanText(s.projectKey)) || 
+      cleanText(s.title).includes(cleanProj)
+    );
+
+    if (match) {
+      try {
+        const csvUrl = `https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`;
+        const res = await fetch(csvUrl);
+        if (res.ok) {
+          const csvText = await res.text();
+          const wb = XLSX.read(csvText, { type: 'string' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+          
+          const rowsList: DrawingControlRow[] = [];
+          for (let r = 1; r < rawRows.length; r++) {
+            const row = rawRows[r];
+            if (!row) continue;
+            const noDwg = String(row[0] || '').trim();
+            const dwgName = String(row[1] || '').trim();
+            const rev = String(row[14] || '0').trim();
+            const finishRaw = String(row[15] || '').trim();
+
+            if (!noDwg && !dwgName) continue;
+            const fullDeskripsi = (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg);
+            rowsList.push({ noDwg, drawingName: dwgName, fullDeskripsi, rev, finishDate: finishRaw });
+          }
+
+          if (rowsList.length > 0) {
+            setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList }));
+            setActiveDrawingSheetTitle(match.title);
+          }
+        }
+      } catch {}
+    }
 
     setIsFetchingDrawing(false);
-  }, [parseDrawingWorkbook]);
+  }, []);
 
   const handleUploadProjectDrawingControl = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -730,7 +703,21 @@ export default function App() {
           foundKey = match ? cleanText(match.projectKey) : 'm000313';
         }
 
-        const parsed = parseDrawingWorkbook(wb, foundKey);
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        const parsed: DrawingControlRow[] = [];
+        for (let r = 1; r < rawRows.length; r++) {
+          const row = rawRows[r];
+          if (!row) continue;
+          const noDwg = String(row[0] || '').trim();
+          const dwgName = String(row[1] || '').trim();
+          const rev = String(row[14] || '0').trim();
+          const finishRaw = String(row[15] || '').trim();
+          if (!noDwg && !dwgName) continue;
+          const fullDeskripsi = (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg);
+          parsed.push({ noDwg, drawingName: dwgName, fullDeskripsi, rev, finishDate: finishRaw });
+        }
+
         setDrawingControlMap(prev => ({ ...prev, [foundKey]: parsed }));
         setActiveDrawingSheetTitle(file.name);
         alert(`Berhasil memuat ${parsed.length} baris gambar dari ${file.name}!`);
@@ -746,6 +733,9 @@ export default function App() {
     fetchDrawingControlForProject(newProject);
   };
 
+  // =========================================================================
+  // LOGIKA PENCARIAN BARIS TERAKHIR SENDIRI -> MENGAMBIL FINISH DATE KE RELEASE
+  // =========================================================================
   const handleDeskripsiChange = (selectedDesc: string) => {
     const cleanProj = cleanText(formData.kodeProyek || '');
     const rowsForThisProj = drawingControlMap[cleanProj] || [];
@@ -756,6 +746,7 @@ export default function App() {
     if (rowsForThisProj.length > 0 && selectedDesc) {
       const cleanTarget = cleanText(selectedDesc);
 
+      // Cari seluruh baris dengan nilai deskripsi yang sama
       const matches = rowsForThisProj.filter(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
@@ -767,6 +758,7 @@ export default function App() {
         return false;
       });
 
+      // AMBIL NILAI DARI BARIS YANG PALING TERAKHIR SENDIRI
       if (matches.length > 0) {
         const lastRow = matches[matches.length - 1];
         if (lastRow.finishDate) {
@@ -828,6 +820,7 @@ export default function App() {
     return isNaN(num) ? 0 : num;
   };
 
+  // Parser Realisasi JO (Effective + Overtime)
   const realisasiMap = useMemo(() => {
     const map = new Map<string, number>();
     if (!realisasiWorkbook) return map;
@@ -1652,6 +1645,7 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* Konten Dropdown: Tabel Kolom Rapi */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1740,12 +1734,11 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 2: FORM SUBKON (DENGAN PENCARIAN KETIK) */}
+                {/* TAB 2: FORM SUBKON */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                        {/* 1. Nama Drafter (Pencarian Ketik) */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Nama Drafter / Personel</label>
                           <SearchableSelect
@@ -1757,7 +1750,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 2. Kode Proyek (Pencarian Ketik) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Kode Proyek</label>
                           <SearchableSelect
@@ -1769,7 +1761,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 3. Nomor JO */}
                         <div>
                           <label className="block text-slate-400 mb-1">Nomor JO</label>
                           <input
@@ -1783,7 +1774,6 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 4. Deskripsi (Pencarian Ketik) */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Deskripsi</label>
                           <SearchableSelect
@@ -2044,6 +2034,7 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* OUTPUT TABEL BERKOLOM */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -2096,6 +2087,8 @@ export default function App() {
                                                 {task.endDate}
                                               </td>
                                               <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
+                                              
+                                              {/* Real JO */}
                                               <td className="py-2 px-2.5 font-mono font-bold">
                                                 {calculatedRealHours !== undefined ? (
                                                   <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
@@ -2107,9 +2100,12 @@ export default function App() {
                                                   <span className="text-slate-600 font-normal">-</span>
                                                 )}
                                               </td>
+
+                                              {/* Release */}
                                               <td className="py-2 px-2.5 font-mono text-[11px] text-cyan-300 font-semibold">
                                                 {task.release || '-'}
                                               </td>
+
                                               <td className="py-2 px-2.5 text-center">
                                                 <div className="flex items-center justify-center gap-1.5">
                                                   <button 
@@ -2157,11 +2153,11 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  /* TAB 2: FORM ORGANIK (DENGAN PENCARIAN KETIK) */
+                  /* TAB 2: FORM ORGANIK (DENGAN SEARCHABLE SELECT & AUTO RELEASE) */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* 1. Nama Personel Organik (Pencarian Ketik) */}
+                        {/* 1. Nama Personel Organik */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Nama Personel (Organik)</label>
                           <SearchableSelect
@@ -2173,7 +2169,7 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 2. Kode Proyek (Pencarian Ketik) */}
+                        {/* 2. Kode Proyek */}
                         <div>
                           <label className="block text-slate-400 mb-1">Kode Proyek</label>
                           <SearchableSelect
@@ -2199,13 +2195,13 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 4. Deskripsi (Pencarian Ketik) */}
+                        {/* 4. Deskripsi */}
                         <div className="md:col-span-2">
                           <div className="flex items-center justify-between mb-1">
                             <label className="text-slate-400">Deskripsi</label>
                             {isFetchingDrawing && (
                               <span className="text-[10px] text-amber-400 animate-pulse font-mono">
-                                Membaca Drawing Control Drive...
+                                Mengambil dari Google Drive...
                               </span>
                             )}
                           </div>
@@ -2229,13 +2225,13 @@ export default function App() {
                           />
                         </div>
 
-                        {/* 5. Release */}
+                        {/* 5. Release (Terisi otomatis dari baris terakhir FINISH DATE) */}
                         <div>
                           <div className="flex items-center justify-between mb-1">
                             <label className="text-slate-400">Release (Finish Date)</label>
                             {formData.release && (
                               <span className="text-[10px] text-emerald-400 font-mono">
-                                ✓ Otomatis dari Drawing Control
+                                ✓ Otomatis dari Google Drive
                               </span>
                             )}
                           </div>
@@ -2286,7 +2282,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= MODAL EDIT PENUGASAN (DENGAN PENCARIAN KETIK) ================= */}
+        {/* ================= MODAL EDIT PENUGASAN (DENGAN SEARCHABLE SELECT) ================= */}
         {editingTask && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-fadeIn">
@@ -2305,7 +2301,10 @@ export default function App() {
                   <SearchableSelect
                     options={projectOptions}
                     value={editFormData.project}
-                    onChange={(val) => setEditFormData(prev => ({ ...prev, project: val }))}
+                    onChange={(val) => {
+                      setEditFormData(prev => ({ ...prev, project: val }));
+                      fetchDrawingControlForProject(val);
+                    }}
                     placeholder="Ketik kode proyek..."
                     required
                   />
@@ -2345,7 +2344,22 @@ export default function App() {
                   <SearchableSelect
                     options={dynamicTaskOptions}
                     value={editFormData.taskName}
-                    onChange={(val) => setEditFormData(prev => ({ ...prev, taskName: val }))}
+                    onChange={(val) => {
+                      const cleanProj = cleanText(editFormData.project || '');
+                      const rows = drawingControlMap[cleanProj] || [];
+                      let newRelease = editFormData.release;
+                      let newRev = editFormData.rev;
+
+                      const cleanTarget = cleanText(val);
+                      const matches = rows.filter(r => cleanText(r.fullDeskripsi) === cleanTarget || cleanText(r.drawingName) === cleanTarget || (r.noDwg && cleanTarget.includes(cleanText(r.noDwg))));
+                      if (matches.length > 0) {
+                        const last = matches[matches.length - 1];
+                        if (last.finishDate) newRelease = parseToStandardDate(last.finishDate);
+                        if (last.rev) newRev = last.rev;
+                      }
+
+                      setEditFormData(prev => ({ ...prev, taskName: val, release: newRelease, rev: newRev }));
+                    }}
                     placeholder="Ketik deskripsi gambar..."
                     required
                   />
