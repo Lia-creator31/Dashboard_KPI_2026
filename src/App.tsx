@@ -608,7 +608,6 @@ export default function App() {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
-  // Handler Update File Master: AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL.xlsx
   const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -626,7 +625,6 @@ export default function App() {
     reader.readAsBinaryString(file);
   };
 
-  // Handler Update File Master: JOBCARD_DESAIN.xlsx
   const handleUpdateJobcardExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -644,7 +642,6 @@ export default function App() {
     reader.readAsBinaryString(file);
   };
 
-  // Integrasi Google Apps Script
   const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
     const cleanProj = cleanText(projectCode);
     if (!cleanProj) return;
@@ -1441,7 +1438,6 @@ export default function App() {
               </button>
             )}
 
-            {/* Tombol Kembali Dinamis */}
             {accessMode === 'subkon' && subconSelectedBiro ? (
               <button onClick={() => setSubconSelectedBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                 <ArrowLeft className="w-3.5 h-3.5" /> Biro
@@ -1516,14 +1512,12 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Tombol Update File Master Personel IM4 */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <Users className="w-3.5 h-3.5 text-amber-400" />
                       <span>Update Personel IM4</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
                     </label>
 
-                    {/* Tombol Update File Master JOBCARD_DESAIN */}
                     <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
                       <span>Update Jobcard Desain</span>
@@ -1649,7 +1643,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA SUBKON */}
                 {subconPageMode === 'members' && (
                   <div className="space-y-2.5">
                     {activeSubconMembers.length > 0 ? (
@@ -1690,7 +1683,6 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Tabel Subkon */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1775,7 +1767,7 @@ export default function App() {
                       })
                     ) : (
                       <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-                        Tidak ada anggota di biro ini
+                        Tidak ada anggota di biro ini (Silakan upload Master IM4 terlebih dahulu)
                       </div>
                     )}
                   </div>
@@ -2022,7 +2014,6 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Tombol Update Realisasi JO */}
                     <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                       <Clock className="w-3 h-3 text-emerald-400" />
                       <span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
@@ -2258,7 +2249,7 @@ export default function App() {
                       })
                     ) : (
                       <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-                        Tidak ada personil organik di biro ini
+                        Tidak ada personil organik di biro ini (Silakan upload Master IM4 terlebih dahulu)
                       </div>
                     )}
                   </div>
