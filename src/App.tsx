@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, ChangeEvent } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
 import { departmentsData, monthList, Department } from './data';
 import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
@@ -26,16 +26,17 @@ import {
   KeyRound, 
   X, 
   Check, 
-  Upload,
+  Upload, 
   Printer, 
-  FileCheck,
-  Clock,
-  Wrench,
-  CircleDollarSign,
-  Users,
-  Truck,
-  ShieldCheck,
-  Laptop,
+  FileCheck, 
+  Clock, 
+  Sparkles, 
+  Wrench, 
+  CircleDollarSign, 
+  Users, 
+  Truck, 
+  ShieldCheck, 
+  Laptop, 
   LucideIcon 
 } from 'lucide-react';
 
@@ -63,12 +64,32 @@ const allCsvFiles = import.meta.glob('./**/*.{csv,CSV,txt,TXT}', {
   eager: true 
 }) as Record<string, string>;
 
-// File Excel utama
 const excelGlobUrls = import.meta.glob('./*.xlsx', { 
   query: '?url', 
   import: 'default', 
   eager: true 
 }) as Record<string, string>;
+
+interface DriveSheetInfo {
+  id: string;
+  projectKey: string;
+  title: string;
+}
+
+const GOOGLE_DRIVE_SHEETS: DriveSheetInfo[] = [
+  { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)' },
+  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000304', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
+  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000305', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
+  { id: '19qiMBb1b7qmeRXkFNTbh-eKtVEKDUTgshloa116HQ48', projectKey: 'W000308', title: 'Drawing Control LPD UAE USED (W000308)' },
+  { id: '16rrjyU60BmzRIYFL3I1WRLkw_AfJPUwi8vZiJx2LYCg', projectKey: 'W000314', title: 'Drawing Control KSR 20 M ALU (W000314)' },
+  { id: '1uv2D4ECJ0z-NWP8byzXTkkM17MKD6f0r-RCtKjpG5Hs', projectKey: 'M000312', title: 'Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)' },
+  { id: '1eTO-dvVd3psdP4mFQc2ZQW_Z-lyooCb2TVjR4mYTbDw', projectKey: 'W000311', title: 'Drawing Control KSSR 18 M (W000311)' },
+  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000306', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
+  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000307', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
+  { id: '1l0ZoTCctHrmkruIkC4Gk1NtoqsugMVGABrsf3yb6PHo', projectKey: 'KSOT', title: 'Drawing Control KSOT' },
+  { id: '1jGNHh9HhSrPlEv7JZvtW8ToMU2ADrT0yE87tk9E53zY', projectKey: 'LCU', title: 'Drawing Control LCU LD PN 124 M' },
+  { id: '1XsrklFhcUkjgfEjuT4jDRWx6Uufsj8Jt', projectKey: 'FFBNW', title: 'Drawing Control FFBNW FRIGATE 140 M' },
+];
 
 export interface ParsedMember {
   nama: string;
@@ -107,6 +128,14 @@ interface TaskItem {
   release?: string;
 }
 
+interface DrawingControlRow {
+  noDwg: string;
+  drawingName: string;
+  fullDeskripsi: string;
+  rev: string;
+  finishDate: string;
+}
+
 interface SelectedBiroPage {
   biroName: string;
   month: string;
@@ -118,8 +147,166 @@ interface SelectedFormPage {
   deptName: string;
 }
 
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+// =========================================================================
+// KOMPONEN DROPDOWN DENGAN PENCARIAN KETIK (SEARCHABLE SELECT)
+// =========================================================================
+function SearchableSelect({
+  options,
+  value,
+  onChange,
+  placeholder = 'Ketik untuk mencari...',
+  required = false,
+}: {
+  options: (string | SelectOption)[];
+  value: string;
+  onChange: (val: string) => void;
+  placeholder?: string;
+  required?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const normalizedOptions = useMemo<SelectOption[]>(() => {
+    return options.map(opt => typeof opt === 'string' ? { value: opt, label: opt } : opt);
+  }, [options]);
+
+  const selectedOption = useMemo(() => {
+    return normalizedOptions.find(opt => opt.value === value);
+  }, [normalizedOptions, value]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSearch(selectedOption ? selectedOption.label : '');
+    }
+  }, [selectedOption, isOpen]);
+
+  const filtered = useMemo(() => {
+    if (!search || !isOpen) return normalizedOptions;
+    const s = search.toLowerCase();
+    return normalizedOptions.filter(opt =>
+      opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s)
+    );
+  }, [normalizedOptions, search, isOpen]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setSearch(selectedOption ? selectedOption.label : '');
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [selectedOption]);
+
+  return (
+    <div ref={wrapperRef} className="relative w-full">
+      <div className="relative">
+        <input
+          type="text"
+          value={isOpen ? search : (selectedOption ? selectedOption.label : '')}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            if (!isOpen) setIsOpen(true);
+          }}
+          onFocus={() => {
+            setIsOpen(true);
+            setSearch('');
+          }}
+          placeholder={placeholder}
+          required={required && !value}
+          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500 pr-8 text-xs cursor-text"
+        />
+        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180 text-blue-400' : ''}`} />
+        </div>
+      </div>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-800 animate-fadeIn text-xs">
+          {filtered.length > 0 ? (
+            filtered.map((opt, i) => (
+              <div
+                key={i}
+                onClick={() => {
+                  onChange(opt.value);
+                  setSearch(opt.label);
+                  setIsOpen(false);
+                }}
+                className={`px-3 py-2 cursor-pointer hover:bg-blue-600 hover:text-white transition flex items-center justify-between ${opt.value === value ? 'bg-slate-800 text-blue-400 font-semibold' : 'text-slate-200'}`}
+              >
+                <span className="truncate">{opt.label}</span>
+                {opt.value === value && <Check className="w-3.5 h-3.5 shrink-0 ml-2 text-blue-400" />}
+              </div>
+            ))
+          ) : (
+            <div className="px-3 py-3 text-center text-slate-500 italic">
+              Tidak ditemukan "{search}"
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function cleanText(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+}
+
+function parseToStandardDate(val: any): string {
+  if (!val) return '';
+  const str = String(val).trim();
+  if (!str || str === '-' || str.toLowerCase() === 'nan') return '';
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+
+  const indoMonths: Record<string, string> = {
+    jan: '01', feb: '02', mar: '03', apr: '04', mei: '05', jun: '06',
+    jul: '07', agu: '08', ags: '08', sep: '09', okt: '10', nov: '11', des: '12',
+    aug: '08', oct: '10', dec: '12', may: '05'
+  };
+
+  const m1 = str.match(/^(\d{4})[-/]([A-Za-z]{3,4})[-/](\d{1,2})$/);
+  if (m1) {
+    const y = m1[1];
+    const mon = indoMonths[m1[2].toLowerCase().slice(0, 3)] || '01';
+    const d = m1[3].padStart(2, '0');
+    return `${y}-${mon}-${d}`;
+  }
+
+  const m2 = str.match(/^(\d{1,2})[-/]([A-Za-z]{3,4})[-/](\d{2,4})$/);
+  if (m2) {
+    const d = m2[1].padStart(2, '0');
+    const mon = indoMonths[m2[2].toLowerCase().slice(0, 3)] || '01';
+    let y = m2[3];
+    if (y.length === 2) y = '20' + y;
+    return `${y}-${mon}-${d}`;
+  }
+
+  const m3 = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (m3) {
+    return `${m3[1]}-${m3[2].padStart(2, '0')}-${m3[3].padStart(2, '0')}`;
+  }
+
+  const m4 = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (m4) {
+    return `${m4[3]}-${m4[2].padStart(2, '0')}-${m4[1].padStart(2, '0')}`;
+  }
+
+  const num = Number(str);
+  if (!isNaN(num) && num > 30000 && num < 60000) {
+    const d = new Date(Math.round((num - 25569) * 86400 * 1000));
+    return d.toISOString().split('T')[0];
+  }
+
+  return str;
 }
 
 function getLocalRev(id: string, defaultVal: string = '0'): string {
@@ -356,11 +543,15 @@ export default function App() {
     setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
   };
 
-  // 3 File Excel Utama
+  // File Excel & Drawing Control State
   const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
   const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
+
+  const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
+  const [activeDrawingSheetTitle, setActiveDrawingSheetTitle] = useState<string>('');
+  const [isFetchingDrawing, setIsFetchingDrawing] = useState<boolean>(false);
 
   useEffect(() => {
     async function loadAllExcelFiles() {
@@ -409,6 +600,192 @@ export default function App() {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
+  const parseDrawingWorkbook = useCallback((wb: XLSX.WorkBook, projKey: string): DrawingControlRow[] => {
+    const rowsList: DrawingControlRow[] = [];
+    
+    const targetSheetName = wb.SheetNames.find(s => {
+      const sl = s.toLowerCase();
+      return sl.includes('drawing control') || sl.includes('dc') || sl.includes('drawing');
+    }) || wb.SheetNames[0];
+
+    const sheet = wb.Sheets[targetSheetName];
+    if (!sheet) return rowsList;
+
+    const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (rawRows.length === 0) return rowsList;
+
+    let headerIdx = -1;
+    let noDwgCol = -1;
+    let dwgNameCol = -1;
+    let revCol = -1;
+    let finishCol = -1;
+
+    for (let r = 0; r < Math.min(10, rawRows.length); r++) {
+      const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
+      const nCol = row.findIndex(c => c.includes('no dwg') || c.includes('drw. nr') || c.includes('pal nr') || c.includes('no. dwg') || c === 'atch');
+      const dCol = row.findIndex(c => c.includes('drawing name') || c === 'drawing' || c.includes('file location'));
+      const rCol = row.findIndex(c => c === 'rev' || c.startsWith('rev'));
+      const fCol = row.findIndex(c => c.includes('finish date') || c === 'finish' || c === '1211');
+
+      if (nCol !== -1 || dCol !== -1) {
+        headerIdx = r;
+        noDwgCol = nCol !== -1 ? nCol : 0;
+        dwgNameCol = dCol !== -1 ? dCol : 1;
+        revCol = rCol !== -1 ? rCol : 14;
+        finishCol = fCol !== -1 ? fCol : 15;
+        break;
+      }
+    }
+
+    if (noDwgCol === -1) noDwgCol = 0;
+    if (dwgNameCol === -1) dwgNameCol = 1;
+    if (revCol === -1) revCol = 14;
+    if (finishCol === -1) finishCol = 15;
+
+    for (let r = Math.max(headerIdx + 1, 1); r < rawRows.length; r++) {
+      const row = rawRows[r];
+      if (!row) continue;
+
+      const noDwg = String(row[noDwgCol] || '').trim();
+      const dwgName = String(row[dwgNameCol] || '').trim();
+      const rev = String(row[revCol] || '').trim();
+      const finishRaw = String(row[finishCol] || '').trim();
+
+      if (!noDwg && !dwgName) continue;
+      if (dwgName.toLowerCase().includes('drawing name')) continue;
+
+      let fullDeskripsi = '';
+      if (noDwg && dwgName) fullDeskripsi = `${noDwg}-${dwgName}`;
+      else if (dwgName) fullDeskripsi = dwgName;
+      else fullDeskripsi = noDwg;
+
+      rowsList.push({
+        noDwg,
+        drawingName: dwgName,
+        fullDeskripsi,
+        rev: rev || '0',
+        finishDate: finishRaw,
+      });
+    }
+
+    return rowsList;
+  }, []);
+
+  const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
+    const cleanProj = cleanText(projectCode);
+    if (!cleanProj) return;
+
+    const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(s.projectKey) === cleanProj || cleanProj.includes(cleanText(s.projectKey)) || cleanText(s.title).includes(cleanProj));
+    if (!match) return;
+
+    setActiveDrawingSheetTitle(match.title);
+    setIsFetchingDrawing(true);
+
+    try {
+      const url = `https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const csvText = await res.text();
+        const wb = XLSX.read(csvText, { type: 'string' });
+        const parsedRows = parseDrawingWorkbook(wb, match.projectKey);
+        if (parsedRows.length > 0) {
+          setDrawingControlMap(prev => ({ ...prev, [cleanProj]: parsedRows }));
+          setIsFetchingDrawing(false);
+          return;
+        }
+      }
+    } catch {}
+
+    try {
+      const url2 = `https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv`;
+      const res2 = await fetch(url2);
+      if (res2.ok) {
+        const csvText2 = await res2.text();
+        const wb2 = XLSX.read(csvText2, { type: 'string' });
+        const parsedRows2 = parseDrawingWorkbook(wb2, match.projectKey);
+        if (parsedRows2.length > 0) {
+          setDrawingControlMap(prev => ({ ...prev, [cleanProj]: parsedRows2 }));
+          setIsFetchingDrawing(false);
+          return;
+        }
+      }
+    } catch {}
+
+    setIsFetchingDrawing(false);
+  }, [parseDrawingWorkbook]);
+
+  const handleUploadProjectDrawingControl = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+
+        let foundKey = cleanText(formData.kodeProyek || '');
+        if (!foundKey) {
+          const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(file.name).includes(cleanText(s.projectKey)));
+          foundKey = match ? cleanText(match.projectKey) : 'm000313';
+        }
+
+        const parsed = parseDrawingWorkbook(wb, foundKey);
+        setDrawingControlMap(prev => ({ ...prev, [foundKey]: parsed }));
+        setActiveDrawingSheetTitle(file.name);
+        alert(`Berhasil memuat ${parsed.length} baris gambar dari ${file.name}!`);
+      } catch {
+        alert('Gagal membaca file Drawing Control.');
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleProjectChange = (newProject: string) => {
+    setFormData(prev => ({ ...prev, kodeProyek: newProject, taskName: '', release: '' }));
+    fetchDrawingControlForProject(newProject);
+  };
+
+  const handleDeskripsiChange = (selectedDesc: string) => {
+    const cleanProj = cleanText(formData.kodeProyek || '');
+    const rowsForThisProj = drawingControlMap[cleanProj] || [];
+
+    let autoRelease = '';
+    let autoRev = formData.rev || '0';
+
+    if (rowsForThisProj.length > 0 && selectedDesc) {
+      const cleanTarget = cleanText(selectedDesc);
+
+      const matches = rowsForThisProj.filter(r => {
+        const cFull = cleanText(r.fullDeskripsi);
+        const cDwg = cleanText(r.noDwg);
+        const cName = cleanText(r.drawingName);
+
+        if (cFull === cleanTarget) return true;
+        if (cName && (cleanTarget === cName || cleanTarget.includes(cName))) return true;
+        if (cDwg && cleanTarget.includes(cDwg)) return true;
+        return false;
+      });
+
+      if (matches.length > 0) {
+        const lastRow = matches[matches.length - 1];
+        if (lastRow.finishDate) {
+          autoRelease = parseToStandardDate(lastRow.finishDate);
+        }
+        if (lastRow.rev) {
+          autoRev = lastRow.rev;
+        }
+      }
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      taskName: selectedDesc,
+      release: autoRelease || prev.release,
+      rev: autoRev,
+    }));
+  };
+
   const handleManualUploadExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -451,7 +828,6 @@ export default function App() {
     return isNaN(num) ? 0 : num;
   };
 
-  // Parser Realisasi JO (Effective + Overtime)
   const realisasiMap = useMemo(() => {
     const map = new Map<string, number>();
     if (!realisasiWorkbook) return map;
@@ -508,7 +884,6 @@ export default function App() {
     return map;
   }, [realisasiWorkbook]);
 
-  // Parser Master Anggota dari Excel IM4
   const allParsedFromExcel = useMemo<ParsedMember[]>(() => {
     if (!im4Workbook) return [];
 
@@ -620,6 +995,14 @@ export default function App() {
   const projectOptions = useMemo((): string[] => {
     const projectMap = new Map<string, string>();
 
+    GOOGLE_DRIVE_SHEETS.forEach(s => {
+      const cleaned = cleanProjectString(s.projectKey);
+      const normKey = getProjectNormKey(cleaned);
+      if (cleaned && normKey && !projectMap.has(normKey)) {
+        projectMap.set(normKey, cleaned);
+      }
+    });
+
     if (jobcardWorkbook) {
       jobcardWorkbook.SheetNames.forEach(sheetName => {
         const sheet = jobcardWorkbook.Sheets[sheetName];
@@ -673,47 +1056,58 @@ export default function App() {
     return Array.from(projectMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook, manualTasks]);
 
-  const taskOptions = useMemo((): string[] => {
-    if (!jobcardWorkbook) return [];
+  const dynamicTaskOptions = useMemo((): string[] => {
+    const cleanProj = cleanText(formData.kodeProyek || '');
+    const rowsForThisProj = drawingControlMap[cleanProj] || [];
     const taskMap = new Map<string, string>();
 
-    jobcardWorkbook.SheetNames.forEach(sheetName => {
-      const sheet = jobcardWorkbook.Sheets[sheetName];
-      if (!sheet) return;
-      const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
-      let taskCol = 3;
-      for (let r = 0; r < Math.min(5, rows.length); r++) {
-        const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-        const foundIdx = rowVals.findIndex(v => v.includes('task') || v.includes('deskripsi') || v.includes('uraian') || v.includes('pekerjaan'));
-        if (foundIdx !== -1) {
-          taskCol = foundIdx;
-          break;
+    rowsForThisProj.forEach(r => {
+      if (r.fullDeskripsi) {
+        const norm = cleanText(r.fullDeskripsi);
+        if (!taskMap.has(norm)) {
+          taskMap.set(norm, r.fullDeskripsi);
         }
       }
-
-      rows.forEach((row, idx) => {
-        if (idx < 1 || !row) return;
-        const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
-        if (
-          !raw || 
-          raw.toLowerCase() === 'nan' || 
-          raw.toLowerCase().includes('desc pekerjaan') || 
-          raw.toLowerCase().includes('task name') || 
-          raw.toLowerCase() === 'deskripsi'
-        ) return;
-
-        const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
-        const normKey = cleanText(cleaned);
-
-        if (cleaned && normKey && !taskMap.has(normKey)) {
-          taskMap.set(normKey, cleaned);
-        }
-      });
     });
 
+    if (jobcardWorkbook) {
+      jobcardWorkbook.SheetNames.forEach(sheetName => {
+        const sheet = jobcardWorkbook.Sheets[sheetName];
+        if (!sheet) return;
+        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+        let taskCol = 3;
+        for (let r = 0; r < Math.min(5, rows.length); r++) {
+          const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+          const foundIdx = rowVals.findIndex(v => v.includes('task') || v.includes('deskripsi') || v.includes('uraian') || v.includes('pekerjaan'));
+          if (foundIdx !== -1) {
+            taskCol = foundIdx;
+            break;
+          }
+        }
+
+        rows.forEach((row, idx) => {
+          if (idx < 1 || !row) return;
+          const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
+          if (
+            !raw || 
+            raw.toLowerCase() === 'nan' || 
+            raw.toLowerCase().includes('desc pekerjaan') || 
+            raw.toLowerCase() === 'deskripsi'
+          ) return;
+
+          const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
+          const normKey = cleanText(cleaned);
+
+          if (cleaned && normKey && !taskMap.has(normKey)) {
+            taskMap.set(normKey, cleaned);
+          }
+        });
+      });
+    }
+
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
-  }, [jobcardWorkbook]);
+  }, [formData.kodeProyek, drawingControlMap, jobcardWorkbook]);
 
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1083,7 +1477,6 @@ export default function App() {
         {/* ================= 2. PORTAL SUBKONTRAKTOR ================= */}
         {accessMode === 'subkon' && (
           <div className="space-y-6">
-            {/* Step 1: Pilih Departemen */}
             {!subconSelectedDept && !subconSelectedBiro && (
               <div className="space-y-5">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -1132,7 +1525,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 2: Pilih Biro */}
             {subconSelectedDept && !subconSelectedBiro && (
               <div className="space-y-4">
                 <div className="border-b border-slate-800 pb-2">
@@ -1187,7 +1579,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 3: Halaman Biro Subkon */}
             {subconSelectedBiro && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1349,41 +1740,36 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 2: FORM SUBKON */}
+                {/* TAB 2: FORM SUBKON (DENGAN PENCARIAN KETIK) */}
                 {subconPageMode === 'form' && (
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                        {/* 1. Nama Drafter (Pencarian Ketik) */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Nama Drafter / Personel</label>
-                          <select
+                          <SearchableSelect
+                            options={activeSubconMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.jabatan})` }))}
                             value={formData.nama}
-                            onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
+                            onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
+                            placeholder="Ketik nama drafter / personel..."
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
-                          >
-                            <option value="">Pilih Personel...</option>
-                            {activeSubconMembers.map((p, i) => (
-                              <option key={i} value={p.nama}>{p.nama} ({p.jabatan})</option>
-                            ))}
-                          </select>
+                          />
                         </div>
 
+                        {/* 2. Kode Proyek (Pencarian Ketik) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                          <select
+                          <SearchableSelect
+                            options={projectOptions}
                             value={formData.kodeProyek}
-                            onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
+                            onChange={(val) => handleProjectChange(val)}
+                            placeholder="Ketik kode proyek..."
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
-                          >
-                            <option value="">Pilih Proyek...</option>
-                            {projectOptions.map((p, i) => (
-                              <option key={i} value={p}>{p}</option>
-                            ))}
-                          </select>
+                          />
                         </div>
 
+                        {/* 3. Nomor JO */}
                         <div>
                           <label className="block text-slate-400 mb-1">Nomor JO</label>
                           <input
@@ -1397,19 +1783,16 @@ export default function App() {
                           />
                         </div>
 
+                        {/* 4. Deskripsi (Pencarian Ketik) */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Deskripsi</label>
-                          <select
+                          <SearchableSelect
+                            options={dynamicTaskOptions}
                             value={formData.taskName}
-                            onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                            onChange={(val) => handleDeskripsiChange(val)}
+                            placeholder="Ketik nama gambar / deskripsi tugas..."
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
-                          >
-                            <option value="">Pilih Deskripsi Pekerjaan...</option>
-                            {taskOptions.map((t, i) => (
-                              <option key={i} value={t}>{t}</option>
-                            ))}
-                          </select>
+                          />
                         </div>
 
                         <div>
@@ -1493,7 +1876,6 @@ export default function App() {
         {/* ================= 3. PORTAL ORGANIK ================= */}
         {accessMode === 'organik' && (
           <div className="space-y-6">
-            {/* Step 1: Departemen Organik */}
             {!selectedDept && !selectedBiroPage && !selectedFormBiro && (
               <div className="space-y-5">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -1537,7 +1919,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 2: Biro Organik */}
             {selectedDept && !selectedBiroPage && !selectedFormBiro && (
               <div className="space-y-4">
                 <div className="border-b border-slate-800 pb-2">
@@ -1573,20 +1954,30 @@ export default function App() {
               </div>
             )}
 
-            {/* Step 3: Halaman Detail Biro Organik */}
             {selectedFormBiro && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
-                    <span className="text-xs text-slate-400 font-mono">
-                      {currentBiroMembers.length} Pegawai Organik • Real JO: {realisasiMap.size > 0 ? `${realisasiMap.size} Jobcard Terdaftar` : 'Excel Realisasi Belum Dimuat'}
-                    </span>
+                    <div className="text-xs text-slate-400 font-mono flex items-center gap-2 mt-0.5">
+                      <span>{currentBiroMembers.length} Pegawai Organik</span>
+                      {activeDrawingSheetTitle && (
+                        <span className="text-emerald-400 flex items-center gap-1">
+                          • <Sparkles className="w-3 h-3 text-amber-400" /> {activeDrawingSheetTitle}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
                     <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                      <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                      <Upload className="w-3 h-3 text-cyan-400" />
+                      <span>{formData.kodeProyek ? `Upload DC (${formData.kodeProyek})` : 'Upload Drawing Control'}</span>
+                      <input type="file" accept=".xlsx, .xls, .csv" onChange={handleUploadProjectDrawingControl} className="hidden" />
+                    </label>
+
+                    <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                      <Clock className="w-3 h-3 text-emerald-400" />
                       <span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
                       <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                     </label>
@@ -1615,7 +2006,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TAB 1: ANGGOTA ORGANIK (KOLOM: RELEASE SETELAH REAL JO) */}
+                {/* TAB 1: ANGGOTA ORGANIK */}
                 {formPageMode === 'members' ? (
                   <div className="space-y-2.5">
                     {currentBiroMembers.length > 0 ? (
@@ -1625,7 +2016,6 @@ export default function App() {
 
                         return (
                           <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden transition-all duration-200">
-                            {/* Baris Nama Personel (Header Dropdown) */}
                             <div 
                               onClick={() => toggleAccordion(person.nama)}
                               className="p-3.5 flex items-center justify-between cursor-pointer select-none hover:bg-slate-800/40 transition"
@@ -1654,7 +2044,6 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* OUTPUT TABEL BERKOLOM (RELEASE SETELAH REAL JO) */}
                             {isExpanded && (
                               <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/60 animate-fadeIn">
                                 {personTasks.length > 0 ? (
@@ -1671,7 +2060,6 @@ export default function App() {
                                           <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
                                           <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
                                           <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
-                                          {/* Kolom Release Diletakkan Setelah Real JO */}
                                           <th className="py-2 px-2.5 font-mono text-cyan-300">Release</th>
                                           <th className="py-2 px-2.5 text-center w-20">Aksi</th>
                                         </tr>
@@ -1708,8 +2096,6 @@ export default function App() {
                                                 {task.endDate}
                                               </td>
                                               <td className="py-2 px-2.5 font-mono text-violet-300">#{task.jo}</td>
-                                              
-                                              {/* Kolom Real JO */}
                                               <td className="py-2 px-2.5 font-mono font-bold">
                                                 {calculatedRealHours !== undefined ? (
                                                   <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
@@ -1721,12 +2107,9 @@ export default function App() {
                                                   <span className="text-slate-600 font-normal">-</span>
                                                 )}
                                               </td>
-
-                                              {/* Kolom Release Setelah Real JO */}
-                                              <td className="py-2 px-2.5 font-mono text-[11px] text-cyan-300">
+                                              <td className="py-2 px-2.5 font-mono text-[11px] text-cyan-300 font-semibold">
                                                 {task.release || '-'}
                                               </td>
-
                                               <td className="py-2 px-2.5 text-center">
                                                 <div className="flex items-center justify-center gap-1.5">
                                                   <button 
@@ -1774,40 +2157,35 @@ export default function App() {
                     )}
                   </div>
                 ) : (
-                  /* TAB 2: FORM ORGANIK */
+                  /* TAB 2: FORM ORGANIK (DENGAN PENCARIAN KETIK) */
                   <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                     <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* 1. Nama Personel Organik (Pencarian Ketik) */}
                         <div className="md:col-span-2">
                           <label className="block text-slate-400 mb-1">Nama Personel (Organik)</label>
-                          <select
+                          <SearchableSelect
+                            options={currentBiroMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.status})` }))}
                             value={formData.nama}
-                            onChange={(e) => setFormData(prev => ({ ...prev, nama: e.target.value }))}
+                            onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
+                            placeholder="Ketik nama personel organik..."
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
-                          >
-                            <option value="">Pilih Personel Organik...</option>
-                            {currentBiroMembers.map((p, i) => (
-                              <option key={i} value={p.nama}>{p.nama} ({p.status})</option>
-                            ))}
-                          </select>
+                          />
                         </div>
 
+                        {/* 2. Kode Proyek (Pencarian Ketik) */}
                         <div>
                           <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                          <select
+                          <SearchableSelect
+                            options={projectOptions}
                             value={formData.kodeProyek}
-                            onChange={(e) => setFormData(prev => ({ ...prev, kodeProyek: e.target.value }))}
+                            onChange={(val) => handleProjectChange(val)}
+                            placeholder="Ketik kode proyek (contoh: M000313)..."
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
-                          >
-                            <option value="">Pilih Proyek...</option>
-                            {projectOptions.map((p, i) => (
-                              <option key={i} value={p}>{p}</option>
-                            ))}
-                          </select>
+                          />
                         </div>
 
+                        {/* 3. Plan JO */}
                         <div>
                           <label className="block text-slate-400 mb-1">Plan JO</label>
                           <input
@@ -1821,19 +2199,23 @@ export default function App() {
                           />
                         </div>
 
+                        {/* 4. Deskripsi (Pencarian Ketik) */}
                         <div className="md:col-span-2">
-                          <label className="block text-slate-400 mb-1">Deskripsi</label>
-                          <select
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-400">Deskripsi</label>
+                            {isFetchingDrawing && (
+                              <span className="text-[10px] text-amber-400 animate-pulse font-mono">
+                                Membaca Drawing Control Drive...
+                              </span>
+                            )}
+                          </div>
+                          <SearchableSelect
+                            options={dynamicTaskOptions}
                             value={formData.taskName}
-                            onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                            onChange={(val) => handleDeskripsiChange(val)}
+                            placeholder="Ketik no dwg atau nama gambar (misal: Shaft Protection)..."
                             required
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
-                          >
-                            <option value="">Pilih Deskripsi Pekerjaan...</option>
-                            {taskOptions.map((t, i) => (
-                              <option key={i} value={t}>{t}</option>
-                            ))}
-                          </select>
+                          />
                         </div>
 
                         <div>
@@ -1847,8 +2229,16 @@ export default function App() {
                           />
                         </div>
 
+                        {/* 5. Release */}
                         <div>
-                          <label className="block text-slate-400 mb-1">Release</label>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-400">Release (Finish Date)</label>
+                            {formData.release && (
+                              <span className="text-[10px] text-emerald-400 font-mono">
+                                ✓ Otomatis dari Drawing Control
+                              </span>
+                            )}
+                          </div>
                           <input 
                             type="date" 
                             value={formData.release} 
@@ -1896,7 +2286,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= MODAL EDIT PENUGASAN ================= */}
+        {/* ================= MODAL EDIT PENUGASAN (DENGAN PENCARIAN KETIK) ================= */}
         {editingTask && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-fadeIn">
@@ -1912,16 +2302,13 @@ export default function App() {
               <form onSubmit={handleSaveEdit} className="p-4 space-y-3.5 text-xs">
                 <div>
                   <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                  <select
+                  <SearchableSelect
+                    options={projectOptions}
                     value={editFormData.project}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, project: e.target.value }))}
+                    onChange={(val) => setEditFormData(prev => ({ ...prev, project: val }))}
+                    placeholder="Ketik kode proyek..."
                     required
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
-                  >
-                    {projectOptions.map((p, i) => (
-                      <option key={i} value={p}>{p}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -1955,19 +2342,13 @@ export default function App() {
 
                 <div>
                   <label className="block text-slate-400 mb-1">Deskripsi</label>
-                  <select
+                  <SearchableSelect
+                    options={dynamicTaskOptions}
                     value={editFormData.taskName}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                    onChange={(val) => setEditFormData(prev => ({ ...prev, taskName: val }))}
+                    placeholder="Ketik deskripsi gambar..."
                     required
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none"
-                  >
-                    {taskOptions.map((t, i) => (
-                      <option key={i} value={t}>{t}</option>
-                    ))}
-                    {!taskOptions.includes(editFormData.taskName) && (
-                      <option value={editFormData.taskName}>{editFormData.taskName}</option>
-                    )}
-                  </select>
+                  />
                 </div>
 
                 {accessMode === 'organik' && (
