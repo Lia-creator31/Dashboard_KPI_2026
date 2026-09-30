@@ -268,6 +268,17 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
   if (!b1 || !b2) return false;
   if (b1 === b2) return true;
 
+  if (b1.includes('pengembangan') && b2.includes('pengembangan')) return true;
+  if (
+    (b1.includes('kapal selam') || b1.includes('submarine') || b1.includes('scorpne')) &&
+    (b2.includes('kapal selam') || b2.includes('submarine') || b2.includes('scorpne'))
+  ) return true;
+  if (b1.includes('non kapal') && b2.includes('non kapal')) return true;
+  if (
+    (b1.includes('kapal permukaan') || b1.includes('surface')) &&
+    (b2.includes('kapal permukaan') || b2.includes('surface'))
+  ) return true;
+
   const c1 = cleanText(b1.replace(/biro|departemen|dept|divisi|dan/gi, ''));
   const c2 = cleanText(b2.replace(/biro|departemen|dept|divisi|dan/gi, ''));
   if (c1 && c2) {
@@ -278,23 +289,53 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
 
 function getBiroPrefix(biroName: string): string {
   const b = (biroName || '').toLowerCase().replace('&', ' dan ').trim();
-  if (b.includes('dokumen')) return 'DP';
+  if (b.includes('dokumen') || (b.includes('perencanaan') && b.includes('biro'))) return 'DP';
   if (b.includes('logistik')) return 'DL';
   if (b.includes('administrasi')) return 'DA';
   if (b.includes('pengembangan')) return 'PD';
   if (b.includes('non kapal')) return 'NK';
-  if (b.includes('kapal selam')) return 'KS';
-  if (b.includes('kapal permukaan')) return 'KP';
+  if (b.includes('kapal selam') || b.includes('submarine')) return 'KS';
+  if (b.includes('kapal permukaan') || b.includes('surface')) return 'KP';
+  if (b.includes('struktur') && b.includes('lambung')) return 'SL';
+  if (b.includes('akomodasi')) return 'AK';
+  if (b.includes('perlengkapan') && b.includes('lambung')) return 'PL';
+  if (b.includes('produksi') && b.includes('lambung')) return 'PR';
+  if (b.includes('propulsi')) return 'SP';
+  if (b.includes('pengaturan') || b.includes('permesinan')) return 'PP';
+  if (b.includes('hvac') || b.includes('geladak')) return 'HV';
+  if (b.includes('listrik') || b.includes('kelistrikan')) return 'SK';
+  if (b.includes('kontrol') || b.includes('otomasi')) return 'KO';
+  if (b.includes('elektronika')) return 'SE';
+  if (b.includes('hps')) return 'HP';
+
+  const words = b.replace(/biro|desain|dasar/gi, '').split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  if (words.length === 1 && words[0].length >= 2) return words[0].slice(0, 2).toUpperCase();
   return 'WO';
 }
 
 function cleanProjectString(raw: any): string {
   if (!raw) return '';
-  return String(raw).replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim().toUpperCase();
+  let s = String(raw)
+    .replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ')
+    .trim();
+   
+  s = s.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
+  s = s.toUpperCase();
+
+  s = s.replace(/([A-Z0-9])O(\d+)$/, '$10$2');
+  s = s.replace(/(\d)0P(\d)/, '$1OP$2');
+
+  if (/^W[O0]{2,}\d+/.test(s)) {
+    s = 'W' + s.slice(1).replace(/[O0]/g, '0');
+  }
+
+  return s.trim();
 }
 
 function getProjectNormKey(s: string): string {
-  return (s || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase().replace(/0/g, 'o');
+  const k = (s || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  return k.replace(/0/g, 'o');
 }
 
 async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
@@ -315,11 +356,13 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
 }
 
 export default function RendalPage({ user, onLogout }: RendalPageProps) {
+  // Organik Navigation State
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
-  const [searchQuery, setSearchQuery] = useState('');
 
+  const [searchQuery, setSearchQuery] = useState('');
+   
   const [formData, setFormData] = useState({
     nama: '',
     kodeProyek: '',
@@ -347,12 +390,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
+
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>({});
 
   const loadAllJobCards = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from('job_cards').select('*').order('created_at', { ascending: true });
+      const { data, error } = await supabase
+        .from('job_cards')
+        .select('*')
+        .order('created_at', { ascending: true });
+
       if (error) return;
+
       if (data) {
         const grouped: { [biroKey: string]: TaskItem[] } = {};
         data.forEach((row: any) => {
@@ -360,8 +409,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           if (!biroKey) return;
           if (!grouped[biroKey]) grouped[biroKey] = [];
 
-          const persistedRev = (row.rev !== undefined && row.rev !== null && String(row.rev).trim() !== '') ? String(row.rev) : getLocalRev(row.id, '0');
-          const persistedRelease = (row.release !== undefined && row.release !== null && String(row.release).trim() !== '') ? String(row.release) : getLocalRelease(row.id, '');
+          const persistedRev = (row.rev !== undefined && row.rev !== null && String(row.rev).trim() !== '')
+            ? String(row.rev)
+            : getLocalRev(row.id, '0');
+
+          const persistedRelease = (row.release !== undefined && row.release !== null && String(row.release).trim() !== '')
+            ? String(row.release)
+            : getLocalRelease(row.id, '');
 
           grouped[biroKey].push({
             id: row.id,
@@ -384,13 +438,19 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   }, []);
 
   const [isPlannerModalOpen, setIsPlannerModalOpen] = useState(false);
+  const [isPlannerUnlocked, setIsPlannerUnlocked] = useState(true); // Rendal terbuka tanpa PIN
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
   const [editingTaskKode, setEditingTaskKode] = useState<{ [taskId: string]: string }>({});
+
+  const PLANNER_PIN = '2026';
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   const toggleAccordion = (cardKey: string) => {
     setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
   };
 
+  // State File Excel Utama
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
   const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
@@ -414,9 +474,21 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         });
 
         const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
-          fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx']),
-          fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx']),
-          fetchSafeWorkbook([realisasiUrl, '/Realisasi JO.xlsx', './Realisasi JO.xlsx'])
+          fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx', '/JOBCARD DESAIN.xlsx']),
+          fetchSafeWorkbook([
+            im4Url,
+            '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx',
+            './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx',
+            '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL.xlsx',
+            './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL.xlsx'
+          ]),
+          fetchSafeWorkbook([
+            realisasiUrl,
+            '/Realisasi JO.xlsx',
+            './Realisasi JO.xlsx',
+            '/Realisasi_JO.xlsx',
+            './Realisasi_JO.xlsx'
+          ])
         ]);
 
         if (wbJc) setJobcardWorkbook(wbJc);
@@ -434,7 +506,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
         setIm4Workbook(wb);
         alert(`Master Personel "${file.name}" berhasil diperbarui!`);
       } catch {
@@ -450,7 +523,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
         setJobcardWorkbook(wb);
         alert(`Katalog Jobcard "${file.name}" berhasil diperbarui!`);
       } catch {
@@ -465,9 +539,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     if (!cleanProj) return;
 
     setIsFetchingDrawing(true);
+
     try {
       const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`;
       const res = await fetch(url);
+       
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
@@ -478,13 +554,55 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             rev: String(item.rev || '0').trim(),
             finishDate: String(item.finishDate || '').trim(),
           }));
+
           setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList }));
           setActiveDrawingSheetTitle(json.fileName || `Drawing Control ${projectCode}`);
           setIsFetchingDrawing(false);
           return;
         }
       }
-    } catch {}
+    } catch (err) {
+      console.warn('Gagal koneksi ke Google Apps Script, mencoba fallback...', err);
+    }
+
+    const match = GOOGLE_DRIVE_SHEETS.find(s => 
+      cleanText(s.projectKey) === cleanProj || 
+      cleanProj.includes(cleanText(s.projectKey)) || 
+      cleanText(s.title).includes(cleanProj)
+    );
+
+    if (match) {
+      try {
+        const csvUrl = `https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`;
+        const res = await fetch(csvUrl);
+        if (res.ok) {
+          const csvText = await res.text();
+          const wb = XLSX.read(csvText, { type: 'string' });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+           
+          const rowsList: DrawingControlRow[] = [];
+          for (let r = 1; r < rawRows.length; r++) {
+            const row = rawRows[r];
+            if (!row) continue;
+            const noDwg = String(row[0] || '').trim();
+            const dwgName = String(row[1] || '').trim();
+            const rev = String(row[14] || '0').trim();
+            const finishRaw = String(row[15] || '').trim();
+
+            if (!noDwg && !dwgName) continue;
+            const fullDeskripsi = (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg);
+            rowsList.push({ noDwg, drawingName: dwgName, fullDeskripsi, rev, finishDate: finishRaw });
+          }
+
+          if (rowsList.length > 0) {
+            setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList }));
+            setActiveDrawingSheetTitle(match.title);
+          }
+        }
+      } catch {}
+    }
+
     setIsFetchingDrawing(false);
   }, []);
 
@@ -495,28 +613,114 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   const handleDeskripsiChange = (selectedDesc: string) => {
     const cleanProj = cleanText(formData.kodeProyek || '');
-    const rows = drawingControlMap[cleanProj] || [];
+    const rowsForThisProj = drawingControlMap[cleanProj] || [];
+
     let autoRelease = '';
     let autoRev = formData.rev || '0';
 
-    if (rows.length > 0 && selectedDesc) {
+    if (rowsForThisProj.length > 0 && selectedDesc) {
       const cleanTarget = cleanText(selectedDesc);
-      const currentRev = String(formData.rev || '0').trim();
+      const currentFormRev = String(formData.rev || '0').trim();
+
+      const exactMatch = rowsForThisProj.find(r => {
+        const cFull = cleanText(r.fullDeskripsi);
+        const cDwg = cleanText(r.noDwg);
+        const cName = cleanText(r.drawingName);
+        const rowRev = String(r.rev || '0').trim();
+
+        const isRevMatch = rowRev === currentFormRev;
+        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
+
+        return isNameMatch && isRevMatch;
+      });
+
+      if (exactMatch && exactMatch.finishDate) {
+        autoRelease = parseToStandardDate(exactMatch.finishDate);
+        if (exactMatch.rev) autoRev = exactMatch.rev;
+      } else {
+        autoRelease = '';
+      }
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      taskName: selectedDesc,
+      release: autoRelease,
+      rev: autoRev,
+    }));
+  };
+
+  const handleQuickSaveRelease = async (taskId: string, newVal: string) => {
+    const cleanDate = parseToStandardDate(newVal);
+
+    saveLocalRelease(taskId, cleanDate);
+
+    try {
+      await supabase
+        .from('job_cards')
+        .update({ release: cleanDate })
+        .eq('id', taskId);
+    } catch {}
+
+    setManualTasks(prev => {
+      const updated = { ...prev };
+      Object.keys(updated).forEach(k => {
+        updated[k] = updated[k].map(t => t.id === taskId ? { ...t, release: cleanDate } : t);
+      });
+      return updated;
+    });
+
+    setEditingReleaseId(null);
+  };
+
+  const handleSyncReleaseFromDrive = async (task: TaskItem) => {
+    const cleanProj = cleanText(task.project);
+    let rows = drawingControlMap[cleanProj];
+
+    if (!rows || rows.length === 0) {
+      try {
+        const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(task.project.trim())}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && Array.isArray(json.data)) {
+            rows = json.data.map((item: any) => ({
+              noDwg: String(item.noDwg || '').trim(),
+              drawingName: String(item.drawingName || '').trim(),
+              fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
+              rev: String(item.rev || '0').trim(),
+              finishDate: String(item.finishDate || '').trim(),
+            }));
+            setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rows }));
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    if (rows && rows.length > 0) {
+      const cleanTarget = cleanText(task.taskName);
+      const currentTaskRev = String(task.rev || '0').trim();
 
       const exactMatch = rows.find(r => {
         const cFull = cleanText(r.fullDeskripsi);
         const cDwg = cleanText(r.noDwg);
         const cName = cleanText(r.drawingName);
         const rowRev = String(r.rev || '0').trim();
-        return rowRev === currentRev && (cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget));
+        const isRevMatch = rowRev === currentTaskRev;
+        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
+        return isNameMatch && isRevMatch;
       });
 
       if (exactMatch && exactMatch.finishDate) {
-        autoRelease = parseToStandardDate(exactMatch.finishDate);
-        if (exactMatch.rev) autoRev = exactMatch.rev;
+        const standardDate = parseToStandardDate(exactMatch.finishDate);
+        await handleQuickSaveRelease(task.id, standardDate);
+        alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(standardDate)}`);
+        return;
       }
     }
-    setFormData(prev => ({ ...prev, taskName: selectedDesc, release: autoRelease, rev: autoRev }));
+    alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
   };
 
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
@@ -525,24 +729,93 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
         setRealisasiWorkbook(wb);
-        alert(`File ${file.name} berhasil dibaca!`);
+        alert(`File ${file.name} berhasil dibaca! Real JO langsung terhitung otomatis.`);
       } catch {
-        alert('Gagal membaca file Realisasi.');
+        alert('Gagal membaca file Realisasi JO.xlsx.');
       }
     };
     reader.readAsBinaryString(file);
   };
 
+  const parseValToNumber = (val: any): number => {
+    if (val === null || val === undefined || val === '') return 0;
+    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+    const str = String(val).trim().replace('%', '').replace(',', '.');
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : num;
+  };
+
+  const realisasiMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!realisasiWorkbook) return map;
+
+    try {
+      realisasiWorkbook.SheetNames.forEach(sheetName => {
+        const sheet = realisasiWorkbook.Sheets[sheetName];
+        if (!sheet) return;
+
+        const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        if (rawRows.length === 0) return;
+
+        let headerIdx = -1;
+        let jobcardCol = -1;
+        let effCol = -1;
+        let otCol = -1;
+
+        for (let r = 0; r < Math.min(5, rawRows.length); r++) {
+          const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
+          const jcIdx = row.findIndex(c => c.includes('jobcard'));
+          const eIdx = row.findIndex(c => c.includes('effective'));
+          const oIdx = row.findIndex(c => c.includes('overtime'));
+
+          if (jcIdx !== -1 && (eIdx !== -1 || oIdx !== -1)) {
+            headerIdx = r;
+            jobcardCol = jcIdx;
+            effCol = eIdx;
+            otCol = oIdx;
+            break;
+          }
+        }
+
+        if (jobcardCol === -1) jobcardCol = 16;
+        if (effCol === -1) effCol = 11;
+        if (otCol === -1) otCol = 12;
+
+        for (let r = Math.max(headerIdx + 1, 1); r < rawRows.length; r++) {
+          const row = rawRows[r];
+          if (!row) continue;
+
+          const rawJc = String(row[jobcardCol] || '').trim();
+          if (!rawJc || rawJc.toLowerCase() === 'nan' || rawJc.toLowerCase().includes('jobcard')) continue;
+
+          const eff = effCol !== -1 ? parseValToNumber(row[effCol]) : 0;
+          const ot = otCol !== -1 ? parseValToNumber(row[otCol]) : 0;
+          const total = eff + ot;
+
+          const key = cleanText(rawJc);
+          if (key) {
+            map.set(key, (map.get(key) || 0) + total);
+          }
+        }
+      });
+    } catch {}
+
+    return map;
+  }, [realisasiWorkbook]);
+
   const allParsedFromExcel = useMemo<ParsedMember[]>(() => {
     if (!im4Workbook) return [];
+
     try {
       const sheetName = im4Workbook.SheetNames.find(s => s.toLowerCase().includes('education')) || im4Workbook.SheetNames[0];
       const sheet = im4Workbook.Sheets[sheetName];
       if (!sheet) return [];
+
       const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-      
+       
       let headerIdx = -1;
       for (let r = 0; r < Math.min(15, rawRows.length); r++) {
         const rowVals = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
@@ -551,6 +824,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           break;
         }
       }
+
       if (headerIdx === -1) return [];
 
       const headers = rawRows[headerIdx].map(v => String(v).trim().toLowerCase());
@@ -567,6 +841,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       for (let r = headerIdx + 1; r < rawRows.length; r++) {
         const row = rawRows[r];
         if (!row) continue;
+
         const nama = String(row[namaCol] || '').trim();
         if (!nama || nama.toLowerCase() === 'nan' || nama.toLowerCase() === 'nama') continue;
 
@@ -579,7 +854,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           currentDept = 'Div. Desain';
           currentBiro = 'Div. Desain';
         } else if (jabatan.toLowerCase().includes('kepala departemen') || jabatan.toLowerCase().includes('kadep')) {
-          currentDept = unit && unit.toLowerCase() !== 'nan' ? unit : jabatan;
+          if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
+          else currentDept = jabatan;
           currentBiro = `Staf ${currentDept}`;
         } else if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
           currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').replace(/Kabiro/gi, 'Biro').trim();
@@ -595,46 +871,155 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           dept: currentDept
         });
       }
+
       return results;
     } catch {
       return [];
     }
   }, [im4Workbook]);
 
-  const getBiroMembers = useCallback((biroName: string) => {
-    return allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName));
+  const getBiroMembers = useCallback((biroName: string): { nama: string; nip: string; status: string; jabatan: string }[] => {
+    const members = allParsedFromExcel.filter(
+      p => isBiroMatch(p.biro, biroName) && !p.status.toLowerCase().includes('outsourcing')
+    );
+    if (members.length > 0) {
+      return members.map(m => ({ nama: m.nama, nip: m.nip, status: m.status, jabatan: m.jabatan }));
+    }
+    return [];
   }, [allParsedFromExcel]);
 
-  const currentActiveBiroName = selectedFormBiro?.biroName || '';
-  const currentActiveBiroKey = cleanText(currentActiveBiroName);
-  const currentActiveBiroTasks = manualTasks[currentActiveBiroKey] || [];
-  const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
+  const currentActiveBiroName = useMemo(() => {
+    return selectedFormBiro?.biroName || '';
+  }, [selectedFormBiro]);
 
-  const pendingTasksCount = useMemo(() => {
-    let count = 0;
-    Object.values(manualTasks).forEach(tasks => {
-      tasks.forEach(t => {
-        if (!t.kodeJc || t.kodeJc.trim() === '') count++;
-      });
-    });
-    return count;
-  }, [manualTasks]);
+  const currentActiveBiroKey = useMemo(() => {
+    return cleanText(currentActiveBiroName);
+  }, [currentActiveBiroName]);
+
+  const currentActiveBiroTasks = useMemo(() => {
+    return manualTasks[currentActiveBiroKey] || [];
+  }, [manualTasks, currentActiveBiroKey]);
 
   const projectOptions = useMemo((): string[] => {
     const projectMap = new Map<string, string>();
-    GOOGLE_DRIVE_SHEETS.forEach(s => projectMap.set(getProjectNormKey(s.projectKey), cleanProjectString(s.projectKey)));
-    return Array.from(projectMap.values());
-  }, []);
+
+    GOOGLE_DRIVE_SHEETS.forEach(s => {
+      const cleaned = cleanProjectString(s.projectKey);
+      const normKey = getProjectNormKey(cleaned);
+      if (cleaned && normKey && !projectMap.has(normKey)) {
+        projectMap.set(normKey, cleaned);
+      }
+    });
+
+    if (jobcardWorkbook) {
+      try {
+        jobcardWorkbook.SheetNames.forEach(sheetName => {
+          const sheet = jobcardWorkbook.Sheets[sheetName];
+          if (!sheet) return;
+          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+          let projCol = 2;
+          for (let r = 0; r < Math.min(5, rows.length); r++) {
+            const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+            const foundIdx = rowVals.findIndex(v => v.includes('proyek') || v.includes('project'));
+            if (foundIdx !== -1) {
+              projCol = foundIdx;
+              break;
+            }
+          }
+
+          rows.forEach((row, idx) => {
+            if (idx < 1 || !row) return;
+            const raw = String(row[projCol] || '').trim();
+            if (
+              !raw || 
+              raw.toLowerCase() === 'nan' || 
+              raw.toLowerCase().includes('kode proyek') || 
+              raw.toLowerCase() === 'proyek' || 
+              raw.toLowerCase() === 'project'
+            ) return;
+
+            const cleaned = cleanProjectString(raw);
+            const normKey = getProjectNormKey(cleaned);
+
+            if (cleaned && normKey && !projectMap.has(normKey)) {
+              projectMap.set(normKey, cleaned);
+            }
+          });
+        });
+      } catch {}
+    }
+
+    Object.values(manualTasks).forEach(tasks => {
+      tasks.forEach(t => {
+        const raw = String(t.project || '').trim();
+        if (raw) {
+          const cleaned = cleanProjectString(raw);
+          const normKey = getProjectNormKey(cleaned);
+          if (cleaned && normKey && !projectMap.has(normKey)) {
+            projectMap.set(normKey, cleaned);
+          }
+        }
+      });
+    });
+
+    return Array.from(projectMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [jobcardWorkbook, manualTasks]);
 
   const dynamicTaskOptions = useMemo((): string[] => {
     const cleanProj = cleanText(formData.kodeProyek || '');
-    const rows = drawingControlMap[cleanProj] || [];
+    const rowsForThisProj = drawingControlMap[cleanProj] || [];
     const taskMap = new Map<string, string>();
-    rows.forEach(r => {
-      if (r.fullDeskripsi) taskMap.set(cleanText(r.fullDeskripsi), r.fullDeskripsi);
+
+    rowsForThisProj.forEach(r => {
+      if (r.fullDeskripsi) {
+        const norm = cleanText(r.fullDeskripsi);
+        if (!taskMap.has(norm)) {
+          taskMap.set(norm, r.fullDeskripsi);
+        }
+      }
     });
-    return Array.from(taskMap.values());
-  }, [formData.kodeProyek, drawingControlMap]);
+
+    if (jobcardWorkbook) {
+      try {
+        jobcardWorkbook.SheetNames.forEach(sheetName => {
+          const sheet = jobcardWorkbook.Sheets[sheetName];
+          if (!sheet) return;
+          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+          let taskCol = 3;
+          for (let r = 0; r < Math.min(5, rows.length); r++) {
+            const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+            const foundIdx = rowVals.findIndex(v => v.includes('task') || v.includes('deskripsi') || v.includes('uraian') || v.includes('pekerjaan'));
+            if (foundIdx !== -1) {
+              taskCol = foundIdx;
+              break;
+            }
+          }
+
+          rows.forEach((row, idx) => {
+            if (idx < 1 || !row) return;
+            const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
+            if (
+              !raw || 
+              raw.toLowerCase() === 'nan' || 
+              raw.toLowerCase().includes('desc pekerjaan') || 
+              raw.toLowerCase() === 'deskripsi'
+            ) return;
+
+            const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
+            const normKey = cleanText(cleaned);
+
+            if (cleaned && normKey && !taskMap.has(normKey)) {
+              taskMap.set(normKey, cleaned);
+            }
+          });
+        });
+      } catch {}
+    }
+
+    return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [formData.kodeProyek, drawingControlMap, jobcardWorkbook]);
 
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -642,15 +1027,21 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     if (!activeBiro) return;
 
     try {
+      let validBiroId: string | null = null;
       const { data: biroList } = await supabase.from('biros').select('id, name');
-      let validBiroId = biroList?.[0]?.id || null;
-      if (biroList) {
+       
+      if (biroList && biroList.length > 0) {
         const found = biroList.find(b => isBiroMatch(b.name, activeBiro));
-        if (found) validBiroId = found.id;
+        validBiroId = found ? found.id : biroList[0].id;
       }
 
-      const revVal = formData.rev || '0';
-      const { error } = await supabase.from('job_cards').insert({
+      const biroKey = cleanText(activeBiro);
+      const currentList = manualTasks[biroKey] || [];
+
+      const revVal = (formData.rev && formData.rev.trim() !== '') ? formData.rev.trim() : '0';
+      const releaseVal = formData.release ? formData.release.trim() : '';
+
+      const insertPayload: any = {
         biro_id: validBiroId,
         biro_name: activeBiro,
         personil_name: formData.nama,
@@ -664,8 +1055,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         kode_jc: '',
         status: 'pending',
         rev: revVal,
-        release: formData.release,
-      });
+        release: releaseVal,
+      };
+
+      const { data: resData, error } = await supabase
+        .from('job_cards')
+        .insert(insertPayload)
+        .select()
+        .single();
 
       if (error) {
         alert('Gagal simpan: ' + error.message);
@@ -680,34 +1077,32 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     }
   };
 
-  const handleSaveKodeJcForTask = async (taskId: string) => {
-    const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase();
-    if (!inputVal) return;
+  const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
 
-    const { error } = await supabase.from('job_cards').update({ kode_jc: inputVal, status: 'approved' }).eq('id', taskId);
-    if (error) {
-      alert('Gagal: ' + error.message);
-      return;
-    }
-    alert('Jobcard disetujui!');
-    loadAllJobCards();
-  };
-
-  const filteredDepartments = (departmentsData || []).filter(dept => 
-    dept.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const organicBiroTasks = useMemo(() => {
+    return currentActiveBiroTasks.filter(t => 
+      currentBiroMembers.some(m => cleanText(m.nama) === cleanText(t.pic))
+    );
+  }, [currentActiveBiroTasks, currentBiroMembers]);
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
+      {/* Top Navbar */}
       <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => { setSelectedDept(null); setSelectedFormBiro(null); }}>
-            <div className="p-1.5 bg-purple-600 rounded-lg text-white">
+          <div 
+            className="flex items-center gap-2.5 cursor-pointer" 
+            onClick={() => {
+              setSelectedFormBiro(null);
+              setSelectedDept(null);
+            }}
+          >
+            <div className="p-1.5 bg-blue-600 rounded-lg text-white">
               <Building2 className="w-4 h-4" />
             </div>
             <div className="flex items-center gap-2">
               <span className="font-bold text-sm text-white">DIVISI DESAIN</span>
-              <span className="text-xs px-2 py-0.5 rounded font-mono bg-purple-500/20 text-purple-300 border border-purple-500/30">
+              <span className="text-xs px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-300 border border-slate-700">
                 Admin Rendal ({user.nama})
               </span>
             </div>
@@ -739,20 +1134,26 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </button>
             )}
 
-            <button onClick={onLogout} className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer">
+            <button
+              onClick={onLogout}
+              className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer"
+            >
               Keluar
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+      {/* Main Content */}
+      <main className="max-w-6xl mx-auto px-4 py-8">
+
+        {/* ================= 1. PILIH DEPARTEMEN ORGANIK ================= */}
         {!selectedDept && !selectedFormBiro && (
           <div className="space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
               <div>
-                <h2 className="text-lg font-bold text-white">Departemen Desain (Rendal Access)</h2>
-                <span className="text-xs text-slate-400">Akses penuh seluruh pegawai organik divisi desain</span>
+                <h2 className="text-lg font-bold text-white">Departemen Desain (Akses Rendal)</h2>
+                <span className="text-xs text-slate-400">Pilih departemen untuk melihat pegawai organik</span>
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">
@@ -764,7 +1165,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
                 <input
                   type="text"
-                  placeholder="Cari Departemen..."
+                  placeholder="Cari..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44"
@@ -773,11 +1174,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {filteredDepartments.map((dept) => (
+              {(departmentsData || []).filter(d => d.name.toLowerCase().includes(searchQuery.toLowerCase())).map((dept) => (
                 <div
                   key={dept.id}
                   onClick={() => setSelectedDept(dept)}
-                  className="bg-slate-900 border border-slate-800 hover:border-purple-500 rounded-xl p-4 cursor-pointer transition flex items-center justify-between"
+                  className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-xl p-4 cursor-pointer transition flex items-center justify-between"
                 >
                   <div>
                     <h4 className="font-semibold text-white text-sm">{dept.name}</h4>
@@ -790,6 +1191,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         )}
 
+        {/* ================= 2. PILIH BIRO ================= */}
         {selectedDept && !selectedFormBiro && (
           <div className="space-y-4">
             <div className="border-b border-slate-800 pb-2">
@@ -825,6 +1227,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         )}
 
+        {/* ================= 3. ANGGOTA & FORM BIRO ================= */}
         {selectedFormBiro && (
           <div className="space-y-4">
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -840,19 +1243,21 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 </div>
               </div>
 
-              <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-                <button
-                  onClick={() => setFormPageMode('members')}
-                  className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'members' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
-                >
-                  Anggota ({currentBiroMembers.length})
-                </button>
-                <button
-                  onClick={() => setFormPageMode('form')}
-                  className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'form' ? 'bg-emerald-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
-                >
-                  Form
-                </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                  <button
+                    onClick={() => setFormPageMode('members')}
+                    className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'members' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Anggota ({currentBiroMembers.length})
+                  </button>
+                  <button
+                    onClick={() => setFormPageMode('form')}
+                    className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'form' ? 'bg-emerald-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Form
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -928,7 +1333,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                               </div>
                             ) : (
                               <div className="text-xs text-slate-500 py-3 text-center italic">
-                                Belum ada tugas untuk personel ini.
+                                Belum ada tugas.
                               </div>
                             )}
                           </div>
@@ -1075,6 +1480,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             </div>
           </div>
         )}
+
       </main>
     </div>
   );
