@@ -812,7 +812,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
     }
 
     const newLine: TimesheetLine = {
-      id: Math.random().toString(36.substring(2, 9)),
+      id: Math.random().toString(36).substring(2, 9),
       date: lineDate,
       workOrder: lineWorkOrder,
       description: lineDescription || 'Pekerjaan Desain & Drafting',
