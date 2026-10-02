@@ -6,6 +6,11 @@ interface LoginPageProps {
   onLogin: (userData: UserSession) => void;
 }
 
+const ADMIN_ACCOUNTS = [
+  { nama: 'dyan asih purwanti', nip: '104134283' },
+  { nama: 'hashfi moch adam', nip: '105264937' },
+];
+
 export default function LoginPage({ onLogin }: LoginPageProps) {
   const [nama, setNama] = useState('');
   const [nip, setNip] = useState('');
