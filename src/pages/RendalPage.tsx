@@ -251,14 +251,6 @@ function getLocalRev(id: string, defaultVal: string = '0'): string {
   } catch { return defaultVal; }
 }
 
-function saveLocalRev(id: string, val: string) {
-  try {
-    const map = JSON.parse(localStorage.getItem('task_rev_map') || '{}');
-    map[id] = val;
-    localStorage.setItem('task_rev_map', JSON.stringify(map));
-  } catch {}
-}
-
 function getLocalRelease(id: string, defaultVal: string = ''): string {
   try {
     const map = JSON.parse(localStorage.getItem('task_release_map') || '{}');
@@ -338,49 +330,52 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
 }
 
 export default function RendalPage({ user, onLogout }: RendalPageProps) {
+  // State untuk memilih mode akses
   const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
   
+  // State Navigasi
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
   const [searchQuery, setSearchQuery] = useState('');
   
+  // Subkon State
   const [subconSelectedDept, setSubconSelectedDept] = useState<Department | null>(null);
   const [subconSelectedBiro, setSubconSelectedBiro] = useState<string | null>(null);
   const [subconPageMode, setSubconPageMode] = useState<'members' | 'form' | 'release'>('members');
   const [subconSearch, setSubconSearch] = useState('');
   
+  // State Data Master (Excel)
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
   const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
   
+  // State Tasks & UI
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>({});
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
   const [editingTaskKode, setEditingTaskKode] = useState<{ [taskId: string]: string }>({});
   
+  // State Form
   const [formData, setFormData] = useState({
     nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '',
     pic: '', jo: '', rev: '0', realJo: '', release: '',
   });
-
-  const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
-  const [editFormData, setEditFormData] = useState({
-    project: '', taskName: '', startDate: '', endDate: '',
-    jo: '', kodeJc: '', rev: '0', release: '',
-  });
   
+  // State Planner Modal
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [isPlannerUnlocked, setIsPlannerUnlocked] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
   const PLANNER_PIN = '2026';
   
+  // State Release & Drawing
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
   const [activeDrawingSheetTitle, setActiveDrawingSheetTitle] = useState<string>('');
   const [isFetchingDrawing, setIsFetchingDrawing] = useState<boolean>(false);
 
+  // Load All Job Cards from Supabase
   const loadAllJobCards = useCallback(async () => {
     try {
       const { data, error } = await supabase.from('job_cards').select('*').order('created_at', { ascending: true });
@@ -404,6 +399,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     } catch {}
   }, []);
 
+  // Initial Load Excel Files
   useEffect(() => {
     async function initMasterFiles() {
       try {
@@ -433,6 +429,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
+  // Handlers Upload Excel
   const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
@@ -463,6 +460,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     reader.readAsBinaryString(file);
   };
 
+  // Parse Realisasi Map
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
     if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -501,6 +499,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return map;
   }, [realisasiWorkbook]);
 
+  // Parse IM4 Members
   const allParsedFromExcel = useMemo<ParsedMember[]>(() => {
     if (!im4Workbook) return [];
     try {
@@ -569,6 +568,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
   };
 
+  // Fetch Drawing Control
   const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
     const cleanProj = cleanText(projectCode); if (!cleanProj) return;
     setIsFetchingDrawing(true);
@@ -742,88 +742,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       }
       loadAllJobCards();
     } catch { alert('Koneksi database bermasalah.'); }
-  };
-
-  const handleOpenEdit = (task: TaskItem) => {
-    setEditingTask(task);
-    setEditFormData({
-      project: task.project || '',
-      taskName: task.taskName || '',
-      startDate: task.startDate || '',
-      endDate: task.endDate || '',
-      jo: task.jo || '',
-      kodeJc: task.kodeJc || '',
-      rev: task.rev || '0',
-      release: task.release || '',
-    });
-  };
-
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingTask) return;
-
-    const revVal = (editFormData.rev && editFormData.rev.trim() !== '') ? editFormData.rev.trim() : '0';
-    const releaseVal = editFormData.release ? editFormData.release.trim() : '';
-
-    const updatePayload: any = {
-      project: editFormData.project,
-      project_code: editFormData.project,
-      task_name: editFormData.taskName,
-      start_date: editFormData.startDate,
-      end_date: editFormData.endDate,
-      jo: editFormData.jo,
-      kode_jc: editFormData.kodeJc,
-      rev: revVal,
-      release: releaseVal,
-    };
-
-    let { error } = await supabase.from('job_cards').update(updatePayload).eq('id', editingTask.id);
-
-    if (error && (error.message?.includes('rev') || error.message?.includes('release') || (error as any).details?.includes('rev') || (error as any).details?.includes('release'))) {
-      delete updatePayload.rev;
-      delete updatePayload.release;
-      const retry = await supabase.from('job_cards').update(updatePayload).eq('id', editingTask.id);
-      error = retry.error;
-    }
-
-    if (error) { alert('Gagal mengupdate: ' + error.message); return; }
-
-    saveLocalRev(editingTask.id, revVal);
-    saveLocalRelease(editingTask.id, releaseVal);
-
-    setManualTasks(prev => {
-      const updated = { ...prev };
-      Object.keys(updated).forEach(k => {
-        updated[k] = updated[k].map(t => {
-          if (t.id === editingTask.id) {
-            return {
-              ...t, project: editFormData.project, taskName: editFormData.taskName,
-              startDate: editFormData.startDate, endDate: editFormData.endDate,
-              jo: editFormData.jo, kodeJc: editFormData.kodeJc, rev: revVal, release: releaseVal,
-            };
-          }
-          return t;
-        });
-      });
-      return updated;
-    });
-
-    setEditingTask(null);
-    alert('Penugasan berhasil diperbarui!');
-    loadAllJobCards();
-  };
-
-  const handleDeleteTask = async (taskId: string) => {
-    if (window.confirm('Hapus tugas ini?')) {
-      const { error } = await supabase.from('job_cards').delete().eq('id', taskId);
-      if (error) return;
-      setManualTasks(prev => {
-        const updated = { ...prev };
-        Object.keys(updated).forEach(k => { updated[k] = updated[k].filter(t => t.id !== taskId); });
-        return updated;
-      });
-      loadAllJobCards();
-    }
   };
 
   const handleVerifyPin = (e: React.FormEvent) => {
@@ -1154,40 +1072,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                   <th className="py-2 px-2.5">Deskripsi</th>
                                   <th className="py-2 px-2.5 font-mono">Jadwal</th>
                                   <th className="py-2 px-2.5 font-mono">JO</th>
-                                  <th className="py-2 px-2.5 text-center w-20">Aksi</th>
                                 </tr></thead>
                                 <tbody className="divide-y divide-slate-800 text-slate-300">
-                                  {personTasks.map((task, tIdx) => {
-                                    const isSameProjectAsAbove = tIdx > 0 && task.project === personTasks[tIdx - 1].project;
-                                    return (
-                                      <tr key={task.id} className="hover:bg-slate-900/40">
-                                        <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
-                                        <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || `${getBiroPrefix(subconSelectedBiro)}${tIdx + 1}`}</td>
-                                        <td className="py-2 px-2.5 font-medium">
-                                          {isSameProjectAsAbove ? (
-                                            <span className="text-slate-500 font-mono text-[11px]" title={task.project}>— s.d.a —</span>
-                                          ) : (
-                                            <span className="text-emerald-400">{task.project}</span>
-                                          )}
-                                        </td>
-                                        <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
-                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">{formatDisplayDate(task.startDate)} s/d {formatDisplayDate(task.endDate)}</td>
-                                        <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo ? String(task.jo).replace(/^#+/, '') : '-'}</td>
-                                        <td className="py-2 px-2.5 text-center">
-                                          <div className="flex items-center justify-center gap-1.5">
-                                            <button onClick={(e) => { e.stopPropagation(); handleOpenEdit(task); }}
-                                              className="p-1 rounded hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 transition cursor-pointer" title="Edit Tugas">
-                                              <Pencil className="w-3.5 h-3.5" />
-                                            </button>
-                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
-                                              className="p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer" title="Hapus Tugas">
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
+                                  {personTasks.map((task, tIdx) => (
+                                    <tr key={task.id} className="hover:bg-slate-900/40">
+                                      <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
+                                      <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || `${getBiroPrefix(subconSelectedBiro)}${tIdx + 1}`}</td>
+                                      <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
+                                      <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
+                                      <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">{formatDisplayDate(task.startDate)} s/d {formatDisplayDate(task.endDate)}</td>
+                                      <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo ? String(task.jo).replace(/^#+/, '') : '-'}</td>
+                                    </tr>
+                                  ))}
                                 </tbody>
                               </table>
                             </div>
@@ -1419,24 +1315,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                   <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
                                   <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
                                   <th className="py-2 px-2.5 font-mono text-cyan-300">Release</th>
-                                  <th className="py-2 px-2.5 text-center w-20">Aksi</th>
                                 </tr></thead>
                                 <tbody className="divide-y divide-slate-800 text-slate-300">
                                   {personTasks.map((task, tIdx) => {
-                                    const isSameProjectAsAbove = tIdx > 0 && task.project === personTasks[tIdx - 1].project;
                                     const jcKey = cleanText(task.kodeJc || '');
                                     const calculatedRealHours = jcKey ? realisasiMap.get(jcKey) : undefined;
                                     return (
                                       <tr key={task.id} className="hover:bg-slate-900/40">
                                         <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
                                         <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}</td>
-                                        <td className="py-2 px-2.5 font-medium">
-                                          {isSameProjectAsAbove ? (
-                                            <span className="text-slate-500 font-mono text-[11px]" title={task.project}>— s.d.a —</span>
-                                          ) : (
-                                            <span className="text-emerald-400">{task.project}</span>
-                                          )}
-                                        </td>
+                                        <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
                                         <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
                                         <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
                                         <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate)}</td>
@@ -1474,18 +1362,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                               </div>
                                             </div>
                                           )}
-                                        </td>
-                                        <td className="py-2 px-2.5 text-center">
-                                          <div className="flex items-center justify-center gap-1.5">
-                                            <button onClick={(e) => { e.stopPropagation(); handleOpenEdit(task); }}
-                                              className="p-1 rounded hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 transition cursor-pointer" title="Edit Tugas">
-                                              <Pencil className="w-3.5 h-3.5" />
-                                            </button>
-                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
-                                              className="p-1 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer" title="Hapus Tugas">
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                          </div>
                                         </td>
                                       </tr>
                                     );
@@ -1590,197 +1466,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         )}
       </main>
-
-      {/* ================= MODAL EDIT PENUGASAN ================= */}
-      {editingTask && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-fadeIn">
-            <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-              <span className="font-bold text-xs text-white flex items-center gap-1.5">
-                <Pencil className="w-3.5 h-3.5 text-blue-400" /> Edit Penugasan — {editingTask.pic}
-              </span>
-              <button onClick={() => setEditingTask(null)} className="text-slate-400 hover:text-white cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEdit} className="p-4 space-y-3.5 text-xs">
-              <div>
-                <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                <SearchableSelect
-                  options={projectOptions}
-                  value={editFormData.project}
-                  onChange={(val) => {
-                    setEditFormData(prev => ({ ...prev, project: val }));
-                    fetchDrawingControlForProject(val);
-                  }}
-                  placeholder="Ketik kode proyek..."
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan JO' : 'Nomor JO'}
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={editFormData.jo}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9]/g, '') }))}
-                    required
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Jobcard' : 'Kode WO'}
-                  </label>
-                  <input
-                    type="text"
-                    value={editFormData.kodeJc}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, kodeJc: e.target.value.toUpperCase() }))}
-                    placeholder={accessMode === 'organik' ? 'JC...' : 'WO...'}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono uppercase"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-400 mb-1">Deskripsi</label>
-                <SearchableSelect
-                  options={dynamicTaskOptions}
-                  value={editFormData.taskName}
-                  onChange={(val) => {
-                    const cleanProj = cleanText(editFormData.project || '');
-                    const rows = drawingControlMap[cleanProj] || [];
-                    let newRelease = '';
-                    let newRev = editFormData.rev;
-
-                    const cleanTarget = cleanText(val);
-                    const currentEditRev = String(editFormData.rev || '0').trim();
-
-                    const exactMatch = rows.find(r => {
-                      const cFull = cleanText(r.fullDeskripsi);
-                      const cDwg = cleanText(r.noDwg);
-                      const cName = cleanText(r.drawingName);
-                      const rowRev = String(r.rev || '0').trim();
-                      const isRevMatch = rowRev === currentEditRev;
-                      const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
-                      return isNameMatch && isRevMatch;
-                    });
-
-                    if (exactMatch && exactMatch.finishDate) {
-                      newRelease = parseToStandardDate(exactMatch.finishDate);
-                      if (exactMatch.rev) newRev = exactMatch.rev;
-                    } else {
-                      newRelease = '';
-                    }
-
-                    setEditFormData(prev => ({ ...prev, taskName: val, release: newRelease, rev: newRev }));
-                  }}
-                  placeholder="Ketik deskripsi gambar..."
-                  required
-                />
-              </div>
-
-              {accessMode === 'organik' && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
-                    <input
-                      type="text"
-                      value={editFormData.rev}
-                      onChange={(e) => {
-                        const newRev = e.target.value;
-                        const cleanProj = cleanText(editFormData.project || '');
-                        const rows = drawingControlMap[cleanProj] || [];
-                        let autoRel = '';
-
-                        const exactMatch = rows.find(r => {
-                          const cFull = cleanText(r.fullDeskripsi);
-                          const cDwg = cleanText(r.noDwg);
-                          const cName = cleanText(r.drawingName);
-                          const rowRev = String(r.rev || '0').trim();
-                          const isRevMatch = rowRev === String(newRev).trim();
-                          const isNameMatch = cleanText(editFormData.taskName).includes(cDwg) || cleanText(editFormData.taskName).includes(cName) || cFull.includes(cleanText(editFormData.taskName));
-                          return isNameMatch && isRevMatch;
-                        });
-
-                        if (exactMatch && exactMatch.finishDate) {
-                          autoRel = parseToStandardDate(exactMatch.finishDate);
-                        } else {
-                          autoRel = '';
-                        }
-
-                        setEditFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
-                      }}
-                      placeholder="0"
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
-                    />
-                  </div>
-                  <div className="hidden">
-                    <label className="block text-slate-400 mb-1">Release</label>
-                    <input
-                      type="date"
-                      value={editFormData.release}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, release: e.target.value }))}
-                      style={{ colorScheme: 'dark' }}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'}
-                  </label>
-                  <input
-                    type="date"
-                    value={editFormData.startDate}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                    required
-                    style={{ colorScheme: 'dark' }}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'}
-                  </label>
-                  <input
-                    type="date"
-                    value={editFormData.endDate}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                    required
-                    style={{ colorScheme: 'dark' }}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingTask(null)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer"
-                >
-                  Simpan Perubahan
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Modal Planner Panel */}
       {isPlannerOpen && (
