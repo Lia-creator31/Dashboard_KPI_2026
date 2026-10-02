@@ -376,6 +376,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   
   // State Planner Modal
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
+  const [plannerSelectedDept, setPlannerSelectedDept] = useState<Department | null>(null);
+  const [plannerSelectedBiro, setPlannerSelectedBiro] = useState<string | null>(null);
   const [isPlannerUnlocked, setIsPlannerUnlocked] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
