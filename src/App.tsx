@@ -31,7 +31,6 @@ export default function App() {
   // 4. Jika login sebagai Outsourcing
   // (Sementara diarahkan ke KabiroPage atau buat file OutsourcingPage.tsx terpisah nanti)
   if (session.role === 'outsourcing') {
-    // return <OutsourcingPage user={session} onLogout={() => setSession(null)} />; 
     return <OutsorcingPage user={session} onLogout={() => setSession(null)} />; 
   }
 
