@@ -1836,201 +1836,82 @@ const organicBiroTasks = useMemo(() => {
         </div>
       )}
 
-{/* ================= MODAL PLANNER ================= */}
-
-      {isPlannerOpen && (
-
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
-
-            <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-
-              <span className="font-bold text-xs text-white flex items-center gap-1.5">
-
-                <Lock className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard ({pendingTasksCount} Menunggu)
-
-              </span>
-
-              <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
-
-                <X className="w-4 h-4" />
-
-              </button>
-
-            </div>
-
-
-
-                <div className="p-4 max-h-[70vh] overflow-y-auto space-y-4">
-
-                  {departmentsData.map((dept) => {
-
-                    // Filter hanya biro yang memiliki tugas pending
-
-                    const birosWithPending = dept.biros.filter((biro) => {
-
-                      const pendingTasks = Object.values(manualTasks).flat().filter(
-
-                        (t) => cleanText(t.biroName) === cleanText(biro.name) && (!t.kodeJc || t.kodeJc.trim() === '')
-
-                      );
-
-                      return pendingTasks.length > 0;
-
-                    });
-
-                
-
-                    if (birosWithPending.length === 0) return null;
-
-                
-
-                    return (
-
-                      <div key={dept.id} className="space-y-2">
-
-                        <h4 className="text-sm font-bold text-purple-400 border-b border-slate-800 pb-1">
-
-                          {dept.name}
-
-                        </h4>
-
-                        {birosWithPending.map((biro) => {
-
-                          const members = getBiroMembers(biro.name);
-
-                          const pendingTasks = Object.values(manualTasks).flat().filter(
-
-                            (t) => cleanText(t.biroName) === cleanText(biro.name) && (!t.kodeJc || t.kodeJc.trim() === '')
-
-                          );
-
-                
-
-                          return (
-
-                            <div key={biro.id} className="ml-2 space-y-2">
-
-                              <h5 className="text-xs font-semibold text-slate-300">
-
-                                {biro.name} <span className="text-slate-500">({pendingTasks.length} Pending)</span>
-
-                              </h5>
-
-                              
-
-                              {pendingTasks.map((task, idx) => {
-
-                                // Mencari data anggota untuk menampilkan status (PKWT/PKWTT)
-
-                                const member = members.find(m => cleanText(m.nama) === cleanText(task.pic));
-
-                                
-
-                                return (
-
-                                  <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
-
-                                    <div className="min-w-0 flex-1">
-
-                                      <div className="font-semibold text-white truncate">
-
-                                        {task.pic} 
-
-                                        {member && <span className="text-[10px] text-cyan-400 font-normal ml-1">({member.status})</span>}
-
-                                        <span className="font-mono text-slate-500 font-normal ml-1">#{idx + 1}</span>
-
-                                        {task.rev && <span className="ml-2 font-mono text-[10px] text-cyan-400">Rev.{task.rev}</span>}
-
-                                      </div>
-
-                                      <div className="text-slate-400 text-[11px] truncate">{task.taskName}</div>
-
-                                      <div className="text-emerald-400 font-mono text-[10px]">{task.project} • {task.biroName}</div>
-
-                                    </div>
-
-                
-
-                                    <div className="flex items-center gap-1.5 shrink-0">
-
-                                      <input
-
-                                        type="text"
-
-                                        value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
-
-                                        onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
-
-                                        placeholder="Kode JC..."
-
-                                        className="w-32 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none focus:border-amber-500"
-
-                                      />
-
-                                      <button
-
-                                        onClick={() => handleSaveKodeJcForTask(task.id)}
-
-                                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer"
-
-                                      >
-
-                                        Simpan
-
-                                      </button>
-
-                                    </div>
-
-                                  </div>
-
-                                );
-
-                              })}
-
-                            </div>
-
-                          );
-
-                        })}
-
-                      </div>
-
-                    );
-
-                  })}
-
-                  
-
-                  {/* Tampilan jika tidak ada tugas pending sama sekali */}
-
-                  {pendingTasksCount === 0 && (
-
-                    <div className="py-8 text-center text-xs text-slate-500">
-
-                      Tidak ada pengajuan tugas yang menunggu approval di seluruh biro.
-
-                    </div>
-
-                  )}
-
+{/* Modal Planner Panel */}
+{isPlannerOpen && (
+  <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
+      <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <span className="font-bold text-xs text-white flex items-center gap-1.5">
+          <Lock className="w-3.5 h-3.5 text-amber-400" /> 
+          Planner Panel — Approval Jobcard 
+          {selectedBiroName && <span className="text-cyan-400">({selectedBiroName})</span>}
+        </span>
+        <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="p-4 max-h-[70vh] overflow-y-auto space-y-3">
+        {(() => {
+          // 1. Ambil semua tugas yang belum punya kodeJc (pending)
+          const allPending = Object.values(manualTasks)
+            .flatMap(tasks => tasks)
+            .filter(t => !t.kodeJc || t.kodeJc.trim() === '');
+
+          // 2. Filter: Jika sedang berada di halaman Biro tertentu, hanya tampilkan tugas biro tersebut
+          const targetPending = selectedBiroName
+            ? allPending.filter(t => cleanText(t.biroName) === cleanText(selectedBiroName))
+            : allPending;
+
+          return targetPending.length > 0 ? (
+            <>
+              {selectedBiroName && (
+                <div className="text-xs text-slate-400 mb-2 bg-slate-800/50 p-2 rounded border border-slate-700">
+                  Menampilkan tugas pending khusus untuk: <span className="text-amber-400 font-semibold">{selectedBiroName}</span>
                 </div>
+              )}
+              
+              {targetPending.map((task, idx) => (
+                <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-white truncate">
+                      {task.pic} <span className="font-mono text-slate-500 font-normal">#{idx + 1}</span>
+                      {task.rev && <span className="ml-2 font-mono text-[10px] text-cyan-400">Rev.{task.rev}</span>}
+                    </div>
+                    <div className="text-slate-400 text-[11px] truncate">{task.taskName}</div>
+                    <div className="text-emerald-400 font-mono text-[10px]">{task.project} • {task.biroName}</div>
+                  </div>
 
-              </div>
-
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <input
+                      type="text"
+                      value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
+                      onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
+                      placeholder="Kode JC..."
+                      className="w-32 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none focus:border-amber-500"
+                    />
+                    <button
+                      onClick={() => handleSaveKodeJcForTask(task.id)}
+                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer"
+                    >
+                      Simpan
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </>
+          ) : (
+            <div className="py-8 text-center text-xs text-slate-500">
+              {selectedBiroName 
+                ? `Tidak ada pengajuan tugas yang menunggu approval di ${selectedBiroName}.` 
+                : "Tidak ada pengajuan tugas yang menunggu approval di seluruh biro."}
             </div>
-
-          </div>
-
-        </div>
-
-      )}
-
+          );
+        })()}
+      </div>
     </div>
-
+  </div>
+)}
+    </div>
   );
-
-} 
-
+}
