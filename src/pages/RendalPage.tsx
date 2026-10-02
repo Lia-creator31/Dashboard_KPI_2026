@@ -311,6 +311,23 @@ function getProjectNormKey(s: string): string {
   const k = (s || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
   return k.replace(/0/g, 'o');
 }
+const MASTER_BUCKET = 'master-files';
+type MasterKey = 'jobcard' | 'im4' | 'realisasi';
+
+async function saveMasterFile(key: MasterKey, file: File) {
+  const { error } = await supabase.storage
+    .from(MASTER_BUCKET)
+    .upload(`${key}.xlsx`, file, { upsert: true, contentType: file.type || 'application/octet-stream' });
+  return error;
+}
+
+async function loadMasterFile(key: MasterKey): Promise<XLSX.WorkBook | null> {
+  try {
+    const { data, error } = await supabase.storage.from(MASTER_BUCKET).download(`${key}.xlsx`);
+    if (error || !data) return null;
+    return XLSX.read(await data.arrayBuffer(), { type: 'array' });
+  } catch { return null; }
+}
 
 async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
   for (const p of paths) {
