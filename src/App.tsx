@@ -32,7 +32,7 @@ export default function App() {
   // (Sementara diarahkan ke KabiroPage atau buat file OutsourcingPage.tsx terpisah nanti)
   if (session.role === 'outsourcing') {
     // return <OutsourcingPage user={session} onLogout={() => setSession(null)} />; 
-    return <KabiroPage user={session} onLogout={() => setSession(null)} />; 
+    return <OutsorcingPage user={session} onLogout={() => setSession(null)} />; 
   }
 
   // Fallback jika role tidak dikenali
