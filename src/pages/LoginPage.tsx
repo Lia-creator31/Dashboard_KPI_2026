@@ -27,19 +27,25 @@ const isAdmin = !!matchedAdmin;
 // Status hanya muncul jika kolom nama sudah diisi dan bukan admin
 const showRoleSelector = nama.trim().length > 0 && !isAdmin;
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!nama.trim() || !nip.trim()) {
-      setError('Nama dan NIP wajib diisi!');
-      return;
-    }
+const handleLoginSubmit = (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!nama.trim() || !nip.trim()) {
+    setError('Nama dan NIP wajib diisi!');
+    return;
+  }
 
-    onLogin({
-      nama: nama.trim(),
-      nip: nip.trim(),
-      role: isAdmin ? 'admin' : role
-    });
-  };
+  // Jika nama adalah admin, NIP harus cocok
+  if (matchedAdmin && cleanNip !== matchedAdmin.nip) {
+    setError('Login gagal: NIP tidak sesuai.');
+    return;
+  }
+
+  onLogin({
+    nama: nama.trim(),
+    nip: cleanNip,
+    role: matchedAdmin ? 'admin' : role,
+  });
+};
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
