@@ -17,11 +17,15 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   const [role, setRole] = useState<'kabiro' | 'outsourcing'>('kabiro');
   const [error, setError] = useState('');
 
-  const cleanNama = nama.trim().toLowerCase();
-  const isAdmin = cleanNama.includes('dyan asih purwanti') || cleanNama.includes('hashfi moch adam');
-  
-  // Status hanya muncul jika kolom nama sudah diisi dan bukan admin
-  const showRoleSelector = nama.trim().length > 0 && !isAdmin;
+const cleanNama = nama.trim().toLowerCase();
+const cleanNip = nip.trim();
+
+// Nama yang termasuk daftar admin (baru nama, belum cek NIP)
+const matchedAdmin = ADMIN_ACCOUNTS.find(a => cleanNama.includes(a.nama));
+const isAdmin = !!matchedAdmin;
+
+// Status hanya muncul jika kolom nama sudah diisi dan bukan admin
+const showRoleSelector = nama.trim().length > 0 && !isAdmin;
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
