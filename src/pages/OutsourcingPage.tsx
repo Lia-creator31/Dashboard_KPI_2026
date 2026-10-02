@@ -124,39 +124,46 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
     }
   }, [user.nip]);
 
-  // Load Work Order yang tersedia untuk user ini
 const loadAvailableWorkOrders = useCallback(async (startDate: string, endDate: string) => {
   try {
-    // Query yang lebih flexible - ambil semua work order untuk user ini
-    let query = supabase
+    console.log('🔍 Mencari work order untuk:', user.nama, '| Tanggal:', startDate);
+    
+    // 1. Ambil SEMUA work order yang statusnya 'approved' dulu
+    const { data, error } = await supabase
       .from('job_cards')
       .select('*')
       .eq('status', 'approved');
     
-    // Filter berdasarkan nama PIC (tanpa NIP)
-    const userNameOnly = user.nama.split(' - ').pop() || user.nama;
-    query = query.ilike('pic', `%${userNameOnly}%`);
+    if (error) {
+      console.error('❌ Error dari Supabase:', error);
+      throw error;
+    }
     
-    // Atau filter berdasarkan NIP juga
-    const userNip = user.nip;
-    
-    const { data, error } = await query;
-    
-    if (error) throw error;
-    
-    // Filter di client-side berdasarkan tanggal
+    console.log('✅ Total work order approved ditemukan:', data?.length || 0, data);
+
+    // 2. Filter di client-side (Browser) agar lebih fleksibel
     const filteredData = (data || []).filter(wo => {
-      const woStart = new Date(wo.start_date);
-      const woEnd = new Date(wo.end_date);
-      const selectedDate = new Date(startDate);
+      // A. Cek kecocokan Nama PIC (handle jika ada NIP atau hanya nama)
+      const userNameLower = user.nama.toLowerCase();
+      const userNipLower = user.nip.toLowerCase();
+      const picLower = wo.pic.toLowerCase();
       
-      // Cek apakah tanggal yang dipilih ada dalam range work order
-      return selectedDate >= woStart && selectedDate <= woEnd;
+      const isNameMatch = picLower.includes(userNameLower) || 
+                          picLower.includes(userNipLower) || 
+                          userNameLower.includes(picLower);
+
+      // B. Cek kecocokan Tanggal (BANDINGKAN SEBAGAI STRING YYYY-MM-DD)
+      // Ini mencegah bug timezone dari new Date()
+      const isDateMatch = wo.start_date <= startDate && wo.end_date >= startDate;
+      
+      return isNameMatch && isDateMatch;
     });
     
+    console.log('🎯 Work order yang lolos filter (seharusnya DP5 ada di sini):', filteredData);
     setAvailableWorkOrders(filteredData);
+    
   } catch (error) {
-    console.error('Error loading work orders:', error);
+    console.error('❌ Gagal memuat work order:', error);
   }
 }, [user.nama, user.nip]);
 
