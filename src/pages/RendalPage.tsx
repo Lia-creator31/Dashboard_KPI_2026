@@ -1833,7 +1833,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       )}
 
 {/* ================= MODAL PLANNER ================= */}
-{/* ================= MODAL PLANNER (BERISI ANGGOTA TIAP BIRO) ================= */}
       {isPlannerOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
