@@ -446,11 +446,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           else if (pLower.includes('realisasi')) realisasiUrl = url;
         });
 
-        const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
-          fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx']),
-          fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx']),
-          fetchSafeWorkbook([realisasiUrl, '/Realisasi JO.xlsx', './Realisasi JO.xlsx'])
-        ]);
+      const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
+        loadMasterFile('jobcard').then(wb => wb || fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx'])),
+        loadMasterFile('im4').then(wb => wb || fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx'])),
+        loadMasterFile('realisasi').then(wb => wb || fetchSafeWorkbook([realisasiUrl, '/Realisasi JO.xlsx', './Realisasi JO.xlsx'])),
+      ]);
 
         if (wbJc) setJobcardWorkbook(wbJc);
         if (wbIm4) setIm4Workbook(wbIm4);
