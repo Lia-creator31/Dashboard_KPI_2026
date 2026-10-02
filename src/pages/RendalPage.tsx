@@ -462,15 +462,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   }, [loadAllJobCards]);
 
   // Handlers Upload Excel
-  const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try { setIm4Workbook(XLSX.read(evt.target?.result, { type: 'binary' })); alert(`Master Personel "${file.name}" berhasil diperbarui!`); } 
-      catch { alert('Gagal membaca file Excel Personel IM4.'); }
-    };
-    reader.readAsBinaryString(file);
+const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (evt) => {
+    try {
+      setIm4Workbook(XLSX.read(evt.target?.result, { type: 'binary' }));
+      const err = await saveMasterFile('im4', file);
+      alert(err
+        ? `File terbaca, tapi gagal disimpan ke server: ${err.message}`
+        : `Master Personel "${file.name}" berhasil diperbarui dan tersimpan!`);
+    } catch { alert('Gagal membaca file Excel Personel IM4.'); }
   };
+  reader.readAsBinaryString(file);
+};
 
   const handleUpdateJobcardExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
