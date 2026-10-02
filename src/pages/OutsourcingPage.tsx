@@ -1,12 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
-import { departmentsData, Department } from '../data';
-import * as XLSX from 'xlsx';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import {
-  Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
-  Pencil, Trash2, Lock, X, Check, Printer, FileCheck, Clock, Sparkles, 
-  FileSpreadsheet, Users, Search, Plus, Calendar
+  HardHat, ArrowLeft, X, Check, Plus, Trash2, Pencil,
+  Calendar, FileCheck, Clock, Printer, ChevronLeft
 } from 'lucide-react';
 
 interface OutsourcingPageProps {
@@ -17,182 +14,399 @@ interface OutsourcingPageProps {
 interface TimesheetLine {
   id: string;
   date: string;
-  workOrder: string;
+  workOrderId: string;
+  workOrderCode: string;
   description: string;
   effectiveHours: number;
   overtimeHours: number;
+  plannedHour?: string;
+  idleHours?: string;
+  type?: string;
+  project?: string;
+  workCenter?: string;
+  wbsActivity?: string;
+  day?: string;
+  analyticAccount?: string;
 }
 
 interface TimesheetHeader {
   id: string;
   code: string;
-  startDate: string;
-  endDate: string;
-  responsible: string;
+  userId: string;
+  userName: string;
+  nip: string;
+  dateStart: string;
+  dateEnd: string;
   unitKerja: string;
-  status: string;
+  divisi: string;
+  status: 'Draft' | 'Submitted' | 'Approved';
   lines: TimesheetLine[];
+  createdAt: string;
 }
 
-function cleanText(str: string): string {
-  return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
-}
-
-function parseToStandardDate(val: any): string {
-  if (!val) return '';
-  let str = String(val).trim();
-  if (!str || str === '-' || str.toLowerCase() === 'nan') return '';
-  return str.slice(0, 10);
-}
-
-function formatDisplayDate(val: any): string {
-  if (!val) return '-';
-  const iso = parseToStandardDate(val);
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) {
-    return `${m[3]}-${m[2]}-${m[1]}`;
+// Helper: Normalisasi tanggal
+function normalizeDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const clean = String(dateStr).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+  if (/^\d{2}-\d{2}-\d{4}$/.test(clean)) {
+    const parts = clean.split('-');
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
   }
-  return String(val) || '-';
+  return clean;
 }
 
-function isBiroMatch(biro1: string, biro2: string): boolean {
-  const b1 = (biro1 || '').toLowerCase().replace('&', ' dan ').trim();
-  const b2 = (biro2 || '').toLowerCase().replace('&', ' dan ').trim();
-  if (!b1 || !b2) return false;
-  if (b1 === b2) return true;
-  return cleanText(b1).includes(cleanText(b2)) || cleanText(b2).includes(cleanText(b1));
+function formatDisplayDate(dateStr: string): string {
+  const normalized = normalizeDate(dateStr);
+  if (!normalized) return '-';
+  const parts = normalized.split('-');
+  if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  return dateStr;
 }
 
-function getBiroPrefix(biroName: string): string {
-  const b = (biroName || '').toLowerCase().replace('&', ' dan ').trim();
-  if (b.includes('dokumen') || (b.includes('perencanaan') && b.includes('biro'))) return 'DP';
-  if (b.includes('logistik')) return 'DL'; 
-  if (b.includes('administrasi')) return 'DA'; 
-  if (b.includes('pengembangan')) return 'PD';
-  return 'WO';
+function getDayName(dateStr: string): string {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const normalized = normalizeDate(dateStr);
+  if (!normalized) return '';
+  const date = new Date(normalized);
+  return days[date.getDay()];
+}
+
+function generateTimesheetCode(): string {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const rand = Math.floor(Math.random() * 900000) + 100000;
+  return `TIM-${yy}${mm}${dd}${rand}`;
 }
 
 export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps) {
-  const [viewMode, setViewMode] = useState<'list' | 'create'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'create' | 'detail'>('list');
+  const [selectedTimesheet, setSelectedTimesheet] = useState<TimesheetHeader | null>(null);
   
-  // State Form Header Timesheet
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  // State untuk daftar timesheet
+  const [timesheets, setTimesheets] = useState<TimesheetHeader[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // State form header timesheet
+  const [dateStart, setDateStart] = useState('');
+  const [dateEnd, setDateEnd] = useState('');
   const [unitKerja, setUnitKerja] = useState('Biro Dukungan & Administrasi');
+  const [divisi, setDivisi] = useState('71000 - Divisi Desain');
   
-  // State Lines Timesheet
+  // State lines timesheet
   const [lines, setLines] = useState<TimesheetLine[]>([]);
   
-  // State Modal Add Line
+  // State modal Add Line
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [lineDate, setLineDate] = useState('');
-  const [lineWorkOrder, setLineWorkOrder] = useState('');
+  const [lineWorkOrderId, setLineWorkOrderId] = useState('');
   const [lineDescription, setLineDescription] = useState('');
   const [lineEffective, setLineEffective] = useState('8');
   const [lineOvertime, setLineOvertime] = useState('0');
-
-  // State daftar timesheet tersimpan
-  const [savedTimesheets, setSavedTimesheets] = useState<TimesheetHeader[]>([]);
-  // Load data job cards / work orders dari Supabase dan petakan packageTitle (DP1, DP2, dst.)
+  const [editingLineId, setEditingLineId] = useState<string | null>(null);
+  
+  // State work orders
   const [availableWorkOrders, setAvailableWorkOrders] = useState<any[]>([]);
 
-  useEffect(() => {
-    async function fetchWorkOrders() {
-      try {
-        const { data, error } = await supabase.from('job_cards').select('*');
-        if (data) {
-          // Filter milik user yang sedang login
-          const myWo = data.filter(item => {
-            const picClean = cleanText(item.pic || item.personil_name || '');
-            const userClean = cleanText(user.nama || '');
-            return picClean.includes(userClean) || userClean.includes(picClean);
-          });
+  // Load timesheet dari Supabase
+  const loadTimesheets = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('outsourcing_timesheets')
+        .select('*')
+        .eq('user_id', user.nip)
+        .order('created_at', { ascending: false });
 
-          // Petakan packageTitle agar konsisten seperti di list card (DP1, DP2, DP3...)
-          const mapped = myWo.map((item, idx) => {
-            const prefix = getBiroPrefix(item.biro_name || 'Biro Dokumen dan Perencanaan');
-            return {
-              ...item,
-              packageTitle: item.kode_jc && item.kode_jc.startsWith(prefix) ? item.kode_jc : `${prefix}${idx + 1}`
-            };
-          });
+      if (error) {
+        console.error('Error loading timesheets:', error);
+        setTimesheets([]);
+        return;
+      }
 
-          setAvailableWorkOrders(mapped);
-        }
-      } catch {}
+      const timesheetsWithLines: TimesheetHeader[] = [];
+      for (const ts of (data || [])) {
+        const { data: linesData } = await supabase
+          .from('outsourcing_timesheet_lines')
+          .select('*')
+          .eq('timesheet_id', ts.id)
+          .order('date', { ascending: true });
+
+        timesheetsWithLines.push({
+          id: ts.id,
+          code: ts.code || `TIM-${ts.id}`,
+          userId: ts.user_id,
+          userName: ts.user_name || user.nama,
+          nip: user.nip,
+          dateStart: ts.date_start,
+          dateEnd: ts.date_end,
+          unitKerja: ts.unit_kerja || 'Biro Dukungan & Administrasi',
+          divisi: ts.divisi || '71000 - Divisi Desain',
+          status: ts.status || 'Draft',
+          lines: (linesData || []).map((l: any) => ({
+            id: l.id,
+            date: l.date,
+            workOrderId: l.work_order_id,
+            workOrderCode: l.work_order_code || '',
+            description: l.description || '',
+            effectiveHours: Number(l.effective_hours) || 0,
+            overtimeHours: Number(l.overtime_hours) || 0,
+            plannedHour: l.planned_hour || '08:00',
+            idleHours: l.idle_hours || '00:00',
+            type: l.type || 'Biasa',
+            project: l.project || '',
+            workCenter: l.work_center || '',
+            wbsActivity: l.wbs_activity || '',
+            day: l.day || getDayName(l.date),
+            analyticAccount: l.analytic_account || '',
+          })),
+          createdAt: ts.created_at,
+        });
+      }
+
+      setTimesheets(timesheetsWithLines);
+    } catch (err) {
+      console.error('Error:', err);
+    } finally {
+      setIsLoading(false);
     }
-    fetchWorkOrders();
+  }, [user.nip, user.nama]);
+
+  // Load work orders
+  const loadAvailableWorkOrders = useCallback(async (selectedDate?: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('job_cards')
+        .select('*')
+        .eq('status', 'approved');
+
+      if (error) {
+        console.error('Error Supabase:', error);
+        return;
+      }
+
+      const filteredData = (data || []).filter((wo: any) => {
+        const isNameMatch = wo.pic?.toLowerCase().includes(user.nama.toLowerCase()) || 
+                            user.nama.toLowerCase().includes(wo.pic?.toLowerCase()) ||
+                            wo.personil_name?.toLowerCase().includes(user.nama.toLowerCase());
+
+        let isDateMatch = true;
+        if (selectedDate) {
+          const woStart = normalizeDate(wo.start_date);
+          const woEnd = normalizeDate(wo.end_date);
+          const selected = normalizeDate(selectedDate);
+          
+          if (woStart && woEnd && selected) {
+            isDateMatch = selected >= woStart && selected <= woEnd;
+          }
+        }
+
+        return isNameMatch && isDateMatch;
+      });
+
+      setAvailableWorkOrders(filteredData);
+      
+    } catch (error) {
+      console.error('Gagal memuat work order:', error);
+    }
   }, [user.nama]);
 
-  // Filter work order berdasarkan tanggal harian (lineDate) yang dipilih di modal
-  const filteredWorkOrdersForModal = useMemo(() => {
-    if (!lineDate) return availableWorkOrders;
-    
-    return availableWorkOrders.filter(wo => {
-      const woStart = parseToStandardDate(wo.start_date || wo.startDate);
-      const woEnd = parseToStandardDate(wo.end_date || wo.endDate);
-      
-      if (woStart && woEnd) {
-        return lineDate >= woStart && lineDate <= woEnd;
-      }
-      return true;
-    });
-  }, [availableWorkOrders, lineDate]);
+  useEffect(() => {
+    loadTimesheets();
+  }, [loadTimesheets]);
 
-  const handleAddLineSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!lineDate || !lineWorkOrder) {
-      alert('Tanggal dan Work Order wajib diisi!');
+  // Handler untuk melihat detail timesheet
+  const handleViewDetail = (timesheet: TimesheetHeader) => {
+    setSelectedTimesheet(timesheet);
+    setViewMode('detail');
+  };
+
+  // Handler create timesheet
+  const handleCreateTimesheet = () => {
+    setViewMode('create');
+    setDateStart('');
+    setDateEnd('');
+    setLines([]);
+    setUnitKerja('Biro Dukungan & Administrasi');
+    setDivisi('71000 - Divisi Desain');
+  };
+
+  // Handler add line
+  const handleAddLine = () => {
+    if (!dateStart || !dateEnd) {
+      alert('Mohon isi Date Start dan Date End terlebih dahulu!');
+      return;
+    }
+    setEditingLineId(null);
+    setLineDate(dateStart);
+    setLineWorkOrderId('');
+    setLineDescription('');
+    setLineEffective('8');
+    setLineOvertime('0');
+    setIsModalOpen(true);
+    loadAvailableWorkOrders(dateStart);
+  };
+
+  // Handler saat tanggal di modal berubah
+  const handleLineDateChange = (newDate: string) => {
+    setLineDate(newDate);
+    if (newDate) {
+      loadAvailableWorkOrders(newDate);
+    }
+  };
+
+  // Handler save line
+  const handleSaveLine = () => {
+    if (!lineDate) {
+      alert('Tanggal wajib diisi!');
+      return;
+    }
+    if (!lineWorkOrderId) {
+      alert('Work Order wajib dipilih!');
+      return;
+    }
+
+    const selectedWo = availableWorkOrders.find(wo => wo.id === lineWorkOrderId);
+    if (!selectedWo) {
+      alert('Work Order tidak valid!');
       return;
     }
 
     const newLine: TimesheetLine = {
-      id: Math.random().toString(36).substring(2, 9),
+      id: editingLineId || `line_${Date.now()}`,
       date: lineDate,
-      workOrder: lineWorkOrder,
-      description: lineDescription || 'Pekerjaan Desain & Drafting',
-      effectiveHours: parseFloat(lineEffective) || 8,
+      workOrderId: lineWorkOrderId,
+      workOrderCode: selectedWo.kode_jc || selectedWo.kodeJc || '',
+      description: lineDescription || selectedWo.taskName || '',
+      effectiveHours: parseFloat(lineEffective) || 0,
       overtimeHours: parseFloat(lineOvertime) || 0,
+      plannedHour: '08:00',
+      idleHours: '00:00',
+      type: 'Biasa',
+      project: selectedWo.project || '',
+      workCenter: 'ICD303 - Biro Dukungan & Administrasi',
+      wbsActivity: 'Level 6 ICAJO Jam Orang Divisi Desain',
+      day: getDayName(lineDate),
+      analyticAccount: `CORP2026\nCORPORATE BUDGET 2026`,
     };
 
-    setLines(prev => [...prev, newLine]);
+    if (editingLineId) {
+      setLines(prev => prev.map(l => l.id === editingLineId ? newLine : l));
+    } else {
+      setLines(prev => [...prev, newLine]);
+    }
+
     setIsModalOpen(false);
-    // Reset modal form
-    setLineWorkOrder('');
-    setLineDescription('');
-    setLineEffective('8');
-    setLineOvertime('0');
+    setEditingLineId(null);
   };
 
-  const handleSaveTimesheet = () => {
-    if (!startDate || !endDate) {
-      alert('Harap tentukan Tanggal Mulai dan Tanggal Selesai terlebih dahulu.');
+  // Handler edit line
+  const handleEditLine = (line: TimesheetLine) => {
+    setEditingLineId(line.id);
+    setLineDate(line.date);
+    setLineWorkOrderId(line.workOrderId);
+    setLineDescription(line.description);
+    setLineEffective(String(line.effectiveHours));
+    setLineOvertime(String(line.overtimeHours));
+    setIsModalOpen(true);
+    loadAvailableWorkOrders(line.date);
+  };
+
+  // Handler delete line
+  const handleDeleteLine = (lineId: string) => {
+    if (confirm('Hapus baris ini?')) {
+      setLines(prev => prev.filter(l => l.id !== lineId));
+    }
+  };
+
+  // Handler save timesheet
+  const handleSaveTimesheet = async () => {
+    if (!dateStart || !dateEnd) {
+      alert('Tanggal mulai dan tanggal akhir harus diisi!');
       return;
     }
     if (lines.length === 0) {
-      alert('Tambahkan setidaknya satu baris timesheet (Add a line).');
+      alert('Tambahkan setidaknya satu baris timesheet!');
       return;
     }
 
-    const randomCode = `TIM-${Math.floor(1000000000000 + Math.random() * 9000000000000)}`;
-    const newTimesheet: TimesheetHeader = {
-      id: Date.now().toString(),
-      code: randomCode,
-      startDate,
-      endDate,
-      responsible: user.nama,
-      unitKerja,
-      status: 'Approved',
-      lines
-    };
+    try {
+      const code = generateTimesheetCode();
+      
+      const { data: tsData, error: tsError } = await supabase
+        .from('outsourcing_timesheets')
+        .insert({
+          code: code,
+          user_id: user.nip,
+          user_name: user.nama,
+          date_start: dateStart,
+          date_end: dateEnd,
+          unit_kerja: unitKerja,
+          divisi: divisi,
+          status: 'Draft',
+        })
+        .select()
+        .single();
 
-    setSavedTimesheets(prev => [newTimesheet, ...prev]);
-    setViewMode('list');
-    setLines([]);
-    setStartDate('');
-    setEndDate('');
-    alert(`Timesheet berhasil disimpan dengan nomor: ${randomCode}`);
+      if (tsError) throw tsError;
+
+      const linesToInsert = lines.map(l => ({
+        timesheet_id: tsData.id,
+        date: l.date,
+        work_order_id: l.workOrderId,
+        work_order_code: l.workOrderCode,
+        description: l.description,
+        effective_hours: l.effectiveHours,
+        overtime_hours: l.overtimeHours,
+        planned_hour: l.plannedHour || '08:00',
+        idle_hours: l.idleHours || '00:00',
+        type: l.type || 'Biasa',
+        project: l.project || '',
+        work_center: l.workCenter || '',
+        wbs_activity: l.wbsActivity || '',
+        day: l.day || getDayName(l.date),
+        analytic_account: l.analyticAccount || '',
+      }));
+
+      const { error: linesError } = await supabase
+        .from('outsourcing_timesheet_lines')
+        .insert(linesToInsert);
+
+      if (linesError) throw linesError;
+
+      alert(`Timesheet berhasil disimpan dengan nomor: ${code}`);
+      setViewMode('list');
+      loadTimesheets();
+    } catch (error: any) {
+      console.error('Error saving timesheet:', error);
+      alert('Gagal menyimpan timesheet: ' + error.message);
+    }
   };
+
+  // Handler submit timesheet
+  const handleSubmitTimesheet = async (tsId: string) => {
+    if (!confirm('Submit timesheet ini untuk approval?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('outsourcing_timesheets')
+        .update({ status: 'Submitted' })
+        .eq('id', tsId);
+
+      if (error) throw error;
+      alert('Timesheet berhasil disubmit!');
+      loadTimesheets();
+    } catch (error: any) {
+      alert('Gagal submit: ' + error.message);
+    }
+  };
+
+  // Hitung total jam
+  const totalHours = useMemo(() => {
+    return lines.reduce((acc, line) => acc + line.effectiveHours + line.overtimeHours, 0);
+  }, [lines]);
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
@@ -203,70 +417,258 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
             <div className="p-1.5 bg-amber-600 rounded-lg text-white">
               <HardHat className="w-4 h-4" />
             </div>
-            <span className="font-bold text-sm text-white">PORTAL MITRA / OUTSOURCING — <span className="text-amber-400">{user.nama}</span></span>
+            <div>
+              <span className="font-bold text-sm text-white">PORTAL MITRA / OUTSOURCING</span>
+              <span className="text-xs text-slate-400 ml-2">— {user.nama}</span>
+            </div>
           </div>
-          <button onClick={onLogout} className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer">
+          <button 
+            onClick={onLogout} 
+            className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer"
+          >
             Keluar
           </button>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-        
-        {viewMode === 'list' ? (
-          /* ================= VIEW 1: KARTU TIMESHEET ================= */
+        {/* ================= VIEW 1: DAFTAR TIMESHEET ================= */}
+        {viewMode === 'list' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
                 <h2 className="text-xl font-bold text-white">Project Timesheet</h2>
-                <span className="text-xs text-slate-400">Dokumen rekapitulasi jam kerja dan work order harian</span>
+                <p className="text-xs text-slate-400">Dokumen rekapitulasi jam kerja dan work order harian</p>
               </div>
               <button
-                onClick={() => setViewMode('create')}
+                onClick={handleCreateTimesheet}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg shadow flex items-center gap-1.5 cursor-pointer"
               >
                 <Plus className="w-4 h-4" /> Create
               </button>
             </div>
 
-            {/* Grid Kartu Timesheet */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {savedTimesheets.map((ts) => (
-                <div key={ts.id} className="bg-slate-900 border border-slate-800 hover:border-amber-500/50 rounded-xl p-4 space-y-3 transition shadow-lg">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                    <span className="font-mono font-bold text-amber-400 text-xs tracking-wider">{ts.code}</span>
-                    <span className="text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded font-semibold">
-                      {ts.status}
-                    </span>
+            {isLoading ? (
+              <div className="text-center py-12 text-slate-400">Memuat data...</div>
+            ) : timesheets.length === 0 ? (
+              <div className="text-center py-12 bg-slate-900 border border-slate-800 rounded-xl">
+                <FileCheck className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                <p className="text-slate-400 text-sm">Belum ada timesheet. Klik <b>Create</b> untuk membuat yang baru.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {timesheets.map((ts) => (
+                  <div 
+                    key={ts.id} 
+                    onClick={() => handleViewDetail(ts)}
+                    className="bg-slate-900 border border-slate-800 hover:border-amber-500/50 rounded-xl p-4 space-y-3 transition shadow-lg cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <span className="font-mono font-bold text-amber-400 text-xs tracking-wider">{ts.code}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${
+                        ts.status === 'Approved' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                        ts.status === 'Submitted' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                        'bg-slate-700 text-slate-300'
+                      }`}>
+                        {ts.status}
+                      </span>
+                    </div>
+                    <div className="text-xs space-y-1.5 font-mono text-slate-300">
+                      <div><span className="text-slate-500">Responsible:</span> <span className="text-white">{ts.userName}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Start Date:</span> <span className="text-cyan-300">{formatDisplayDate(ts.dateStart)}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">End Date:</span> <span className="text-cyan-300">{formatDisplayDate(ts.dateEnd)}</span></div>
+                    </div>
+                    <div className="pt-2 border-t border-slate-800/80 text-[11px] text-slate-400 flex justify-between">
+                      <span>Total Baris: <b className="text-white">{ts.lines.length}</b> Line(s)</span>
+                      <span className="text-purple-400 font-semibold">{ts.lines.reduce((a, l) => a + l.effectiveHours + l.overtimeHours, 0).toFixed(1)} Jam</span>
+                    </div>
+                    {ts.status === 'Draft' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSubmitTimesheet(ts.id);
+                        }}
+                        className="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold cursor-pointer"
+                      >
+                        Submit for Approval
+                      </button>
+                    )}
                   </div>
-                  <div className="text-xs space-y-1.5 font-mono text-slate-300">
-                    <div><span className="text-slate-500">Responsible:</span> <span className="text-white">{ts.responsible}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Start Date:</span> <span className="text-cyan-300">{formatDisplayDate(ts.startDate)}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">End Date:</span> <span className="text-cyan-300">{formatDisplayDate(ts.endDate)}</span></div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ================= VIEW 2: DETAIL TIMESHEET (seperti Odoo) ================= */}
+        {viewMode === 'detail' && selectedTimesheet && (
+          <div className="space-y-6">
+            {/* Breadcrumb & Actions */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => { setViewMode('list'); setSelectedTimesheet(null); }}
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-slate-400">Project Timesheet</span>
+                  <ChevronLeft className="w-3 h-3 text-slate-600 rotate-180" />
+                  <span className="font-mono font-bold text-amber-400">{selectedTimesheet.code}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer flex items-center gap-1">
+                  <Printer className="w-3 h-3" /> Print
+                </button>
+                {selectedTimesheet.status === 'Draft' && (
+                  <button 
+                    onClick={() => handleSubmitTimesheet(selectedTimesheet.id)}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs cursor-pointer"
+                  >
+                    Submit
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Main Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl">
+              {/* Header Info */}
+              <div className="mb-6">
+                <h1 className="text-2xl font-bold text-white mb-4">{selectedTimesheet.code}</h1>
+                <div className="grid grid-cols-2 gap-6 text-xs">
+                  <div className="space-y-2">
+                    <div className="flex">
+                      <span className="text-slate-400 w-32">User</span>
+                      <span className="text-white font-mono">{selectedTimesheet.nip} - {selectedTimesheet.userName}</span>
+                    </div>
+                    <div className="flex">
+                      <span className="text-slate-400 w-32">Date Start</span>
+                      <span className="text-white font-mono">{formatDisplayDate(selectedTimesheet.dateStart)}</span>
+                    </div>
+                    <div className="flex">
+                      <span className="text-slate-400 w-32">Date End</span>
+                      <span className="text-white font-mono">{formatDisplayDate(selectedTimesheet.dateEnd)}</span>
+                    </div>
                   </div>
-                  <div className="pt-2 border-t border-slate-800/80 text-[11px] text-slate-400 flex justify-between">
-                    <span>Total Baris: {ts.lines.length} Line(s)</span>
-                    <span className="text-purple-400 font-semibold">{ts.unitKerja}</span>
+                  <div className="space-y-2">
+                    <div className="flex">
+                      <span className="text-slate-400 w-32">Unit Kerja</span>
+                      <span className="text-cyan-400">{selectedTimesheet.unitKerja}</span>
+                    </div>
+                    <div className="flex">
+                      <span className="text-slate-400 w-32">Divisi</span>
+                      <span className="text-white">{selectedTimesheet.divisi}</span>
+                    </div>
                   </div>
                 </div>
-              ))}
+              </div>
+
+              {/* Status Badge */}
+              <div className="mb-4 flex justify-end">
+                <span className={`px-3 py-1 rounded text-xs font-semibold ${
+                  selectedTimesheet.status === 'Approved' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                  selectedTimesheet.status === 'Submitted' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
+                  'bg-slate-700 text-slate-300'
+                }`}>
+                  {selectedTimesheet.status}
+                </span>
+              </div>
+
+              {/* Table Header */}
+              <div className="mb-2">
+                <span className="text-xs font-bold text-slate-300 uppercase tracking-wider bg-slate-800 px-3 py-1.5 rounded-t-lg inline-block">
+                  Project Timesheet Line
+                </span>
+              </div>
+
+              {/* Detailed Table */}
+              <div className="overflow-x-auto border border-slate-800 rounded-lg">
+                <table className="w-full text-[10px]">
+                  <thead className="bg-slate-950 text-slate-400">
+                    <tr>
+                      <th className="py-2 px-2 text-left border-b border-slate-800">Date</th>
+                      <th className="py-2 px-2 text-left border-b border-slate-800">Type</th>
+                      <th className="py-2 px-2 text-left border-b border-slate-800">Analytic Account</th>
+                      <th className="py-2 px-2 text-left border-b border-slate-800">Day</th>
+                      <th className="py-2 px-2 text-left border-b border-slate-800">Project</th>
+                      <th className="py-2 px-2 text-left border-b border-slate-800">Work Center</th>
+                      <th className="py-2 px-2 text-left border-b border-slate-800">WBS Activity</th>
+                      <th className="py-2 px-2 text-left border-b border-slate-800">Work Order</th>
+                      <th className="py-2 px-2 text-right border-b border-slate-800">Planned Hour</th>
+                      <th className="py-2 px-2 text-right border-b border-slate-800">Effective Hours</th>
+                      <th className="py-2 px-2 text-right border-b border-slate-800">Overtime Hours</th>
+                      <th className="py-2 px-2 text-right border-b border-slate-800">Idle Hours</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 text-slate-300">
+                    {selectedTimesheet.lines.length === 0 ? (
+                      <tr>
+                        <td colSpan={12} className="px-3 py-8 text-center text-slate-500 italic">
+                          Tidak ada baris timesheet
+                        </td>
+                      </tr>
+                    ) : (
+                      selectedTimesheet.lines.map((line) => (
+                        <tr key={line.id} className="hover:bg-slate-950/50">
+                          <td className="py-2 px-2 font-mono text-cyan-300">{formatDisplayDate(line.date)}</td>
+                          <td className="py-2 px-2">{line.type || 'Biasa'}</td>
+                          <td className="py-2 px-2 font-mono text-[9px] whitespace-pre-line">{line.analyticAccount || '[CORP2026]\nCORPORATE BUDGET 2026'}</td>
+                          <td className="py-2 px-2">{line.day || getDayName(line.date)}</td>
+                          <td className="py-2 px-2 font-mono text-[9px]">{line.project || 'CORP2026\nCORPORATE BUDGET 2026 - Running'}</td>
+                          <td className="py-2 px-2 font-mono text-[9px]">{line.workCenter || 'ICD303 - Biro Dukungan & Administrasi'}</td>
+                          <td className="py-2 px-2 font-mono text-[9px]">{line.wbsActivity || 'Level 6 ICAJO Jam Orang Divisi Desain'}</td>
+                          <td className="py-2 px-2 font-mono font-bold text-amber-300 text-[9px]">{line.workOrderCode}</td>
+                          <td className="py-2 px-2 text-right font-mono">{line.plannedHour || '08:00'}</td>
+                          <td className="py-2 px-2 text-right font-mono text-emerald-400">{line.effectiveHours.toFixed(2)}</td>
+                          <td className="py-2 px-2 text-right font-mono text-purple-400">{line.overtimeHours.toFixed(2)}</td>
+                          <td className="py-2 px-2 text-right font-mono">{line.idleHours || '00:00'}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  {selectedTimesheet.lines.length > 0 && (
+                    <tfoot className="bg-slate-950 border-t-2 border-slate-700">
+                      <tr>
+                        <td colSpan={9} className="py-2 px-2 text-right font-bold text-white">Total:</td>
+                        <td className="py-2 px-2 text-right font-mono font-bold text-emerald-400">
+                          {selectedTimesheet.lines.reduce((a, l) => a + l.effectiveHours, 0).toFixed(2)}
+                        </td>
+                        <td className="py-2 px-2 text-right font-mono font-bold text-purple-400">
+                          {selectedTimesheet.lines.reduce((a, l) => a + l.overtimeHours, 0).toFixed(2)}
+                        </td>
+                        <td className="py-2 px-2 text-right font-mono">
+                          {selectedTimesheet.lines.reduce((a, l) => a + (parseFloat(l.idleHours) || 0), 0).toFixed(2)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
             </div>
           </div>
-        ) : (
-          /* ================= VIEW 2: FORM CREATE TIMESHEET ================= */
+        )}
+
+        {/* ================= VIEW 3: FORM CREATE TIMESHEET ================= */}
+        {viewMode === 'create' && (
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
-                <button onClick={() => setViewMode('list')} className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 cursor-pointer">
+                <button 
+                  onClick={() => setViewMode('list')} 
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 cursor-pointer"
+                >
                   <ArrowLeft className="w-4 h-4" />
                 </button>
                 <h2 className="text-lg font-bold text-white">New Timesheet</h2>
               </div>
               <button
                 onClick={handleSaveTimesheet}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg cursor-pointer"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg cursor-pointer flex items-center gap-1.5"
               >
-                Simpan & Terbitkan
+                <Check className="w-4 h-4" /> Simpan & Terbitkan
               </button>
             </div>
 
@@ -275,38 +677,64 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-slate-400">User</span>
-                  <span className="font-semibold text-white">{user.nama}</span>
+                  <span className="font-semibold text-white">{user.nip} - {user.nama}</span>
                 </div>
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-2">
                   <span className="text-slate-400">Date Start</span>
-                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{ colorScheme: 'dark' }}
-                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono cursor-pointer" />
+                  <input 
+                    type="date" 
+                    value={dateStart} 
+                    onChange={(e) => setDateStart(e.target.value)} 
+                    style={{ colorScheme: 'dark' }}
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono cursor-pointer" 
+                  />
                 </div>
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-2">
                   <span className="text-slate-400">Date End</span>
-                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{ colorScheme: 'dark' }}
-                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono cursor-pointer" />
+                  <input 
+                    type="date" 
+                    value={dateEnd} 
+                    onChange={(e) => setDateEnd(e.target.value)} 
+                    style={{ colorScheme: 'dark' }}
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono cursor-pointer" 
+                  />
                 </div>
               </div>
 
               <div className="space-y-3">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-2">
                   <span className="text-slate-400">Unit Kerja</span>
-                  <span className="font-semibold text-cyan-400">{unitKerja}</span>
+                  <input 
+                    type="text" 
+                    value={unitKerja} 
+                    onChange={(e) => setUnitKerja(e.target.value)}
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-cyan-400 font-semibold" 
+                  />
                 </div>
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-2">
                   <span className="text-slate-400">Divisi</span>
-                  <span className="font-semibold text-white">71000 - Divisi Desain</span>
+                  <input 
+                    type="text" 
+                    value={divisi} 
+                    onChange={(e) => setDivisi(e.target.value)}
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-semibold" 
+                  />
                 </div>
               </div>
             </div>
 
-            {/* Tab Project Timesheet Line */}
+            {/* Project Timesheet Line */}
             <div className="space-y-3">
-              <div className="border-b border-slate-800 pb-2">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider bg-slate-800 px-3 py-1.5 rounded-t-lg">
                   Project Timesheet Line
                 </span>
+                <button
+                  onClick={handleAddLine}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs cursor-pointer flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" /> Add a line
+                </button>
               </div>
 
               <div className="overflow-x-auto">
@@ -322,100 +750,127 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-300">
-                    {lines.map((l, idx) => (
-                      <tr key={l.id} className="hover:bg-slate-950/50">
-                        <td className="py-2.5 px-3 font-mono text-cyan-300">{formatDisplayDate(l.date)}</td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-amber-300">{l.workOrder}</td>
-                        <td className="py-2.5 px-3 text-slate-200">{l.description}</td>
-                        <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{l.effectiveHours} Jam</td>
-                        <td className="py-2.5 px-3 text-center font-mono text-purple-400">{l.overtimeHours} Jam</td>
-                        <td className="py-2.5 px-3 text-center">
-                          <button onClick={() => setLines(lines.filter(item => item.id !== l.id))} className="text-rose-400 hover:text-rose-300 cursor-pointer">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                    {lines.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-8 text-center text-slate-500 italic">
+                          Belum ada baris. Klik "Add a line" untuk menambahkan.
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      lines.map((l) => (
+                        <tr key={l.id} className="hover:bg-slate-950/50">
+                          <td className="py-2.5 px-3 font-mono text-cyan-300">{formatDisplayDate(l.date)}</td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-amber-300">{l.workOrderCode}</td>
+                          <td className="py-2.5 px-3 text-slate-200">{l.description}</td>
+                          <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{l.effectiveHours} Jam</td>
+                          <td className="py-2.5 px-3 text-center font-mono text-purple-400">{l.overtimeHours} Jam</td>
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="flex justify-center gap-1">
+                              <button 
+                                onClick={() => handleEditLine(l)} 
+                                className="p-1 text-blue-400 hover:bg-blue-500/20 rounded cursor-pointer"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteLine(l.id)} 
+                                className="p-1 text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
+                  {lines.length > 0 && (
+                    <tfoot className="border-t-2 border-slate-700">
+                      <tr className="bg-slate-950/50">
+                        <td colSpan={3} className="py-2.5 px-3 text-right font-bold text-white">Total Hours:</td>
+                        <td className="py-2.5 px-3 text-center font-mono font-bold text-emerald-400">{totalHours.toFixed(1)} Jam</td>
+                        <td colSpan={2}></td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
-
-              {/* Tombol Add a Line */}
-              <button
-                onClick={() => {
-                  if (!startDate || !endDate) {
-                    alert('Mohon isi Date Start dan Date End terlebih dahulu!');
-                    return;
-                  }
-                  setLineDate(startDate);
-                  setIsModalOpen(true);
-                }}
-                className="text-blue-400 hover:text-blue-300 text-xs font-semibold cursor-pointer pt-2 flex items-center gap-1"
-              >
-                + Add a line
-              </button>
             </div>
           </div>
         )}
       </main>
 
-      {/* ================= MODAL CREATE LINES ================= */}
+      {/* ================= MODAL CREATE/EDIT LINE ================= */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
             <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-              <span className="font-bold text-xs text-white">Create Lines (Timesheet Harian)</span>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
+              <span className="font-bold text-xs text-white flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-amber-400" /> 
+                {editingLineId ? 'Edit Line' : 'Create Lines (Timesheet Harian)'}
+              </span>
+              <button 
+                onClick={() => { setIsModalOpen(false); setEditingLineId(null); }} 
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleAddLineSubmit} className="p-5 space-y-4 text-xs">
+            <div className="p-5 space-y-4 text-xs">
               <div className="grid grid-cols-1 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Date (Tanggal Harian)</label>
+                  <label className="block text-slate-400 mb-1">Date (Tanggal Harian) <span className="text-rose-400">*</span></label>
                   <input
                     type="date"
-                    min={startDate}
-                    max={endDate}
+                    min={dateStart}
+                    max={dateEnd}
                     value={lineDate}
-                    onChange={(e) => setLineDate(e.target.value)}
-                    required
+                    onChange={(e) => handleLineDateChange(e.target.value)}
                     style={{ colorScheme: 'dark' }}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono cursor-pointer"
                   />
-                  <span className="text-[10px] text-slate-500 mt-0.5 block">Harus berada di antara rentang Start Date & End Date.</span>
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">
+                    Harus berada di antara rentang {formatDisplayDate(dateStart)} s/d {formatDisplayDate(dateEnd)}.
+                  </span>
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 mb-1">Work Order (Terbitan Kabiro untuk {user.nama})</label>
+                  <label className="block text-slate-400 mb-1">Work Order (Terbitan Kabiro) <span className="text-rose-400">*</span></label>
                   <select
-                    value={lineWorkOrder}
+                    value={lineWorkOrderId}
                     onChange={(e) => {
-                      setLineWorkOrder(e.target.value);
-                      const found = filteredWorkOrdersForModal.find(w => w.packageTitle === e.target.value);
-                      if (found) setLineDescription(found.task_name || '');
+                      setLineWorkOrderId(e.target.value);
+                      const found = availableWorkOrders.find(w => w.id === e.target.value);
+                      if (found) setLineDescription(found.taskName || '');
                     }}
-                    required
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                   >
                     <option value="">-- Pilih Work Order --</option>
-                    {filteredWorkOrdersForModal.map((wo, idx) => (
-                      <option key={wo.id || idx} value={wo.packageTitle}>
-                        {wo.packageTitle} - {wo.task_name || wo.project} ({formatDisplayDate(wo.start_date)} s/d {formatDisplayDate(wo.end_date)})
+                    {availableWorkOrders.length === 0 && (
+                      <option value="" disabled>Tidak ada work order untuk tanggal ini</option>
+                    )}
+                    {availableWorkOrders.map((wo) => (
+                      <option key={wo.id} value={wo.id}>
+                        {wo.kode_jc || wo.kodeJc || '-'} - {wo.taskName || wo.task_name || wo.project} ({formatDisplayDate(wo.startDate)} s/d {formatDisplayDate(wo.endDate)})
                       </option>
                     ))}
                   </select>
+                  {availableWorkOrders.length === 0 && lineDate && (
+                    <span className="text-[10px] text-amber-400 mt-0.5 block">
+                      ️ Tidak ada work order yang tersedia untuk tanggal {formatDisplayDate(lineDate)}.
+                    </span>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-slate-400 mb-1">Description</label>
-                  <input
-                    type="text"
+                  <textarea
                     value={lineDescription}
                     onChange={(e) => setLineDescription(e.target.value)}
                     placeholder="Uraian pekerjaan harian..."
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
+                    rows={2}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white resize-none"
                   />
                 </div>
 
@@ -445,17 +900,32 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                     />
                   </div>
                 </div>
+
+                {lineDate && (
+                  <div className="bg-slate-950 p-2 rounded border border-slate-800 text-center">
+                    <span className="text-slate-400">Day: </span>
+                    <span className="text-cyan-400 font-semibold">{getDayName(lineDate)}</span>
+                  </div>
+                )}
               </div>
 
               <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer">
+                <button 
+                  type="button" 
+                  onClick={() => { setIsModalOpen(false); setEditingLineId(null); }} 
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer"
+                >
                   Discard
                 </button>
-                <button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer">
+                <button 
+                  type="button"
+                  onClick={handleSaveLine} 
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer"
+                >
                   Save & Close
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
