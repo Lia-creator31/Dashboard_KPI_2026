@@ -34,6 +34,27 @@ interface TimesheetHeader {
   lines: TimesheetLine[];
 }
 
+function cleanText(str: string): string {
+  return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+}
+
+function parseToStandardDate(val: any): string {
+  if (!val) return '';
+  let str = String(val).trim();
+  if (!str || str === '-' || str.toLowerCase() === 'nan') return '';
+  return str.slice(0, 10);
+}
+
+function formatDisplayDate(val: any): string {
+  if (!val) return '-';
+  const iso = parseToStandardDate(val);
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    return `${m[3]}-${m[2]}-${m[1]}`;
+  }
+  return String(val) || '-';
+}
+
 export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps) {
   const [viewMode, setViewMode] = useState<'list' | 'create'>('list');
   
@@ -45,47 +66,41 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
   // State Lines Timesheet
   const [lines, setLines] = useState<TimesheetLine[]>([]);
   
-  // State Modal Add Line (Gambar Kedua)
+  // State Modal Add Line
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [lineDate, setLineDate] = useState('');
   const [lineWorkOrder, setLineWorkOrder] = useState('');
   const [lineDescription, setLineDescription] = useState('');
-  const [lineEffective, setLineEffective] = useState('00:00');
-  const [lineOvertime, setLineOvertime] = useState('00:00');
+  const [lineEffective, setLineEffective] = useState('8');
+  const [lineOvertime, setLineOvertime] = useState('0');
 
   // State daftar timesheet tersimpan
-  const [savedTimesheets, setSavedTimesheets] = TimesheetListState();
+  const [savedTimesheets, setSavedTimesheets] = useState<TimesheetHeader[]>([
+    {
+      id: '1',
+      code: 'TIM-2609301065844',
+      startDate: '2026-09-28',
+      endDate: '2026-09-30',
+      responsible: user.nama || 'Nur Zakiyyah',
+      unitKerja: 'Biro Dukungan & Administrasi',
+      status: 'Approved',
+      lines: []
+    }
+  ]);
 
-  function TimesheetListState() {
-    return useState<TimesheetHeader[]>([
-      {
-        id: '1',
-        code: 'TIM-2609301065844',
-        startDate: '2026-09-28',
-        endDate: '2026-09-30',
-        responsible: user.nama || 'Nur Zakiyyah',
-        unitKerja: 'Biro Dukungan & Administrasi',
-        status: 'Approved',
-        lines: []
-      }
-    ]);
-  }
-
-  // Load data job cards / work orders yang diterbitkan untuk user ini
+  // Load data job cards / work orders yang diterbitkan untuk user ini dari Supabase
   const [availableWorkOrders, setAvailableWorkOrders] = useState<any[]>([]);
 
-useEffect(() => {
+  useEffect(() => {
     async function fetchWorkOrders() {
       try {
         const { data, error } = await supabase.from('job_cards').select('*');
         if (data) {
-          // Filter hanya milik user yang sedang login DAN rentang tanggalnya cocok jika user sudah memilih tanggal
+          // Filter fleksibel mencocokkan nama user yang login (misal: "Hari Priyono")
           const myWo = data.filter(item => {
-            const isMyName = cleanText(item.pic) === cleanText(user.nama);
-            
-            // Jika user sudah isi startDate & endDate di form, kita bisa filter tambahan:
-            // item.start_date >= startDate && item.end_date <= endDate (atau sesuai logika rentang proyek Anda)
-            return isMyName;
+            const picClean = cleanText(item.pic || item.personil_name || '');
+            const userClean = cleanText(user.nama || '');
+            return picClean.includes(userClean) || userClean.includes(picClean);
           });
           setAvailableWorkOrders(myWo);
         }
@@ -93,6 +108,21 @@ useEffect(() => {
     }
     fetchWorkOrders();
   }, [user.nama]);
+
+  // Filter work order berdasarkan tanggal harian (lineDate) yang dipilih di modal
+  const filteredWorkOrdersForModal = useMemo(() => {
+    if (!lineDate) return availableWorkOrders;
+    
+    return availableWorkOrders.filter(wo => {
+      const woStart = parseToStandardDate(wo.start_date || wo.startDate);
+      const woEnd = parseToStandardDate(wo.end_date || wo.endDate);
+      
+      if (woStart && woEnd) {
+        return lineDate >= woStart && lineDate <= woEnd;
+      }
+      return true;
+    });
+  }, [availableWorkOrders, lineDate]);
 
   const handleAddLineSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,8 +145,8 @@ useEffect(() => {
     // Reset modal form
     setLineWorkOrder('');
     setLineDescription('');
-    setLineEffective('08:00');
-    setLineOvertime('00:00');
+    setLineEffective('8');
+    setLineOvertime('0');
   };
 
   const handleSaveTimesheet = () => {
@@ -169,7 +199,7 @@ useEffect(() => {
       <main className="max-w-7xl mx-auto px-4 py-8 space-y-6">
         
         {viewMode === 'list' ? (
-          /* ================= VIEW 1: KARTU TIMESHEET (GAMBAR KETIGA) ================= */
+          /* ================= VIEW 1: KARTU TIMESHEET ================= */
           <div className="space-y-6">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
@@ -184,7 +214,7 @@ useEffect(() => {
               </button>
             </div>
 
-            {/* Grid Kartu Seperti Gambar Ketiga */}
+            {/* Grid Kartu Timesheet */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {savedTimesheets.map((ts) => (
                 <div key={ts.id} className="bg-slate-900 border border-slate-800 hover:border-amber-500/50 rounded-xl p-4 space-y-3 transition shadow-lg">
@@ -196,8 +226,8 @@ useEffect(() => {
                   </div>
                   <div className="text-xs space-y-1.5 font-mono text-slate-300">
                     <div><span className="text-slate-500">Responsible:</span> <span className="text-white">{ts.responsible}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Start Date:</span> <span className="text-cyan-300">{ts.startDate}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">End Date:</span> <span className="text-cyan-300">{ts.endDate}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Start Date:</span> <span className="text-cyan-300">{formatDisplayDate(ts.startDate)}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">End Date:</span> <span className="text-cyan-300">{formatDisplayDate(ts.endDate)}</span></div>
                   </div>
                   <div className="pt-2 border-t border-slate-800/80 text-[11px] text-slate-400 flex justify-between">
                     <span>Total Baris: {ts.lines.length} Line(s)</span>
@@ -208,7 +238,7 @@ useEffect(() => {
             </div>
           </div>
         ) : (
-          /* ================= VIEW 2: FORM CREATE TIMESHEET (GAMBAR PERTAMA & KEDUA) ================= */
+          /* ================= VIEW 2: FORM CREATE TIMESHEET ================= */
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
@@ -225,7 +255,7 @@ useEffect(() => {
               </button>
             </div>
 
-            {/* Header Informasi (Gambar Pertama) */}[cite: 9]
+            {/* Header Informasi */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs bg-slate-950 p-4 rounded-xl border border-slate-800">
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
@@ -256,7 +286,7 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* Tab Project Timesheet Line (Gambar Pertama) */}[cite: 9]
+            {/* Tab Project Timesheet Line */}
             <div className="space-y-3">
               <div className="border-b border-slate-800 pb-2">
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider bg-slate-800 px-3 py-1.5 rounded-t-lg">
@@ -279,7 +309,7 @@ useEffect(() => {
                   <tbody className="divide-y divide-slate-800 text-slate-300">
                     {lines.map((l, idx) => (
                       <tr key={l.id} className="hover:bg-slate-950/50">
-                        <td className="py-2.5 px-3 font-mono text-cyan-300">{l.date}</td>
+                        <td className="py-2.5 px-3 font-mono text-cyan-300">{formatDisplayDate(l.date)}</td>
                         <td className="py-2.5 px-3 font-mono font-bold text-amber-300">{l.workOrder}</td>
                         <td className="py-2.5 px-3 text-slate-200">{l.description}</td>
                         <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{l.effectiveHours} Jam</td>
@@ -295,7 +325,7 @@ useEffect(() => {
                 </table>
               </div>
 
-              {/* Tombol Add a Line (Gambar Pertama) */}[cite: 9]
+              {/* Tombol Add a Line */}
               <button
                 onClick={() => {
                   if (!startDate || !endDate) {
@@ -314,7 +344,7 @@ useEffect(() => {
         )}
       </main>
 
-      {/* ================= MODAL CREATE LINES (GAMBAR KEDUA) ================= */}[cite: 10]
+      {/* ================= MODAL CREATE LINES ================= */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
@@ -343,21 +373,21 @@ useEffect(() => {
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 mb-1">Work Order (Terbitan Kabiro)</label>
+                  <label className="block text-slate-400 mb-1">Work Order (Terbitan Kabiro untuk {user.nama})</label>
                   <select
                     value={lineWorkOrder}
                     onChange={(e) => {
                       setLineWorkOrder(e.target.value);
-                      const found = availableWorkOrders.find(w => (w.kode_jc || w.packageTitle) === e.target.value);
+                      const found = filteredWorkOrdersForModal.find(w => (w.kode_jc || w.packageTitle) === e.target.value);
                       if (found) setLineDescription(found.task_name || '');
                     }}
                     required
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                   >
                     <option value="">-- Pilih Work Order --</option>
-                    {availableWorkOrders.map((wo, idx) => (
-                      <option key={idx} value={wo.kode_jc || `WO-${idx}`}>
-                        {wo.kode_jc || `WO-${idx}`} - {wo.task_name || wo.project}
+                    {filteredWorkOrdersForModal.map((wo, idx) => (
+                      <option key={idx} value={wo.kode_jc || wo.packageTitle || `WO-${idx}`}>
+                        {wo.kode_jc || wo.packageTitle || `WO-${idx}`} - {wo.task_name || wo.project} ({formatDisplayDate(wo.start_date)} s/d {formatDisplayDate(wo.end_date)})
                       </option>
                     ))}
                   </select>
