@@ -374,23 +374,23 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
 
                 <div>
                   <label className="block text-slate-400 mb-1">Work Order (Terbitan Kabiro untuk {user.nama})</label>
-                  <select
-                    value={lineWorkOrder}
-                    onChange={(e) => {
-                      setLineWorkOrder(e.target.value);
-                      const found = filteredWorkOrdersForModal.find(w => (w.kode_jc || w.packageTitle) === e.target.value);
-                      if (found) setLineDescription(found.task_name || '');
-                    }}
-                    required
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
-                  >
-                    <option value="">-- Pilih Work Order --</option>
-                    {filteredWorkOrdersForModal.map((wo, idx) => (
-                      <option key={idx} value={wo.kode_jc || wo.packageTitle || `WO-${idx}`}>
-                        {wo.kode_jc || wo.packageTitle || `WO-${idx}`} - {wo.task_name || wo.project} ({formatDisplayDate(wo.start_date)} s/d {formatDisplayDate(wo.end_date)})
-                      </option>
-                    ))}
-                  </select>
+                    <select
+                      value={lineWorkOrder}
+                      onChange={(e) => {
+                        setLineWorkOrder(e.target.value);
+                        const found = filteredWorkOrdersForModal.find(w => w.kode_jc === e.target.value);
+                        if (found) setLineDescription(found.task_name || '');
+                      }}
+                      required
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                    >
+                      <option value="">-- Pilih Work Order --</option>
+                      {filteredWorkOrdersForModal.map((wo, idx) => (
+                        <option key={wo.id || idx} value={wo.kode_jc}>
+                          {wo.kode_jc} - {wo.task_name || wo.project} ({formatDisplayDate(wo.start_date)} s/d {formatDisplayDate(wo.end_date)})
+                        </option>
+                      ))}
+                    </select>
                 </div>
 
                 <div>
