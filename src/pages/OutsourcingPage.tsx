@@ -92,6 +92,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
   const [lineOvertime, setLineOvertime] = useState('0');
 
   // State daftar timesheet tersimpan
+  const [savedTimesheets, setSavedTimesheets] = useState<TimesheetHeader[]>([]);
   // Load data job cards / work orders dari Supabase dan petakan packageTitle (DP1, DP2, dst.)
   const [availableWorkOrders, setAvailableWorkOrders] = useState<any[]>([]);
 
