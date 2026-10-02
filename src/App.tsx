@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import LoginPage from './pages/LoginPage';
 import RendalPage from './pages/RendalPage';
-import KabiroPage from './pages/KabiroPage'; // <-- TAMBAHKAN IMPORT INI
-import OutsourcingPage from './pages/OutsourcingPage'; // <-- Nanti tambahkan jika file Outsourcing sudah dibuat
+import KabiroPage from './pages/KabiroPage';
+import OutsourcingPage from './pages/OutsourcingPage';
 
 export interface UserSession {
   nama: string;
@@ -28,10 +28,9 @@ export default function App() {
     return <KabiroPage user={session} onLogout={() => setSession(null)} />;
   }
 
-  // 4. Jika login sebagai Outsourcing
-  // (Sementara diarahkan ke KabiroPage atau buat file OutsourcingPage.tsx terpisah nanti)
+  // 4. Jika login sebagai Outsourcing, buka OutsourcingPage (Khusus untuk mengisi Timesheet dari Work Order)
   if (session.role === 'outsourcing') {
-    return <OutsorcingPage user={session} onLogout={() => setSession(null)} />; 
+    return <OutsourcingPage user={session} onLogout={() => setSession(null)} />; 
   }
 
   // Fallback jika role tidak dikenali
