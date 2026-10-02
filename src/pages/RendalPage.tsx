@@ -744,6 +744,49 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     } catch { alert('Koneksi database bermasalah.'); }
   };
 
+  // ==========================================
+  // TEMPATKAN TIGA FUNGSI INI DI SINI
+  // ==========================================
+  const handleOpenEdit = (task: TaskItem) => {
+    setEditingTask(task);
+    setEditFormData({
+      project: task.project || '',
+      taskName: task.taskName || '',
+      startDate: task.startDate || '',
+      endDate: task.endDate || '',
+      jo: task.jo || '',
+      kodeJc: task.kodeJc || '',
+      rev: task.rev || '0',
+      release: task.release || '',
+    });
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTask) return;
+    const revVal = (editFormData.rev && editFormData.rev.trim() !== '') ? editFormData.rev.trim() : '0';
+    const releaseVal = editFormData.release ? editFormData.release.trim() : '';
+    const updatePayload: any = {
+      project: editFormData.project, project_code: editFormData.project, task_name: editFormData.taskName,
+      start_date: editFormData.startDate, end_date: editFormData.endDate, jo: editFormData.jo,
+      kode_jc: editFormData.kodeJc, rev: revVal, release: releaseVal,
+    };
+    let { error } = await supabase.from('job_cards').update(updatePayload).eq('id', editingTask.id);
+    if (error) { alert('Gagal mengupdate: ' + error.message); return; }
+    setEditingTask(null);
+    alert('Penugasan berhasil diperbarui!');
+    loadAllJobCards();
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (window.confirm('Hapus tugas ini?')) {
+      const { error } = await supabase.from('job_cards').delete().eq('id', taskId);
+      if (error) return;
+      loadAllJobCards();
+    }
+  };
+  // ==========================================
+
   const handleVerifyPin = (e: React.FormEvent) => {
     e.preventDefault();
     if (pinInput === PLANNER_PIN) {
