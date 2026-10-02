@@ -1845,84 +1845,84 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </button>
             </div>
 
-<div className="p-4 max-h-[70vh] overflow-y-auto space-y-4">
-  {departmentsData.map((dept) => {
-    // Filter hanya biro yang memiliki tugas pending
-    const birosWithPending = dept.biros.filter((biro) => {
-      const pendingTasks = Object.values(manualTasks).flat().filter(
-        (t) => cleanText(t.biroName) === cleanText(biro.name) && (!t.kodeJc || t.kodeJc.trim() === '')
-      );
-      return pendingTasks.length > 0;
-    });
-
-    if (birosWithPending.length === 0) return null;
-
-    return (
-      <div key={dept.id} className="space-y-2">
-        <h4 className="text-sm font-bold text-purple-400 border-b border-slate-800 pb-1">
-          {dept.name}
-        </h4>
-        {birosWithPending.map((biro) => {
-          const members = getBiroMembers(biro.name);
-          const pendingTasks = Object.values(manualTasks).flat().filter(
-            (t) => cleanText(t.biroName) === cleanText(biro.name) && (!t.kodeJc || t.kodeJc.trim() === '')
-          );
-
-          return (
-            <div key={biro.id} className="ml-2 space-y-2">
-              <h5 className="text-xs font-semibold text-slate-300">
-                {biro.name} <span className="text-slate-500">({pendingTasks.length} Pending)</span>
-              </h5>
-              
-              {pendingTasks.map((task, idx) => {
-                // Mencari data anggota untuk menampilkan status (PKWT/PKWTT)
-                const member = members.find(m => cleanText(m.nama) === cleanText(task.pic));
+                <div className="p-4 max-h-[70vh] overflow-y-auto space-y-4">
+                  {departmentsData.map((dept) => {
+                    // Filter hanya biro yang memiliki tugas pending
+                    const birosWithPending = dept.biros.filter((biro) => {
+                      const pendingTasks = Object.values(manualTasks).flat().filter(
+                        (t) => cleanText(t.biroName) === cleanText(biro.name) && (!t.kodeJc || t.kodeJc.trim() === '')
+                      );
+                      return pendingTasks.length > 0;
+                    });
                 
-                return (
-                  <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-white truncate">
-                        {task.pic} 
-                        {member && <span className="text-[10px] text-cyan-400 font-normal ml-1">({member.status})</span>}
-                        <span className="font-mono text-slate-500 font-normal ml-1">#{idx + 1}</span>
-                        {task.rev && <span className="ml-2 font-mono text-[10px] text-cyan-400">Rev.{task.rev}</span>}
+                    if (birosWithPending.length === 0) return null;
+                
+                    return (
+                      <div key={dept.id} className="space-y-2">
+                        <h4 className="text-sm font-bold text-purple-400 border-b border-slate-800 pb-1">
+                          {dept.name}
+                        </h4>
+                        {birosWithPending.map((biro) => {
+                          const members = getBiroMembers(biro.name);
+                          const pendingTasks = Object.values(manualTasks).flat().filter(
+                            (t) => cleanText(t.biroName) === cleanText(biro.name) && (!t.kodeJc || t.kodeJc.trim() === '')
+                          );
+                
+                          return (
+                            <div key={biro.id} className="ml-2 space-y-2">
+                              <h5 className="text-xs font-semibold text-slate-300">
+                                {biro.name} <span className="text-slate-500">({pendingTasks.length} Pending)</span>
+                              </h5>
+                              
+                              {pendingTasks.map((task, idx) => {
+                                // Mencari data anggota untuk menampilkan status (PKWT/PKWTT)
+                                const member = members.find(m => cleanText(m.nama) === cleanText(task.pic));
+                                
+                                return (
+                                  <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="font-semibold text-white truncate">
+                                        {task.pic} 
+                                        {member && <span className="text-[10px] text-cyan-400 font-normal ml-1">({member.status})</span>}
+                                        <span className="font-mono text-slate-500 font-normal ml-1">#{idx + 1}</span>
+                                        {task.rev && <span className="ml-2 font-mono text-[10px] text-cyan-400">Rev.{task.rev}</span>}
+                                      </div>
+                                      <div className="text-slate-400 text-[11px] truncate">{task.taskName}</div>
+                                      <div className="text-emerald-400 font-mono text-[10px]">{task.project} • {task.biroName}</div>
+                                    </div>
+                
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <input
+                                        type="text"
+                                        value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
+                                        onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
+                                        placeholder="Kode JC..."
+                                        className="w-32 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none focus:border-amber-500"
+                                      />
+                                      <button
+                                        onClick={() => handleSaveKodeJcForTask(task.id)}
+                                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer"
+                                      >
+                                        Simpan
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
                       </div>
-                      <div className="text-slate-400 text-[11px] truncate">{task.taskName}</div>
-                      <div className="text-emerald-400 font-mono text-[10px]">{task.project} • {task.biroName}</div>
+                    );
+                  })}
+                  
+                  {/* Tampilan jika tidak ada tugas pending sama sekali */}
+                  {pendingTasksCount === 0 && (
+                    <div className="py-8 text-center text-xs text-slate-500">
+                      Tidak ada pengajuan tugas yang menunggu approval di seluruh biro.
                     </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <input
-                        type="text"
-                        value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
-                        onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
-                        placeholder="Kode JC..."
-                        className="w-32 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none focus:border-amber-500"
-                      />
-                      <button
-                        onClick={() => handleSaveKodeJcForTask(task.id)}
-                        className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer"
-                      >
-                        Simpan
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-    );
-  })}
-  
-  {/* Tampilan jika tidak ada tugas pending sama sekali */}
-  {pendingTasksCount === 0 && (
-    <div className="py-8 text-center text-xs text-slate-500">
-      Tidak ada pengajuan tugas yang menunggu approval di seluruh biro.
-    </div>
-  )}
-</div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
