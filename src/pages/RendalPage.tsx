@@ -9,8 +9,6 @@ import {
   FileSpreadsheet, Users, Search
 } from 'lucide-react';
 
-const [plannerSelectedDept, setPlannerSelectedDept] = useState<Department | null>(null);
-const [plannerSelectedBiro, setPlannerSelectedBiro] = useState<string | null>(null);
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
   query: '?url',
   import: 'default',
