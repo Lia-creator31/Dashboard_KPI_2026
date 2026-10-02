@@ -125,9 +125,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           </button>
         </form>
 
-        <div className="text-[11px] text-slate-500 text-center border-t border-slate-800 pt-3">
+        {/* <div className="text-[11px] text-slate-500 text-center border-t border-slate-800 pt-3">
           *Masukkan nama <b>Dyan Asih Purwanti</b> atau <b>Hashfi Moch Adam</b> untuk login sebagai Admin Rendal.
-        </div>
+        </div> */}
       </div>
     </div>
   );
