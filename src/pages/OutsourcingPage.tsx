@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
+import { departmentsData, Department } from '../data';
+import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import {
-  HardHat, ArrowLeft, X, Check, Plus, Trash2, Pencil,
-  Calendar, FileCheck, Clock, Printer
+  Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
+  Pencil, Trash2, Lock, X, Check, Printer, FileCheck, Clock, Sparkles, 
+  FileSpreadsheet, Users, Search, Plus, Calendar
 } from 'lucide-react';
 
 interface OutsourcingPageProps {
@@ -11,427 +14,197 @@ interface OutsourcingPageProps {
   onLogout: () => void;
 }
 
-interface TaskItem {
-  id: string;
-  biroName: string;
-  project: string;
-  taskName: string;
-  startDate: string;
-  endDate: string;
-  pic: string;
-  jo: string;
-  kodeJc: string;
-  rev?: string;
-  release?: string;
-}
-
 interface TimesheetLine {
   id: string;
   date: string;
-  workOrderId: string;
-  workOrderCode: string;
+  workOrder: string;
   description: string;
   effectiveHours: number;
   overtimeHours: number;
-  day: string;
 }
 
 interface TimesheetHeader {
   id: string;
   code: string;
-  userId: string;
-  userName: string;
-  dateStart: string;
-  dateEnd: string;
+  startDate: string;
+  endDate: string;
+  responsible: string;
   unitKerja: string;
-  divisi: string;
-  status: 'Draft' | 'Submitted' | 'Approved';
+  status: string;
   lines: TimesheetLine[];
-  createdAt: string;
 }
 
-// Helper: Normalisasi tanggal ke format YYYY-MM-DD
-function normalizeDate(dateStr: string): string {
-  if (!dateStr) return '';
-  const clean = String(dateStr).trim();
-  // Sudah YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
-  // Format DD-MM-YYYY
-  if (/^\d{2}-\d{2}-\d{4}$/.test(clean)) {
-    const parts = clean.split('-');
-    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+function cleanText(str: string): string {
+  return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+}
+
+function parseToStandardDate(val: any): string {
+  if (!val) return '';
+  let str = String(val).trim();
+  if (!str || str === '-' || str.toLowerCase() === 'nan') return '';
+  return str.slice(0, 10);
+}
+
+function formatDisplayDate(val: any): string {
+  if (!val) return '-';
+  const iso = parseToStandardDate(val);
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    return `${m[3]}-${m[2]}-${m[1]}`;
   }
-  // Format DD/MM/YYYY
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(clean)) {
-    const parts = clean.split('/');
-    return `${parts[2]}-${parts[1]}-${parts[0]}`;
-  }
-  return clean;
+  return String(val) || '-';
 }
 
-// Helper: Format tanggal untuk tampilan DD-MM-YYYY
-function formatDisplayDate(dateStr: string): string {
-  const normalized = normalizeDate(dateStr);
-  if (!normalized) return '-';
-  const parts = normalized.split('-');
-  if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
-  return dateStr;
+function isBiroMatch(biro1: string, biro2: string): boolean {
+  const b1 = (biro1 || '').toLowerCase().replace('&', ' dan ').trim();
+  const b2 = (biro2 || '').toLowerCase().replace('&', ' dan ').trim();
+  if (!b1 || !b2) return false;
+  if (b1 === b2) return true;
+  return cleanText(b1).includes(cleanText(b2)) || cleanText(b2).includes(cleanText(b1));
 }
 
-// Helper: Dapatkan nama hari dari tanggal
-function getDayName(dateStr: string): string {
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const normalized = normalizeDate(dateStr);
-  if (!normalized) return '';
-  const date = new Date(normalized);
-  return days[date.getDay()];
-}
-
-// Helper: Generate kode timesheet unik
-function generateTimesheetCode(): string {
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(2);
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  const rand = Math.floor(Math.random() * 900000) + 100000;
-  return `TIM-${yy}${mm}${dd}${rand}`;
-}
-
-// Helper: Cek apakah nama cocok (flexible matching)
-function isNameMatch(dbName: string, userName: string): boolean {
-  if (!dbName || !userName) return false;
-  const db = dbName.toLowerCase().trim();
-  const user = userName.toLowerCase().trim();
-  
-  // Exact match
-  if (db === user) return true;
-  
-  // User format: "NIP - Nama", DB hanya "Nama"
-  if (user.includes(' - ')) {
-    const userNamaOnly = user.split(' - ')[1].trim();
-    if (db === userNamaOnly) return true;
-    if (db.includes(userNamaOnly) || userNamaOnly.includes(db)) return true;
-  }
-  
-  // Partial match
-  if (db.includes(user) || user.includes(db)) return true;
-  
-  return false;
+function getBiroPrefix(biroName: string): string {
+  const b = (biroName || '').toLowerCase().replace('&', ' dan ').trim();
+  if (b.includes('dokumen') || (b.includes('perencanaan') && b.includes('biro'))) return 'DP';
+  if (b.includes('logistik')) return 'DL'; 
+  if (b.includes('administrasi')) return 'DA'; 
+  if (b.includes('pengembangan')) return 'PD';
+  return 'WO';
 }
 
 export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps) {
   const [viewMode, setViewMode] = useState<'list' | 'create'>('list');
   
-  // State untuk daftar timesheet
-  const [timesheets, setTimesheets] = useState<TimesheetHeader[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  
-  // State form header timesheet
-  const [dateStart, setDateStart] = useState('');
-  const [dateEnd, setDateEnd] = useState('');
+  // State Form Header Timesheet
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [unitKerja, setUnitKerja] = useState('Biro Dukungan & Administrasi');
-  const [divisi, setDivisi] = useState('71000 - Divisi Desain');
   
-  // State lines timesheet
+  // State Lines Timesheet
   const [lines, setLines] = useState<TimesheetLine[]>([]);
   
-  // State modal Add Line
+  // State Modal Add Line
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [lineDate, setLineDate] = useState('');
-  const [lineWorkOrderId, setLineWorkOrderId] = useState('');
+  const [lineWorkOrder, setLineWorkOrder] = useState('');
   const [lineDescription, setLineDescription] = useState('');
   const [lineEffective, setLineEffective] = useState('8');
   const [lineOvertime, setLineOvertime] = useState('0');
-  const [editingLineId, setEditingLineId] = useState<string | null>(null);
-  
-  // State work orders yang tersedia
-  const [availableWorkOrders, setAvailableWorkOrders] = useState<TaskItem[]>([]);
 
-  // ============ LOAD TIMESHEET DARI SUPABASE ============
-  const loadTimesheets = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('outsourcing_timesheets')
-        .select('*')
-        .eq('user_id', user.nip)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error loading timesheets:', error);
-        setTimesheets([]);
-        return;
-      }
-
-      // Load lines untuk setiap timesheet
-      const timesheetsWithLines: TimesheetHeader[] = [];
-      for (const ts of (data || [])) {
-        const { data: linesData } = await supabase
-          .from('outsourcing_timesheet_lines')
-          .select('*')
-          .eq('timesheet_id', ts.id)
-          .order('date', { ascending: true });
-
-        timesheetsWithLines.push({
-          id: ts.id,
-          code: ts.code || `TIM-${ts.id}`,
-          userId: ts.user_id,
-          userName: ts.user_name || user.nama,
-          dateStart: ts.date_start,
-          dateEnd: ts.date_end,
-          unitKerja: ts.unit_kerja || 'Biro Dukungan & Administrasi',
-          divisi: ts.divisi || '71000 - Divisi Desain',
-          status: ts.status || 'Draft',
-          lines: (linesData || []).map((l: any) => ({
-            id: l.id,
-            date: l.date,
-            workOrderId: l.work_order_id,
-            workOrderCode: l.work_order_code || '',
-            description: l.description || '',
-            effectiveHours: Number(l.effective_hours) || 0,
-            overtimeHours: Number(l.overtime_hours) || 0,
-            day: l.day || getDayName(l.date),
-          })),
-          createdAt: ts.created_at,
-        });
-      }
-
-      setTimesheets(timesheetsWithLines);
-    } catch (err) {
-      console.error('Error:', err);
-    } finally {
-      setIsLoading(false);
+  // State daftar timesheet tersimpan
+  const [savedTimesheets, setSavedTimesheets] = useState<TimesheetHeader[]>([
+    {
+      id: '1',
+      code: 'TIM-2609301065844',
+      startDate: '2026-09-28',
+      endDate: '2026-09-30',
+      responsible: user.nama || 'Nur Zakiyyah',
+      unitKerja: 'Biro Dukungan & Administrasi',
+      status: 'Approved',
+      lines: []
     }
-  }, [user.nip, user.nama]);
+  ]);
 
-  // ============ LOAD WORK ORDER YANG TERSEDIA ============
-  const loadAvailableWorkOrders = useCallback(async (selectedDate?: string) => {
-    try {
-      console.log('🔍 Mencari work order untuk:', user.nama, '| NIP:', user.nip);
-      
-      const { data, error } = await supabase
-        .from('job_cards')
-        .select('*')
-        .eq('status', 'approved');
-
-      if (error) {
-        console.error('❌ Error Supabase:', error);
-        return;
-      }
-
-      console.log(`✅ Ditemukan ${data?.length || 0} work order approved`);
-
-      // Filter di client-side
-      const filteredData = (data || []).filter((wo: any) => {
-        // A. Cek Nama PIC (flexible matching)
-        const isNameMatch = isNameMatch(wo.pic, user.nama) || 
-                            isNameMatch(wo.pic, user.nip) ||
-                            isNameMatch(wo.personil_name, user.nama);
-
-        // B. Cek Tanggal (jika ada selectedDate)
-        let isDateMatch = true;
-        if (selectedDate) {
-          const woStart = normalizeDate(wo.start_date);
-          const woEnd = normalizeDate(wo.end_date);
-          const selected = normalizeDate(selectedDate);
-          
-          if (woStart && woEnd && selected) {
-            isDateMatch = selected >= woStart && selected <= woEnd;
-          }
-        }
-
-        if (isNameMatch) {
-          console.log(`📝 WO ${wo.kode_jc || wo.kodeJc}: ${wo.pic} | Range: ${wo.start_date} - ${wo.end_date} | Match: ${isDateMatch}`);
-        }
-
-        return isNameMatch && isDateMatch;
-      });
-
-      console.log('🎯 Work order yang lolos filter:', filteredData.length, filteredData);
-      setAvailableWorkOrders(filteredData);
-      
-    } catch (error) {
-      console.error('❌ Gagal memuat work order:', error);
-    }
-  }, [user.nama, user.nip]);
+  // Load data job cards / work orders dari Supabase dan petakan packageTitle (DP1, DP2, dst.)
+  const [availableWorkOrders, setAvailableWorkOrders] = useState<any[]>([]);
 
   useEffect(() => {
-    loadTimesheets();
-  }, [loadTimesheets]);
+    async function fetchWorkOrders() {
+      try {
+        const { data, error } = await supabase.from('job_cards').select('*');
+        if (data) {
+          // Filter milik user yang sedang login
+          const myWo = data.filter(item => {
+            const picClean = cleanText(item.pic || item.personil_name || '');
+            const userClean = cleanText(user.nama || '');
+            return picClean.includes(userClean) || userClean.includes(picClean);
+          });
 
-  // ============ HANDLER CREATE TIMESHEET ============
-  const handleCreateTimesheet = () => {
-    setViewMode('create');
-    setDateStart('');
-    setDateEnd('');
-    setLines([]);
-    setUnitKerja('Biro Dukungan & Administrasi');
-    setDivisi('71000 - Divisi Desain');
-  };
+          // Petakan packageTitle agar konsisten seperti di list card (DP1, DP2, DP3...)
+          const mapped = myWo.map((item, idx) => {
+            const prefix = getBiroPrefix(item.biro_name || 'Biro Dokumen dan Perencanaan');
+            return {
+              ...item,
+              packageTitle: item.kode_jc && item.kode_jc.startsWith(prefix) ? item.kode_jc : `${prefix}${idx + 1}`
+            };
+          });
 
-  // ============ HANDLER ADD LINE ============
-  const handleAddLine = () => {
-    if (!dateStart || !dateEnd) {
-      alert('Mohon isi Date Start dan Date End terlebih dahulu!');
-      return;
+          setAvailableWorkOrders(mapped);
+        }
+      } catch {}
     }
-    setEditingLineId(null);
-    setLineDate(dateStart);
-    setLineWorkOrderId('');
-    setLineDescription('');
-    setLineEffective('8');
-    setLineOvertime('0');
-    setIsModalOpen(true);
-    // Load work orders untuk tanggal default
-    loadAvailableWorkOrders(dateStart);
-  };
+    fetchWorkOrders();
+  }, [user.nama]);
 
-  // ============ HANDLER SAAT TANGGAL DI MODAL BERUBAH ============
-  const handleLineDateChange = (newDate: string) => {
-    setLineDate(newDate);
-    if (newDate) {
-      loadAvailableWorkOrders(newDate);
-    }
-  };
+  // Filter work order berdasarkan tanggal harian (lineDate) yang dipilih di modal
+  const filteredWorkOrdersForModal = useMemo(() => {
+    if (!lineDate) return availableWorkOrders;
+    
+    return availableWorkOrders.filter(wo => {
+      const woStart = parseToStandardDate(wo.start_date || wo.startDate);
+      const woEnd = parseToStandardDate(wo.end_date || wo.endDate);
+      
+      if (woStart && woEnd) {
+        return lineDate >= woStart && lineDate <= woEnd;
+      }
+      return true;
+    });
+  }, [availableWorkOrders, lineDate]);
 
-  // ============ HANDLER SAVE LINE ============
-  const handleSaveLine = () => {
-    if (!lineDate) {
-      alert('Tanggal wajib diisi!');
-      return;
-    }
-    if (!lineWorkOrderId) {
-      alert('Work Order wajib dipilih!');
-      return;
-    }
-
-    const selectedWo = availableWorkOrders.find(wo => wo.id === lineWorkOrderId);
-    if (!selectedWo) {
-      alert('Work Order tidak valid!');
+  const handleAddLineSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!lineDate || !lineWorkOrder) {
+      alert('Tanggal dan Work Order wajib diisi!');
       return;
     }
 
     const newLine: TimesheetLine = {
-      id: editingLineId || `line_${Date.now()}`,
+      id: Math.random().toString(36).substring(2, 9),
       date: lineDate,
-      workOrderId: lineWorkOrderId,
-      workOrderCode: selectedWo.kode_jc || selectedWo.kodeJc || '',
-      description: lineDescription || selectedWo.taskName || '',
-      effectiveHours: parseFloat(lineEffective) || 0,
+      workOrder: lineWorkOrder,
+      description: lineDescription || 'Pekerjaan Desain & Drafting',
+      effectiveHours: parseFloat(lineEffective) || 8,
       overtimeHours: parseFloat(lineOvertime) || 0,
-      day: getDayName(lineDate),
     };
 
-    if (editingLineId) {
-      setLines(prev => prev.map(l => l.id === editingLineId ? newLine : l));
-    } else {
-      setLines(prev => [...prev, newLine]);
-    }
-
+    setLines(prev => [...prev, newLine]);
     setIsModalOpen(false);
-    setEditingLineId(null);
+    // Reset modal form
+    setLineWorkOrder('');
+    setLineDescription('');
+    setLineEffective('8');
+    setLineOvertime('0');
   };
 
-  // ============ HANDLER EDIT LINE ============
-  const handleEditLine = (line: TimesheetLine) => {
-    setEditingLineId(line.id);
-    setLineDate(line.date);
-    setLineWorkOrderId(line.workOrderId);
-    setLineDescription(line.description);
-    setLineEffective(String(line.effectiveHours));
-    setLineOvertime(String(line.overtimeHours));
-    setIsModalOpen(true);
-    loadAvailableWorkOrders(line.date);
-  };
-
-  // ============ HANDLER DELETE LINE ============
-  const handleDeleteLine = (lineId: string) => {
-    if (confirm('Hapus baris ini?')) {
-      setLines(prev => prev.filter(l => l.id !== lineId));
-    }
-  };
-
-  // ============ HANDLER SAVE TIMESHEET ============
-  const handleSaveTimesheet = async () => {
-    if (!dateStart || !dateEnd) {
-      alert('Tanggal mulai dan tanggal akhir harus diisi!');
+  const handleSaveTimesheet = () => {
+    if (!startDate || !endDate) {
+      alert('Harap tentukan Tanggal Mulai dan Tanggal Selesai terlebih dahulu.');
       return;
     }
     if (lines.length === 0) {
-      alert('Tambahkan setidaknya satu baris timesheet!');
+      alert('Tambahkan setidaknya satu baris timesheet (Add a line).');
       return;
     }
 
-    try {
-      const code = generateTimesheetCode();
-      
-      // Insert header timesheet
-      const { data: tsData, error: tsError } = await supabase
-        .from('outsourcing_timesheets')
-        .insert({
-          code: code,
-          user_id: user.nip,
-          user_name: user.nama,
-          date_start: dateStart,
-          date_end: dateEnd,
-          unit_kerja: unitKerja,
-          divisi: divisi,
-          status: 'Draft',
-        })
-        .select()
-        .single();
+    const randomCode = `TIM-${Math.floor(1000000000000 + Math.random() * 9000000000000)}`;
+    const newTimesheet: TimesheetHeader = {
+      id: Date.now().toString(),
+      code: randomCode,
+      startDate,
+      endDate,
+      responsible: user.nama,
+      unitKerja,
+      status: 'Approved',
+      lines
+    };
 
-      if (tsError) throw tsError;
-
-      // Insert lines
-      const linesToInsert = lines.map(l => ({
-        timesheet_id: tsData.id,
-        date: l.date,
-        work_order_id: l.workOrderId,
-        work_order_code: l.workOrderCode,
-        description: l.description,
-        effective_hours: l.effectiveHours,
-        overtime_hours: l.overtimeHours,
-        day: l.day,
-      }));
-
-      const { error: linesError } = await supabase
-        .from('outsourcing_timesheet_lines')
-        .insert(linesToInsert);
-
-      if (linesError) throw linesError;
-
-      alert(`Timesheet berhasil disimpan dengan nomor: ${code}`);
-      setViewMode('list');
-      loadTimesheets();
-    } catch (error: any) {
-      console.error('Error saving timesheet:', error);
-      alert('Gagal menyimpan timesheet: ' + error.message);
-    }
+    setSavedTimesheets(prev => [newTimesheet, ...prev]);
+    setViewMode('list');
+    setLines([]);
+    setStartDate('');
+    setEndDate('');
+    alert(`Timesheet berhasil disimpan dengan nomor: ${randomCode}`);
   };
-
-  // ============ HANDLER SUBMIT TIMESHEET ============
-  const handleSubmitTimesheet = async (tsId: string) => {
-    if (!confirm('Submit timesheet ini untuk approval?')) return;
-    
-    try {
-      const { error } = await supabase
-        .from('outsourcing_timesheets')
-        .update({ status: 'Submitted' })
-        .eq('id', tsId);
-
-      if (error) throw error;
-      alert('Timesheet berhasil disubmit!');
-      loadTimesheets();
-    } catch (error: any) {
-      alert('Gagal submit: ' + error.message);
-    }
-  };
-
-  // ============ HITUNG TOTAL JAM ============
-  const totalHours = useMemo(() => {
-    return lines.reduce((acc, line) => acc + line.effectiveHours + line.overtimeHours, 0);
-  }, [lines]);
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
@@ -442,103 +215,70 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
             <div className="p-1.5 bg-amber-600 rounded-lg text-white">
               <HardHat className="w-4 h-4" />
             </div>
-            <div>
-              <span className="font-bold text-sm text-white">PORTAL MITRA / OUTSOURCING</span>
-              <span className="text-xs text-slate-400 ml-2">— {user.nama}</span>
-            </div>
+            <span className="font-bold text-sm text-white">PORTAL MITRA / OUTSOURCING — <span className="text-amber-400">{user.nama}</span></span>
           </div>
-          <button 
-            onClick={onLogout} 
-            className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer"
-          >
+          <button onClick={onLogout} className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer">
             Keluar
           </button>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-        {/* ================= VIEW 1: DAFTAR TIMESHEET ================= */}
-        {viewMode === 'list' && (
+        
+        {viewMode === 'list' ? (
+          /* ================= VIEW 1: KARTU TIMESHEET ================= */
           <div className="space-y-6">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div>
                 <h2 className="text-xl font-bold text-white">Project Timesheet</h2>
-                <p className="text-xs text-slate-400">Dokumen rekapitulasi jam kerja dan work order harian</p>
+                <span className="text-xs text-slate-400">Dokumen rekapitulasi jam kerja dan work order harian</span>
               </div>
               <button
-                onClick={handleCreateTimesheet}
+                onClick={() => setViewMode('create')}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg shadow flex items-center gap-1.5 cursor-pointer"
               >
                 <Plus className="w-4 h-4" /> Create
               </button>
             </div>
 
-            {isLoading ? (
-              <div className="text-center py-12 text-slate-400">Memuat data...</div>
-            ) : timesheets.length === 0 ? (
-              <div className="text-center py-12 bg-slate-900 border border-slate-800 rounded-xl">
-                <FileCheck className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                <p className="text-slate-400 text-sm">Belum ada timesheet. Klik <b>Create</b> untuk membuat yang baru.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {timesheets.map((ts) => (
-                  <div 
-                    key={ts.id} 
-                    className="bg-slate-900 border border-slate-800 hover:border-amber-500/50 rounded-xl p-4 space-y-3 transition shadow-lg"
-                  >
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                      <span className="font-mono font-bold text-amber-400 text-xs tracking-wider">{ts.code}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${
-                        ts.status === 'Approved' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                        ts.status === 'Submitted' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
-                        'bg-slate-700 text-slate-300'
-                      }`}>
-                        {ts.status}
-                      </span>
-                    </div>
-                    <div className="text-xs space-y-1.5 font-mono text-slate-300">
-                      <div><span className="text-slate-500">Responsible:</span> <span className="text-white">{ts.userName}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">Start Date:</span> <span className="text-cyan-300">{formatDisplayDate(ts.dateStart)}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">End Date:</span> <span className="text-cyan-300">{formatDisplayDate(ts.dateEnd)}</span></div>
-                    </div>
-                    <div className="pt-2 border-t border-slate-800/80 text-[11px] text-slate-400 flex justify-between">
-                      <span>Total Baris: <b className="text-white">{ts.lines.length}</b> Line(s)</span>
-                      <span className="text-purple-400 font-semibold">{ts.lines.reduce((a, l) => a + l.effectiveHours + l.overtimeHours, 0).toFixed(1)} Jam</span>
-                    </div>
-                    {ts.status === 'Draft' && (
-                      <button
-                        onClick={() => handleSubmitTimesheet(ts.id)}
-                        className="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold cursor-pointer"
-                      >
-                        Submit for Approval
-                      </button>
-                    )}
+            {/* Grid Kartu Timesheet */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {savedTimesheets.map((ts) => (
+                <div key={ts.id} className="bg-slate-900 border border-slate-800 hover:border-amber-500/50 rounded-xl p-4 space-y-3 transition shadow-lg">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <span className="font-mono font-bold text-amber-400 text-xs tracking-wider">{ts.code}</span>
+                    <span className="text-[10px] px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded font-semibold">
+                      {ts.status}
+                    </span>
                   </div>
-                ))}
-              </div>
-            )}
+                  <div className="text-xs space-y-1.5 font-mono text-slate-300">
+                    <div><span className="text-slate-500">Responsible:</span> <span className="text-white">{ts.responsible}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Start Date:</span> <span className="text-cyan-300">{formatDisplayDate(ts.startDate)}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">End Date:</span> <span className="text-cyan-300">{formatDisplayDate(ts.endDate)}</span></div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-800/80 text-[11px] text-slate-400 flex justify-between">
+                    <span>Total Baris: {ts.lines.length} Line(s)</span>
+                    <span className="text-purple-400 font-semibold">{ts.unitKerja}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        )}
-
-        {/* ================= VIEW 2: FORM CREATE TIMESHEET ================= */}
-        {viewMode === 'create' && (
+        ) : (
+          /* ================= VIEW 2: FORM CREATE TIMESHEET ================= */
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => setViewMode('list')} 
-                  className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 cursor-pointer"
-                >
+                <button onClick={() => setViewMode('list')} className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 cursor-pointer">
                   <ArrowLeft className="w-4 h-4" />
                 </button>
                 <h2 className="text-lg font-bold text-white">New Timesheet</h2>
               </div>
               <button
                 onClick={handleSaveTimesheet}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg cursor-pointer flex items-center gap-1.5"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg cursor-pointer"
               >
-                <Check className="w-4 h-4" /> Simpan & Terbitkan
+                Simpan & Terbitkan
               </button>
             </div>
 
@@ -547,64 +287,38 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-slate-400">User</span>
-                  <span className="font-semibold text-white">{user.nip} - {user.nama}</span>
+                  <span className="font-semibold text-white">{user.nama}</span>
                 </div>
-                <div className="flex justify-between items-center gap-2">
+                <div className="flex justify-between items-center">
                   <span className="text-slate-400">Date Start</span>
-                  <input 
-                    type="date" 
-                    value={dateStart} 
-                    onChange={(e) => setDateStart(e.target.value)} 
-                    style={{ colorScheme: 'dark' }}
-                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono cursor-pointer" 
-                  />
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{ colorScheme: 'dark' }}
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono cursor-pointer" />
                 </div>
-                <div className="flex justify-between items-center gap-2">
+                <div className="flex justify-between items-center">
                   <span className="text-slate-400">Date End</span>
-                  <input 
-                    type="date" 
-                    value={dateEnd} 
-                    onChange={(e) => setDateEnd(e.target.value)} 
-                    style={{ colorScheme: 'dark' }}
-                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono cursor-pointer" 
-                  />
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{ colorScheme: 'dark' }}
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono cursor-pointer" />
                 </div>
               </div>
 
               <div className="space-y-3">
-                <div className="flex justify-between items-center gap-2">
+                <div className="flex justify-between items-center">
                   <span className="text-slate-400">Unit Kerja</span>
-                  <input 
-                    type="text" 
-                    value={unitKerja} 
-                    onChange={(e) => setUnitKerja(e.target.value)}
-                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-cyan-400 font-semibold" 
-                  />
+                  <span className="font-semibold text-cyan-400">{unitKerja}</span>
                 </div>
-                <div className="flex justify-between items-center gap-2">
+                <div className="flex justify-between items-center">
                   <span className="text-slate-400">Divisi</span>
-                  <input 
-                    type="text" 
-                    value={divisi} 
-                    onChange={(e) => setDivisi(e.target.value)}
-                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-semibold" 
-                  />
+                  <span className="font-semibold text-white">71000 - Divisi Desain</span>
                 </div>
               </div>
             </div>
 
-            {/* Project Timesheet Line */}
+            {/* Tab Project Timesheet Line */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <div className="border-b border-slate-800 pb-2">
                 <span className="text-xs font-bold text-slate-300 uppercase tracking-wider bg-slate-800 px-3 py-1.5 rounded-t-lg">
                   Project Timesheet Line
                 </span>
-                <button
-                  onClick={handleAddLine}
-                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs cursor-pointer flex items-center gap-1"
-                >
-                  <Plus className="w-3 h-3" /> Add a line
-                </button>
               </div>
 
               <div className="overflow-x-auto">
@@ -612,7 +326,6 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                   <thead>
                     <tr className="text-slate-400 border-b border-slate-800 font-mono">
                       <th className="py-2.5 px-3">Date</th>
-                      <th className="py-2.5 px-3">Day</th>
                       <th className="py-2.5 px-3">Work Order</th>
                       <th className="py-2.5 px-3">Description</th>
                       <th className="py-2.5 px-3 text-center">Effective Hours</th>
@@ -621,130 +334,100 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-300">
-                    {lines.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="px-3 py-8 text-center text-slate-500 italic">
-                          Belum ada baris. Klik "Add a line" untuk menambahkan.
+                    {lines.map((l, idx) => (
+                      <tr key={l.id} className="hover:bg-slate-950/50">
+                        <td className="py-2.5 px-3 font-mono text-cyan-300">{formatDisplayDate(l.date)}</td>
+                        <td className="py-2.5 px-3 font-mono font-bold text-amber-300">{l.workOrder}</td>
+                        <td className="py-2.5 px-3 text-slate-200">{l.description}</td>
+                        <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{l.effectiveHours} Jam</td>
+                        <td className="py-2.5 px-3 text-center font-mono text-purple-400">{l.overtimeHours} Jam</td>
+                        <td className="py-2.5 px-3 text-center">
+                          <button onClick={() => setLines(lines.filter(item => item.id !== l.id))} className="text-rose-400 hover:text-rose-300 cursor-pointer">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </td>
                       </tr>
-                    ) : (
-                      lines.map((l) => (
-                        <tr key={l.id} className="hover:bg-slate-950/50">
-                          <td className="py-2.5 px-3 font-mono text-cyan-300">{formatDisplayDate(l.date)}</td>
-                          <td className="py-2.5 px-3 text-slate-400">{l.day}</td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-amber-300">{l.workOrderCode}</td>
-                          <td className="py-2.5 px-3 text-slate-200">{l.description}</td>
-                          <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{l.effectiveHours} Jam</td>
-                          <td className="py-2.5 px-3 text-center font-mono text-purple-400">{l.overtimeHours} Jam</td>
-                          <td className="py-2.5 px-3 text-center">
-                            <div className="flex justify-center gap-1">
-                              <button 
-                                onClick={() => handleEditLine(l)} 
-                                className="p-1 text-blue-400 hover:bg-blue-500/20 rounded cursor-pointer"
-                                title="Edit"
-                              >
-                                <Pencil className="w-3 h-3" />
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteLine(l.id)} 
-                                className="p-1 text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer"
-                                title="Hapus"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
+                    ))}
                   </tbody>
-                  {lines.length > 0 && (
-                    <tfoot className="border-t-2 border-slate-700">
-                      <tr className="bg-slate-950/50">
-                        <td colSpan={4} className="py-2.5 px-3 text-right font-bold text-white">Total Hours:</td>
-                        <td className="py-2.5 px-3 text-center font-mono font-bold text-emerald-400">{totalHours.toFixed(1)} Jam</td>
-                        <td colSpan={2}></td>
-                      </tr>
-                    </tfoot>
-                  )}
                 </table>
               </div>
+
+              {/* Tombol Add a Line */}
+              <button
+                onClick={() => {
+                  if (!startDate || !endDate) {
+                    alert('Mohon isi Date Start dan Date End terlebih dahulu!');
+                    return;
+                  }
+                  setLineDate(startDate);
+                  setIsModalOpen(true);
+                }}
+                className="text-blue-400 hover:text-blue-300 text-xs font-semibold cursor-pointer pt-2 flex items-center gap-1"
+              >
+                + Add a line
+              </button>
             </div>
           </div>
         )}
       </main>
 
-      {/* ================= MODAL CREATE/EDIT LINE ================= */}
+      {/* ================= MODAL CREATE LINES ================= */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
             <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-              <span className="font-bold text-xs text-white flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-amber-400" /> 
-                {editingLineId ? 'Edit Line' : 'Create Lines (Timesheet Harian)'}
-              </span>
-              <button 
-                onClick={() => { setIsModalOpen(false); setEditingLineId(null); }} 
-                className="text-slate-400 hover:text-white cursor-pointer"
-              >
+              <span className="font-bold text-xs text-white">Create Lines (Timesheet Harian)</span>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-5 space-y-4 text-xs">
+            <form onSubmit={handleAddLineSubmit} className="p-5 space-y-4 text-xs">
               <div className="grid grid-cols-1 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Date (Tanggal Harian) <span className="text-rose-400">*</span></label>
+                  <label className="block text-slate-400 mb-1">Date (Tanggal Harian)</label>
                   <input
                     type="date"
-                    min={dateStart}
-                    max={dateEnd}
+                    min={startDate}
+                    max={endDate}
                     value={lineDate}
-                    onChange={(e) => handleLineDateChange(e.target.value)}
+                    onChange={(e) => setLineDate(e.target.value)}
+                    required
                     style={{ colorScheme: 'dark' }}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono cursor-pointer"
                   />
-                  <span className="text-[10px] text-slate-500 mt-0.5 block">
-                    Harus berada di antara rentang {formatDisplayDate(dateStart)} s/d {formatDisplayDate(dateEnd)}.
-                  </span>
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">Harus berada di antara rentang Start Date & End Date.</span>
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 mb-1">Work Order (Terbitan Kabiro) <span className="text-rose-400">*</span></label>
+                  <label className="block text-slate-400 mb-1">Work Order (Terbitan Kabiro untuk {user.nama})</label>
                   <select
-                    value={lineWorkOrderId}
+                    value={lineWorkOrder}
                     onChange={(e) => {
-                      setLineWorkOrderId(e.target.value);
-                      const found = availableWorkOrders.find(w => w.id === e.target.value);
-                      if (found) setLineDescription(found.taskName || '');
+                      setLineWorkOrder(e.target.value);
+                      const found = filteredWorkOrdersForModal.find(w => w.packageTitle === e.target.value);
+                      if (found) setLineDescription(found.task_name || '');
                     }}
+                    required
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                   >
                     <option value="">-- Pilih Work Order --</option>
-                    {availableWorkOrders.length === 0 && (
-                      <option value="" disabled>Tidak ada work order untuk tanggal ini</option>
-                    )}
-                    {availableWorkOrders.map((wo) => (
-                      <option key={wo.id} value={wo.id}>
-                        {wo.kode_jc || wo.kodeJc || '-'} - {wo.taskName || wo.task_name || wo.project} ({formatDisplayDate(wo.startDate)} s/d {formatDisplayDate(wo.endDate)})
+                    {filteredWorkOrdersForModal.map((wo, idx) => (
+                      <option key={wo.id || idx} value={wo.packageTitle}>
+                        {wo.packageTitle} - {wo.task_name || wo.project} ({formatDisplayDate(wo.start_date)} s/d {formatDisplayDate(wo.end_date)})
                       </option>
                     ))}
                   </select>
-                  {availableWorkOrders.length === 0 && lineDate && (
-                    <span className="text-[10px] text-amber-400 mt-0.5 block">
-                      ⚠️ Tidak ada work order yang tersedia untuk tanggal {formatDisplayDate(lineDate)}. Coba pilih tanggal lain.
-                    </span>
-                  )}
                 </div>
 
                 <div>
                   <label className="block text-slate-400 mb-1">Description</label>
-                  <textarea
+                  <input
+                    type="text"
                     value={lineDescription}
                     onChange={(e) => setLineDescription(e.target.value)}
                     placeholder="Uraian pekerjaan harian..."
-                    rows={2}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white resize-none"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
                   />
                 </div>
 
@@ -774,32 +457,17 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                     />
                   </div>
                 </div>
-
-                {lineDate && (
-                  <div className="bg-slate-950 p-2 rounded border border-slate-800 text-center">
-                    <span className="text-slate-400">Day: </span>
-                    <span className="text-cyan-400 font-semibold">{getDayName(lineDate)}</span>
-                  </div>
-                )}
               </div>
 
               <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
-                <button 
-                  type="button" 
-                  onClick={() => { setIsModalOpen(false); setEditingLineId(null); }} 
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer"
-                >
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer">
                   Discard
                 </button>
-                <button 
-                  type="button"
-                  onClick={handleSaveLine} 
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer"
-                >
+                <button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer">
                   Save & Close
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}
