@@ -788,15 +788,19 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
   // Load data job cards / work orders yang diterbitkan untuk user ini
   const [availableWorkOrders, setAvailableWorkOrders] = useState<any[]>([]);
 
-  useEffect(() => {
+useEffect(() => {
     async function fetchWorkOrders() {
       try {
         const { data, error } = await supabase.from('job_cards').select('*');
         if (data) {
-          // Filter work order yang PIC-nya sesuai dengan nama user yang sedang login
-          const myWo = data.filter(item => 
-            (item.pic || '').toLowerCase() === (user.nama || '').toLowerCase() || true // fallback fleksibel
-          );
+          // Filter hanya milik user yang sedang login DAN rentang tanggalnya cocok jika user sudah memilih tanggal
+          const myWo = data.filter(item => {
+            const isMyName = cleanText(item.pic) === cleanText(user.nama);
+            
+            // Jika user sudah isi startDate & endDate di form, kita bisa filter tambahan:
+            // item.start_date >= startDate && item.end_date <= endDate (atau sesuai logika rentang proyek Anda)
+            return isMyName;
+          });
           setAvailableWorkOrders(myWo);
         }
       } catch {}
