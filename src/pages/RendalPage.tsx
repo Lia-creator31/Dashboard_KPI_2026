@@ -1842,7 +1842,7 @@ const organicBiroTasks = useMemo(() => {
     <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
       <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
         <span className="font-bold text-xs text-white flex items-center gap-1.5">
-          <Lock className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard ({pendingTasksCount} Menunggu)
+          Planner Panel — Approval Jobcard {selectedFormBiro ? `(${selectedFormBiro.biroName})` : ''} ({organicBiroTasks.length} Menunggu)
         </span>
         <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
           <X className="w-4 h-4" />
