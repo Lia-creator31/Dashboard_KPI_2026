@@ -1830,7 +1830,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         </div>
       )}
 
-      {/* Modal Planner Panel */}
+{/* ================= MODAL PLANNER ================= */}
       {isPlannerOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
@@ -1842,43 +1842,50 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 <X className="w-4 h-4" />
               </button>
             </div>
+
             <div className="p-4">
-              {!isPlannerUnlocked ? (
-                <form onSubmit={handleVerifyPin} className="max-w-xs mx-auto space-y-3 py-6 text-center">
-                  <input type="password" value={pinInput} onChange={(e) => setPinInput(e.target.value)}
-                    placeholder="PIN (2026)..." autoFocus required
-                    className={`w-full px-3 py-2 bg-slate-950 border rounded-lg text-center text-sm font-mono text-white focus:outline-none ${pinError ? 'border-rose-500' : 'border-slate-800'}`} />
-                  <button type="submit" className="w-full py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-lg cursor-pointer">
-                    Buka
-                  </button>
-                </form>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
-                    <span className="text-slate-400">Daftar Pengajuan Jobcard ({organicBiroTasks.length})</span>
-                    <button onClick={() => setIsPlannerUnlocked(false)} className="text-[11px] text-slate-400 hover:underline cursor-pointer">Kunci</button>
-                  </div>
-                  <div className="max-h-80 overflow-y-auto space-y-2">
-                    {organicBiroTasks.length > 0 ? organicBiroTasks.map((task, idx) => (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
+                  <span className="text-slate-400">
+                    Daftar Pengajuan Jobcard ({Object.values(manualTasks).flatMap(tasks => tasks).filter(t => !t.kodeJc || t.kodeJc.trim() === '').length})
+                  </span>
+                </div>
+
+                <div className="max-h-80 overflow-y-auto space-y-2">
+                  {Object.values(manualTasks).flatMap(tasks => tasks).filter(t => !t.kodeJc || t.kodeJc.trim() === '').length > 0 ? (
+                    Object.values(manualTasks).flatMap(tasks => tasks).filter(t => !t.kodeJc || t.kodeJc.trim() === '').map((task, idx) => (
                       <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
                         <div>
-                          <div className="font-semibold text-white">{task.pic} <span className="font-mono text-slate-500">#{idx + 1}</span>{task.rev && <span className="ml-2 font-mono text-[10px] text-cyan-400">Rev.{task.rev}</span>}</div>
+                          <div className="font-semibold text-white">
+                            {task.pic} <span className="font-mono text-slate-500">#{idx + 1}</span>
+                            {task.rev && <span className="ml-2 font-mono text-[10px] text-cyan-400">Rev.{task.rev}</span>}
+                          </div>
                           <div className="text-slate-400 text-[11px]">{task.taskName}</div>
                           <div className="text-emerald-400 font-mono text-[10px]">{task.project} • {task.biroName}</div>
                         </div>
+
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <input type="text" value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
+                          <input
+                            type="text"
+                            value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
                             onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
-                            placeholder="Jobcard (misal: JC020926 39833)..."
-                            className="w-48 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none" />
-                          <button onClick={() => handleSaveKodeJcForTask(task.id)}
-                            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer">Simpan</button>
+                            placeholder="Jobcard (misal: JC020926)..."
+                            className="w-48 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none"
+                          />
+                          <button
+                            onClick={() => handleSaveKodeJcForTask(task.id)}
+                            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer"
+                          >
+                            Simpan
+                          </button>
                         </div>
                       </div>
-                    )) : <div className="py-8 text-center text-xs text-slate-500">Tidak ada pengajuan tugas organik</div>}
-                  </div>
+                    ))
+                  ) : (
+                    <div className="py-8 text-center text-xs text-slate-500">Tidak ada pengajuan tugas yang menunggu approval.</div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           </div>
         </div>
