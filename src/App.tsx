@@ -2,7 +2,7 @@ import { useState } from 'react';
 import LoginPage from './pages/LoginPage';
 import RendalPage from './pages/RendalPage';
 import KabiroPage from './pages/KabiroPage'; // <-- TAMBAHKAN IMPORT INI
-// import OutsourcingPage from './pages/OutsourcingPage'; // <-- Nanti tambahkan jika file Outsourcing sudah dibuat
+import OutsourcingPage from './pages/OutsourcingPage'; // <-- Nanti tambahkan jika file Outsourcing sudah dibuat
 
 export interface UserSession {
   nama: string;
