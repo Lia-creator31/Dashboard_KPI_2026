@@ -125,22 +125,40 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
   }, [user.nip]);
 
   // Load Work Order yang tersedia untuk user ini
-  const loadAvailableWorkOrders = useCallback(async (startDate: string, endDate: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('job_cards')
-        .select('*')
-        .eq('pic', user.nama)
-        .gte('start_date', startDate)
-        .lte('end_date', endDate)
-        .eq('status', 'approved');
+const loadAvailableWorkOrders = useCallback(async (startDate: string, endDate: string) => {
+  try {
+    // Query yang lebih flexible - ambil semua work order untuk user ini
+    let query = supabase
+      .from('job_cards')
+      .select('*')
+      .eq('status', 'approved');
+    
+    // Filter berdasarkan nama PIC (tanpa NIP)
+    const userNameOnly = user.nama.split(' - ').pop() || user.nama;
+    query = query.ilike('pic', `%${userNameOnly}%`);
+    
+    // Atau filter berdasarkan NIP juga
+    const userNip = user.nip;
+    
+    const { data, error } = await query;
+    
+    if (error) throw error;
+    
+    // Filter di client-side berdasarkan tanggal
+    const filteredData = (data || []).filter(wo => {
+      const woStart = new Date(wo.start_date);
+      const woEnd = new Date(wo.end_date);
+      const selectedDate = new Date(startDate);
       
-      if (error) throw error;
-      setAvailableWorkOrders(data || []);
-    } catch (error) {
-      console.error('Error loading work orders:', error);
-    }
-  }, [user.nama]);
+      // Cek apakah tanggal yang dipilih ada dalam range work order
+      return selectedDate >= woStart && selectedDate <= woEnd;
+    });
+    
+    setAvailableWorkOrders(filteredData);
+  } catch (error) {
+    console.error('Error loading work orders:', error);
+  }
+}, [user.nama, user.nip]);
 
   useEffect(() => {
     loadTimesheets();
