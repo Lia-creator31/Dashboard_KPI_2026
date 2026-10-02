@@ -912,9 +912,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return filteredTasks.map((task, idx) => ({ ...task, packageTitle: `${prefix}${idx + 1}` }));
   }, [subconSelectedBiro, currentActiveBiroTasks, getSubconMembersForBiro]);
 
-  const organicBiroTasks = useMemo(() => {
-    return currentActiveBiroTasks.filter(t => currentBiroMembers.some(m => cleanText(m.nama) === cleanText(t.pic)));
-  }, [currentActiveBiroTasks, currentBiroMembers]);
+const organicBiroTasks = useMemo(() => {
+    if (!selectedFormBiro?.biroName) return [];
+    return currentActiveBiroTasks.filter(t => 
+      currentBiroMembers.some(m => cleanText(m.nama) === cleanText(t.pic)) &&
+      (!t.kodeJc || t.kodeJc.trim() === '')
+    );
+  }, [currentActiveBiroTasks, currentBiroMembers, selectedFormBiro]);
 
   const projectOptions = useMemo((): string[] => {
     const projectMap = new Map<string, string>();
