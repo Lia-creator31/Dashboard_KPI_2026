@@ -416,19 +416,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   useEffect(() => {
     async function initMasterFiles() {
       try {
-        let jcUrl = '';
         let im4Url = '';
         let realisasiUrl = '';
 
         Object.entries(excelGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
-          if (pLower.includes('jobcard') && !pLower.includes('realisasi')) jcUrl = url;
-          else if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
+          if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
           else if (pLower.includes('realisasi')) realisasiUrl = url;
         });
 
       const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
-        loadMasterFile('jobcard').then(wb => wb || fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx'])),
+        // HAPUS FALLBACK FETCH UNTUK JOBCARD AGAR TIDAK MELAKUKAN REQUEST BERULANG KE URL LOKAL
+        loadMasterFile('jobcard'),
         loadMasterFile('im4').then(wb => wb || fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx'])),
         loadMasterFile('realisasi').then(wb => wb || fetchSafeWorkbook([realisasiUrl, '/Realisasi JO.xlsx', './Realisasi JO.xlsx'])),
       ]);
@@ -457,21 +456,41 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     reader.readAsBinaryString(file);
   };
 
+  // PERUBAHAN 1: SIMPAN FILE JOBCARD KE SUPABASE STORAGE
   const handleUpdateJobcardExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = (evt) => {
-      try { setJobcardWorkbook(XLSX.read(evt.target?.result, { type: 'binary' })); alert(`Katalog Jobcard "${file.name}" berhasil diperbarui!`); } 
+    reader.onload = async (evt) => {
+      try { 
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        setJobcardWorkbook(wb); 
+        const err = await saveMasterFile('jobcard', file);
+        if (err) {
+          alert(`File "${file.name}" terbaca, tapi gagal disimpan ke server: ${err.message}`);
+        } else {
+          alert(`Katalog Jobcard "${file.name}" berhasil diperbarui dan tersimpan permanen di server!`);
+        }
+      } 
       catch { alert('Gagal membaca file JOBCARD_DESAIN.xlsx.'); }
     };
     reader.readAsBinaryString(file);
   };
 
+  // PERUBAHAN 2: SIMPAN FILE REALISASI KE SUPABASE STORAGE
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = (evt) => {
-      try { setRealisasiWorkbook(XLSX.read(evt.target?.result, { type: 'binary' })); alert(`File ${file.name} berhasil dibaca! Real JO langsung terhitung otomatis.`); } 
+    reader.onload = async (evt) => {
+      try { 
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        setRealisasiWorkbook(wb); 
+        const err = await saveMasterFile('realisasi', file);
+        if (err) {
+          alert(`File "${file.name}" terbaca, tapi gagal disimpan ke server: ${err.message}`);
+        } else {
+          alert(`File "${file.name}" berhasil diperbarui dan tersimpan permanen! Real JO langsung terhitung otomatis.`);
+        }
+      } 
       catch { alert('Gagal membaca file Realisasi JO.xlsx.'); }
     };
     reader.readAsBinaryString(file);
@@ -957,7 +976,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return Array.from(projectMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook, manualTasks]);
 
-  // ✅ PERUBAHAN UTAMA: dynamicTaskOptions HANYA membaca dari jobcardWorkbook
   const dynamicTaskOptions = useMemo((): string[] => {
     const taskMap = new Map<string, string>();
 
