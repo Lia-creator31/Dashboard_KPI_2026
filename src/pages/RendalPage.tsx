@@ -347,32 +347,21 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
 }
 
 export default function RendalPage({ user, onLogout }: RendalPageProps) {
-  // State untuk memilih mode akses
   const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
-  
-  // State Navigasi
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // Subkon State
   const [subconSelectedDept, setSubconSelectedDept] = useState<Department | null>(null);
   const [subconSelectedBiro, setSubconSelectedBiro] = useState<string | null>(null);
   const [subconPageMode, setSubconPageMode] = useState<'members' | 'form' | 'release'>('members');
   const [subconSearch, setSubconSearch] = useState('');
-  
-  // State Data Master (Excel)
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
   const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
-  
-  // State Tasks & UI
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>({});
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
   const [editingTaskKode, setEditingTaskKode] = useState<{ [taskId: string]: string }>({});
-  
-  // ✅ State untuk Edit Task
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
   const [editFormData, setEditFormData] = useState({
     project: '',
@@ -384,14 +373,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     rev: '0',
     release: '',
   });
-  
-  // State Form
   const [formData, setFormData] = useState({
     nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '',
     pic: '', jo: '', rev: '0', realJo: '', release: '',
   });
-  
-  // State Planner Modal
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [plannerSelectedDept, setPlannerSelectedDept] = useState<Department | null>(null);
   const [plannerSelectedBiro, setPlannerSelectedBiro] = useState<string | null>(null);
@@ -399,15 +384,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
   const PLANNER_PIN = '2026';
-  
-  // State Release & Drawing
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
   const [activeDrawingSheetTitle, setActiveDrawingSheetTitle] = useState<string>('');
   const [isFetchingDrawing, setIsFetchingDrawing] = useState<boolean>(false);
 
-  // Load All Job Cards from Supabase
   const loadAllJobCards = useCallback(async () => {
     try {
       const { data, error } = await supabase.from('job_cards').select('*').order('created_at', { ascending: true });
@@ -431,7 +413,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     } catch {}
   }, []);
 
-  // Initial Load Excel Files
   useEffect(() => {
     async function initMasterFiles() {
       try {
@@ -461,21 +442,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
-  // Handlers Upload Excel
-const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async (evt) => {
-    try {
-      setIm4Workbook(XLSX.read(evt.target?.result, { type: 'binary' }));
-      const err = await saveMasterFile('im4', file);
-      alert(err
-        ? `File terbaca, tapi gagal disimpan ke server: ${err.message}`
-        : `Master Personel "${file.name}" berhasil diperbarui dan tersimpan!`);
-    } catch { alert('Gagal membaca file Excel Personel IM4.'); }
+  const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        setIm4Workbook(XLSX.read(evt.target?.result, { type: 'binary' }));
+        const err = await saveMasterFile('im4', file);
+        alert(err
+          ? `File terbaca, tapi gagal disimpan ke server: ${err.message}`
+          : `Master Personel "${file.name}" berhasil diperbarui dan tersimpan!`);
+      } catch { alert('Gagal membaca file Excel Personel IM4.'); }
+    };
+    reader.readAsBinaryString(file);
   };
-  reader.readAsBinaryString(file);
-};
 
   const handleUpdateJobcardExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -497,7 +477,6 @@ const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     reader.readAsBinaryString(file);
   };
 
-  // Parse Realisasi Map
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
     if (typeof val === 'number') return isNaN(val) ? 0 : val;
@@ -536,7 +515,6 @@ const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     return map;
   }, [realisasiWorkbook]);
 
-  // Parse IM4 Members
   const allParsedFromExcel = useMemo<ParsedMember[]>(() => {
     if (!im4Workbook) return [];
     try {
@@ -605,7 +583,6 @@ const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
   };
 
-  // ✅ Handler untuk membuka modal edit
   const handleOpenEdit = (task: TaskItem) => {
     setEditingTask(task);
     setEditFormData({
@@ -620,7 +597,6 @@ const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     });
   };
 
-  // ✅ Handler untuk menyimpan perubahan edit
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTask) return;
@@ -645,7 +621,6 @@ const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
       .update(updatePayload)
       .eq('id', editingTask.id);
 
-    // Retry tanpa field rev dan release jika error
     if (error && (error.message?.includes('rev') || error.message?.includes('release') || (error as any).details?.includes('rev') || (error as any).details?.includes('release'))) {
       delete updatePayload.rev;
       delete updatePayload.release;
@@ -688,7 +663,6 @@ const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     loadAllJobCards();
   };
 
-  // ✅ Handler untuk delete task
   const handleDeleteTask = async (taskId: string) => {
     if (window.confirm('Apakah Anda yakin ingin menghapus tugas ini?')) {
       const { error } = await supabase.from('job_cards').delete().eq('id', taskId);
@@ -710,7 +684,6 @@ const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     }
   };
 
-  // Fetch Drawing Control
   const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
     const cleanProj = cleanText(projectCode); if (!cleanProj) return;
     setIsFetchingDrawing(true);
@@ -934,7 +907,7 @@ const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     return filteredTasks.map((task, idx) => ({ ...task, packageTitle: `${prefix}${idx + 1}` }));
   }, [subconSelectedBiro, currentActiveBiroTasks, getSubconMembersForBiro]);
 
-const organicBiroTasks = useMemo(() => {
+  const organicBiroTasks = useMemo(() => {
     if (!selectedFormBiro?.biroName) return [];
     return currentActiveBiroTasks.filter(t => 
       currentBiroMembers.some(m => cleanText(m.nama) === cleanText(t.pic)) &&
@@ -984,40 +957,59 @@ const organicBiroTasks = useMemo(() => {
     return Array.from(projectMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook, manualTasks]);
 
+  // ✅ PERUBAHAN UTAMA: dynamicTaskOptions HANYA membaca dari jobcardWorkbook
   const dynamicTaskOptions = useMemo((): string[] => {
-    const cleanProj = cleanText(formData.kodeProyek || '');
-    const rowsForThisProj = drawingControlMap[cleanProj] || [];
     const taskMap = new Map<string, string>();
-    rowsForThisProj.forEach(r => {
-      if (r.fullDeskripsi) {
-        const norm = cleanText(r.fullDeskripsi);
-        if (!taskMap.has(norm)) taskMap.set(norm, r.fullDeskripsi);
-      }
-    });
+
     if (jobcardWorkbook) {
       try {
         jobcardWorkbook.SheetNames.forEach(sheetName => {
-          const sheet = jobcardWorkbook.Sheets[sheetName]; if (!sheet) return;
+          const sheet = jobcardWorkbook.Sheets[sheetName];
+          if (!sheet) return;
+          
           const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-          let taskCol = 3;
-          for (let r = 0; r < Math.min(5, rows.length); r++) {
+          let taskCol = -1;
+
+          for (let r = 0; r < Math.min(15, rows.length); r++) {
             const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-            const foundIdx = rowVals.findIndex(v => v.includes('task') || v.includes('deskripsi') || v.includes('uraian') || v.includes('pekerjaan'));
-            if (foundIdx !== -1) { taskCol = foundIdx; break; }
+            const foundIdx = rowVals.findIndex(v => 
+              v.includes('task') || 
+              v.includes('deskripsi') || 
+              v.includes('uraian') || 
+              v.includes('pekerjaan') ||
+              v.includes('nama gambar') ||
+              v.includes('judul')
+            );
+            if (foundIdx !== -1) { 
+              taskCol = foundIdx; 
+              break; 
+            }
           }
+
+          if (taskCol === -1) taskCol = 3; 
+
           rows.forEach((row, idx) => {
             if (idx < 1 || !row) return;
+            
             const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
-            if (!raw || raw.toLowerCase() === 'nan' || raw.toLowerCase().includes('desc pekerjaan') || raw.toLowerCase() === 'deskripsi') return;
+            
+            if (!raw || raw.toLowerCase() === 'nan' || raw.toLowerCase().includes('deskripsi') || raw.toLowerCase() === 'task') return;
+            
             const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
             const normKey = cleanText(cleaned);
-            if (cleaned && normKey && !taskMap.has(normKey)) taskMap.set(normKey, cleaned);
+            
+            if (cleaned && normKey && !taskMap.has(normKey)) {
+              taskMap.set(normKey, cleaned);
+            }
           });
         });
-      } catch {}
+      } catch (err) {
+        console.error("Gagal membaca jobcardWorkbook untuk opsi deskripsi:", err);
+      }
     }
+
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
-  }, [formData.kodeProyek, drawingControlMap, jobcardWorkbook]);
+  }, [jobcardWorkbook]);
 
   const pendingTasksCount = useMemo(() => {
     let count = 0;
@@ -1029,7 +1021,6 @@ const organicBiroTasks = useMemo(() => {
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
-      {/* Header */}
       <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => { setAccessMode('landing'); setSelectedDept(null); setSelectedFormBiro(null); setSubconSelectedBiro(null); setSubconSelectedDept(null); }}>
@@ -1060,7 +1051,6 @@ const organicBiroTasks = useMemo(() => {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8">
-        {/* ================= 1. LANDING PAGE ================= */}
         {accessMode === 'landing' && (
           <div className="max-w-2xl mx-auto text-center space-y-8 pt-8">
             <div className="space-y-2">
@@ -1088,7 +1078,6 @@ const organicBiroTasks = useMemo(() => {
           </div>
         )}
 
-        {/* ================= 2. PORTAL SUBKON ================= */}
         {accessMode === 'subkon' && !subconSelectedDept && !subconSelectedBiro && (
           <div className="space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
@@ -1346,7 +1335,6 @@ const organicBiroTasks = useMemo(() => {
           </div>
         )}
 
-        {/* ================= 3. PORTAL ORGANIK ================= */}
         {accessMode === 'organik' && !selectedDept && !selectedFormBiro && (
           <div className="space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
@@ -1663,7 +1651,6 @@ const organicBiroTasks = useMemo(() => {
         )}
       </main>
 
-      {/* ✅ Modal Edit Task */}
       {editingTask && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-fadeIn">
@@ -1858,7 +1845,6 @@ const organicBiroTasks = useMemo(() => {
         </div>
       )}
 
-      {/* Modal Planner Panel */}
       {isPlannerOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
