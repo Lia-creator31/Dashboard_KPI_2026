@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import {
   HardHat, ArrowLeft, X, Check, Plus, Trash2, Pencil,
-  Calendar, FileCheck, Clock, Printer, ChevronLeft
+  Calendar, FileCheck, Printer, ChevronLeft
 } from 'lucide-react';
 
 interface OutsourcingPageProps {
@@ -81,34 +81,52 @@ function generateTimesheetCode(): string {
   return `TIM-${yy}${mm}${dd}${rand}`;
 }
 
+// Helper: ambil deskripsi dari work order (job_cards).
+// Jika nama kolom di tabel Anda berbeda, tambahkan di sini.
+function getWoDescription(wo: any): string {
+  return (
+    wo?.deskripsi ||
+    wo?.description ||
+    wo?.uraian ||
+    wo?.task_name ||
+    wo?.taskName ||
+    ''
+  );
+}
+
 export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps) {
   const [viewMode, setViewMode] = useState<'list' | 'create' | 'detail'>('list');
   const [selectedTimesheet, setSelectedTimesheet] = useState<TimesheetHeader | null>(null);
-  
+
   // State untuk daftar timesheet
   const [timesheets, setTimesheets] = useState<TimesheetHeader[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   // State form header timesheet
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
   const [unitKerja, setUnitKerja] = useState('Biro Dukungan & Administrasi');
   const [divisi, setDivisi] = useState('71000 - Divisi Desain');
-  
+
   // State lines timesheet
   const [lines, setLines] = useState<TimesheetLine[]>([]);
-  
+
   // State modal Add Line
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [lineDate, setLineDate] = useState('');
   const [lineWorkOrderId, setLineWorkOrderId] = useState('');
-  const [lineDescription, setLineDescription] = useState('');
   const [lineEffective, setLineEffective] = useState('8');
   const [lineOvertime, setLineOvertime] = useState('0');
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
-  
+
   // State work orders
   const [availableWorkOrders, setAvailableWorkOrders] = useState<any[]>([]);
+
+  // Work order yang sedang dipilih di modal (untuk preview deskripsi otomatis)
+  const selectedWorkOrder = useMemo(
+    () => availableWorkOrders.find(w => w.id === lineWorkOrderId),
+    [availableWorkOrders, lineWorkOrderId]
+  );
 
   // Load timesheet dari Supabase
   const loadTimesheets = useCallback(async () => {
@@ -188,16 +206,16 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
       }
 
       const filteredData = (data || []).filter((wo: any) => {
-        const isNameMatch = wo.pic?.toLowerCase().includes(user.nama.toLowerCase()) || 
+        const isNameMatch = wo.pic?.toLowerCase().includes(user.nama.toLowerCase()) ||
                             user.nama.toLowerCase().includes(wo.pic?.toLowerCase()) ||
                             wo.personil_name?.toLowerCase().includes(user.nama.toLowerCase());
 
         let isDateMatch = true;
         if (selectedDate) {
-          const woStart = normalizeDate(wo.start_date);
-          const woEnd = normalizeDate(wo.end_date);
+          const woStart = normalizeDate(wo.start_date || wo.startDate);
+          const woEnd = normalizeDate(wo.end_date || wo.endDate);
           const selected = normalizeDate(selectedDate);
-          
+
           if (woStart && woEnd && selected) {
             isDateMatch = selected >= woStart && selected <= woEnd;
           }
@@ -207,7 +225,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
       });
 
       setAvailableWorkOrders(filteredData);
-      
+
     } catch (error) {
       console.error('Gagal memuat work order:', error);
     }
@@ -242,7 +260,6 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
     setEditingLineId(null);
     setLineDate(dateStart);
     setLineWorkOrderId('');
-    setLineDescription('');
     setLineEffective('8');
     setLineOvertime('0');
     setIsModalOpen(true);
@@ -252,6 +269,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
   // Handler saat tanggal di modal berubah
   const handleLineDateChange = (newDate: string) => {
     setLineDate(newDate);
+    setLineWorkOrderId('');
     if (newDate) {
       loadAvailableWorkOrders(newDate);
     }
@@ -279,7 +297,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
       date: lineDate,
       workOrderId: lineWorkOrderId,
       workOrderCode: selectedWo.kode_jc || selectedWo.kodeJc || '',
-      description: lineDescription || selectedWo.taskName || '',
+      description: getWoDescription(selectedWo),
       effectiveHours: parseFloat(lineEffective) || 0,
       overtimeHours: parseFloat(lineOvertime) || 0,
       plannedHour: '08:00',
@@ -307,7 +325,6 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
     setEditingLineId(line.id);
     setLineDate(line.date);
     setLineWorkOrderId(line.workOrderId);
-    setLineDescription(line.description);
     setLineEffective(String(line.effectiveHours));
     setLineOvertime(String(line.overtimeHours));
     setIsModalOpen(true);
@@ -334,7 +351,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
 
     try {
       const code = generateTimesheetCode();
-      
+
       const { data: tsData, error: tsError } = await supabase
         .from('outsourcing_timesheets')
         .insert({
@@ -388,7 +405,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
   // Handler submit timesheet
   const handleSubmitTimesheet = async (tsId: string) => {
     if (!confirm('Submit timesheet ini untuk approval?')) return;
-    
+
     try {
       const { error } = await supabase
         .from('outsourcing_timesheets')
@@ -397,6 +414,8 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
 
       if (error) throw error;
       alert('Timesheet berhasil disubmit!');
+      setViewMode('list');
+      setSelectedTimesheet(null);
       loadTimesheets();
     } catch (error: any) {
       alert('Gagal submit: ' + error.message);
@@ -422,8 +441,8 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
               <span className="text-xs text-slate-400 ml-2">— {user.nama}</span>
             </div>
           </div>
-          <button 
-            onClick={onLogout} 
+          <button
+            onClick={onLogout}
             className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer"
           >
             Keluar
@@ -458,8 +477,8 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {timesheets.map((ts) => (
-                  <div 
-                    key={ts.id} 
+                  <div
+                    key={ts.id}
                     onClick={() => handleViewDetail(ts)}
                     className="bg-slate-900 border border-slate-800 hover:border-amber-500/50 rounded-xl p-4 space-y-3 transition shadow-lg cursor-pointer"
                   >
@@ -500,13 +519,13 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
           </div>
         )}
 
-        {/* ================= VIEW 2: DETAIL TIMESHEET (seperti Odoo) ================= */}
+        {/* ================= VIEW 2: DETAIL TIMESHEET ================= */}
         {viewMode === 'detail' && selectedTimesheet && (
           <div className="space-y-6">
             {/* Breadcrumb & Actions */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <button 
+                <button
                   onClick={() => { setViewMode('list'); setSelectedTimesheet(null); }}
                   className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 cursor-pointer"
                 >
@@ -519,11 +538,14 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer flex items-center gap-1">
+                <button
+                  onClick={() => window.print()}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs cursor-pointer flex items-center gap-1"
+                >
                   <Printer className="w-3 h-3" /> Print
                 </button>
                 {selectedTimesheet.status === 'Draft' && (
-                  <button 
+                  <button
                     onClick={() => handleSubmitTimesheet(selectedTimesheet.id)}
                     className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs cursor-pointer"
                   >
@@ -584,47 +606,33 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                 </span>
               </div>
 
-              {/* Detailed Table */}
+              {/* Detailed Table (sama dengan kolom di form) */}
               <div className="overflow-x-auto border border-slate-800 rounded-lg">
-                <table className="w-full text-[10px]">
+                <table className="w-full text-xs">
                   <thead className="bg-slate-950 text-slate-400">
                     <tr>
-                      <th className="py-2 px-2 text-left border-b border-slate-800">Date</th>
-                      <th className="py-2 px-2 text-left border-b border-slate-800">Type</th>
-                      <th className="py-2 px-2 text-left border-b border-slate-800">Analytic Account</th>
-                      <th className="py-2 px-2 text-left border-b border-slate-800">Day</th>
-                      <th className="py-2 px-2 text-left border-b border-slate-800">Project</th>
-                      <th className="py-2 px-2 text-left border-b border-slate-800">Work Center</th>
-                      <th className="py-2 px-2 text-left border-b border-slate-800">WBS Activity</th>
-                      <th className="py-2 px-2 text-left border-b border-slate-800">Work Order</th>
-                      <th className="py-2 px-2 text-right border-b border-slate-800">Planned Hour</th>
-                      <th className="py-2 px-2 text-right border-b border-slate-800">Effective Hours</th>
-                      <th className="py-2 px-2 text-right border-b border-slate-800">Overtime Hours</th>
-                      <th className="py-2 px-2 text-right border-b border-slate-800">Idle Hours</th>
+                      <th className="py-2.5 px-3 text-left border-b border-slate-800">Date</th>
+                      <th className="py-2.5 px-3 text-left border-b border-slate-800">Work Order</th>
+                      <th className="py-2.5 px-3 text-left border-b border-slate-800">Description</th>
+                      <th className="py-2.5 px-3 text-center border-b border-slate-800">Effective Hours</th>
+                      <th className="py-2.5 px-3 text-center border-b border-slate-800">Overtime Hours</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-300">
                     {selectedTimesheet.lines.length === 0 ? (
                       <tr>
-                        <td colSpan={12} className="px-3 py-8 text-center text-slate-500 italic">
+                        <td colSpan={5} className="px-3 py-8 text-center text-slate-500 italic">
                           Tidak ada baris timesheet
                         </td>
                       </tr>
                     ) : (
                       selectedTimesheet.lines.map((line) => (
                         <tr key={line.id} className="hover:bg-slate-950/50">
-                          <td className="py-2 px-2 font-mono text-cyan-300">{formatDisplayDate(line.date)}</td>
-                          <td className="py-2 px-2">{line.type || 'Biasa'}</td>
-                          <td className="py-2 px-2 font-mono text-[9px] whitespace-pre-line">{line.analyticAccount || '[CORP2026]\nCORPORATE BUDGET 2026'}</td>
-                          <td className="py-2 px-2">{line.day || getDayName(line.date)}</td>
-                          <td className="py-2 px-2 font-mono text-[9px]">{line.project || 'CORP2026\nCORPORATE BUDGET 2026 - Running'}</td>
-                          <td className="py-2 px-2 font-mono text-[9px]">{line.workCenter || 'ICD303 - Biro Dukungan & Administrasi'}</td>
-                          <td className="py-2 px-2 font-mono text-[9px]">{line.wbsActivity || 'Level 6 ICAJO Jam Orang Divisi Desain'}</td>
-                          <td className="py-2 px-2 font-mono font-bold text-amber-300 text-[9px]">{line.workOrderCode}</td>
-                          <td className="py-2 px-2 text-right font-mono">{line.plannedHour || '08:00'}</td>
-                          <td className="py-2 px-2 text-right font-mono text-emerald-400">{line.effectiveHours.toFixed(2)}</td>
-                          <td className="py-2 px-2 text-right font-mono text-purple-400">{line.overtimeHours.toFixed(2)}</td>
-                          <td className="py-2 px-2 text-right font-mono">{line.idleHours || '00:00'}</td>
+                          <td className="py-2.5 px-3 font-mono text-cyan-300">{formatDisplayDate(line.date)}</td>
+                          <td className="py-2.5 px-3 font-mono font-bold text-amber-300">{line.workOrderCode}</td>
+                          <td className="py-2.5 px-3 text-slate-200">{line.description || '-'}</td>
+                          <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{line.effectiveHours.toFixed(2)}</td>
+                          <td className="py-2.5 px-3 text-center font-mono text-purple-400">{line.overtimeHours.toFixed(2)}</td>
                         </tr>
                       ))
                     )}
@@ -632,15 +640,12 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                   {selectedTimesheet.lines.length > 0 && (
                     <tfoot className="bg-slate-950 border-t-2 border-slate-700">
                       <tr>
-                        <td colSpan={9} className="py-2 px-2 text-right font-bold text-white">Total:</td>
-                        <td className="py-2 px-2 text-right font-mono font-bold text-emerald-400">
+                        <td colSpan={3} className="py-2.5 px-3 text-right font-bold text-white">Total:</td>
+                        <td className="py-2.5 px-3 text-center font-mono font-bold text-emerald-400">
                           {selectedTimesheet.lines.reduce((a, l) => a + l.effectiveHours, 0).toFixed(2)}
                         </td>
-                        <td className="py-2 px-2 text-right font-mono font-bold text-purple-400">
+                        <td className="py-2.5 px-3 text-center font-mono font-bold text-purple-400">
                           {selectedTimesheet.lines.reduce((a, l) => a + l.overtimeHours, 0).toFixed(2)}
-                        </td>
-                        <td className="py-2 px-2 text-right font-mono">
-                          {selectedTimesheet.lines.reduce((a, l) => a + (parseFloat(l.idleHours) || 0), 0).toFixed(2)}
                         </td>
                       </tr>
                     </tfoot>
@@ -656,8 +661,8 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => setViewMode('list')} 
+                <button
+                  onClick={() => setViewMode('list')}
                   className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 cursor-pointer"
                 >
                   <ArrowLeft className="w-4 h-4" />
@@ -681,22 +686,22 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                 </div>
                 <div className="flex justify-between items-center gap-2">
                   <span className="text-slate-400">Date Start</span>
-                  <input 
-                    type="date" 
-                    value={dateStart} 
-                    onChange={(e) => setDateStart(e.target.value)} 
+                  <input
+                    type="date"
+                    value={dateStart}
+                    onChange={(e) => setDateStart(e.target.value)}
                     style={{ colorScheme: 'dark' }}
-                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono cursor-pointer" 
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono cursor-pointer"
                   />
                 </div>
                 <div className="flex justify-between items-center gap-2">
                   <span className="text-slate-400">Date End</span>
-                  <input 
-                    type="date" 
-                    value={dateEnd} 
-                    onChange={(e) => setDateEnd(e.target.value)} 
+                  <input
+                    type="date"
+                    value={dateEnd}
+                    onChange={(e) => setDateEnd(e.target.value)}
                     style={{ colorScheme: 'dark' }}
-                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono cursor-pointer" 
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono cursor-pointer"
                   />
                 </div>
               </div>
@@ -704,20 +709,20 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
               <div className="space-y-3">
                 <div className="flex justify-between items-center gap-2">
                   <span className="text-slate-400">Unit Kerja</span>
-                  <input 
-                    type="text" 
-                    value={unitKerja} 
+                  <input
+                    type="text"
+                    value={unitKerja}
                     onChange={(e) => setUnitKerja(e.target.value)}
-                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-cyan-400 font-semibold" 
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-cyan-400 font-semibold"
                   />
                 </div>
                 <div className="flex justify-between items-center gap-2">
                   <span className="text-slate-400">Divisi</span>
-                  <input 
-                    type="text" 
-                    value={divisi} 
+                  <input
+                    type="text"
+                    value={divisi}
                     onChange={(e) => setDivisi(e.target.value)}
-                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-semibold" 
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-semibold"
                   />
                 </div>
               </div>
@@ -761,19 +766,19 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                         <tr key={l.id} className="hover:bg-slate-950/50">
                           <td className="py-2.5 px-3 font-mono text-cyan-300">{formatDisplayDate(l.date)}</td>
                           <td className="py-2.5 px-3 font-mono font-bold text-amber-300">{l.workOrderCode}</td>
-                          <td className="py-2.5 px-3 text-slate-200">{l.description}</td>
+                          <td className="py-2.5 px-3 text-slate-200">{l.description || '-'}</td>
                           <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{l.effectiveHours} Jam</td>
                           <td className="py-2.5 px-3 text-center font-mono text-purple-400">{l.overtimeHours} Jam</td>
                           <td className="py-2.5 px-3 text-center">
                             <div className="flex justify-center gap-1">
-                              <button 
-                                onClick={() => handleEditLine(l)} 
+                              <button
+                                onClick={() => handleEditLine(l)}
                                 className="p-1 text-blue-400 hover:bg-blue-500/20 rounded cursor-pointer"
                               >
                                 <Pencil className="w-3 h-3" />
                               </button>
-                              <button 
-                                onClick={() => handleDeleteLine(l.id)} 
+                              <button
+                                onClick={() => handleDeleteLine(l.id)}
                                 className="p-1 text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer"
                               >
                                 <Trash2 className="w-3 h-3" />
@@ -806,11 +811,11 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
             <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
               <span className="font-bold text-xs text-white flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-amber-400" /> 
+                <Calendar className="w-3.5 h-3.5 text-amber-400" />
                 {editingLineId ? 'Edit Line' : 'Create Lines (Timesheet Harian)'}
               </span>
-              <button 
-                onClick={() => { setIsModalOpen(false); setEditingLineId(null); }} 
+              <button
+                onClick={() => { setIsModalOpen(false); setEditingLineId(null); }}
                 className="text-slate-400 hover:text-white cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -839,39 +844,31 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                   <label className="block text-slate-400 mb-1">Work Order (Terbitan Kabiro) <span className="text-rose-400">*</span></label>
                   <select
                     value={lineWorkOrderId}
-                    onChange={(e) => {
-                      setLineWorkOrderId(e.target.value);
-                      const found = availableWorkOrders.find(w => w.id === e.target.value);
-                      if (found) setLineDescription(found.taskName || '');
-                    }}
+                    onChange={(e) => setLineWorkOrderId(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                   >
                     <option value="">-- Pilih Work Order --</option>
-                    {availableWorkOrders.length === 0 && (
-                      <option value="" disabled>Tidak ada work order untuk tanggal ini</option>
-                    )}
                     {availableWorkOrders.map((wo) => (
                       <option key={wo.id} value={wo.id}>
-                        {wo.kode_jc || wo.kodeJc || '-'} - {wo.taskName || wo.task_name || wo.project} ({formatDisplayDate(wo.startDate)} s/d {formatDisplayDate(wo.endDate)})
+                        {wo.kode_jc || wo.kodeJc || '-'} ({formatDisplayDate(wo.start_date || wo.startDate)} s/d {formatDisplayDate(wo.end_date || wo.endDate)})
                       </option>
                     ))}
                   </select>
                   {availableWorkOrders.length === 0 && lineDate && (
                     <span className="text-[10px] text-amber-400 mt-0.5 block">
-                      ️ Tidak ada work order yang tersedia untuk tanggal {formatDisplayDate(lineDate)}.
+                      Tidak ada work order yang tersedia untuk tanggal {formatDisplayDate(lineDate)}.
                     </span>
                   )}
                 </div>
 
+                {/* Description otomatis dari Work Order */}
                 <div>
-                  <label className="block text-slate-400 mb-1">Description</label>
-                  <textarea
-                    value={lineDescription}
-                    onChange={(e) => setLineDescription(e.target.value)}
-                    placeholder="Uraian pekerjaan harian..."
-                    rows={2}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white resize-none"
-                  />
+                  <label className="block text-slate-400 mb-1">Description (otomatis dari Work Order)</label>
+                  <div className="w-full px-3 py-2 bg-slate-950/50 border border-slate-800 rounded-lg text-slate-300 min-h-[56px]">
+                    {getWoDescription(selectedWorkOrder) || (
+                      <span className="text-slate-600 italic">Pilih work order terlebih dahulu</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -910,16 +907,16 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
               </div>
 
               <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
-                <button 
-                  type="button" 
-                  onClick={() => { setIsModalOpen(false); setEditingLineId(null); }} 
+                <button
+                  type="button"
+                  onClick={() => { setIsModalOpen(false); setEditingLineId(null); }}
                   className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer"
                 >
                   Discard
                 </button>
-                <button 
+                <button
                   type="button"
-                  onClick={handleSaveLine} 
+                  onClick={handleSaveLine}
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer"
                 >
                   Save & Close
