@@ -1532,13 +1532,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         <td className="py-2 px-2.5 text-center">
                                           <div className="flex items-center justify-center gap-1.5">
                                             <button 
-                                              onClick={(e) => { e.stopPropagation(); handleOpenEdit(task); }} 
-                                              className="p-1 rounded bg-slate-800 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 transition cursor-pointer"
-                                              title="Edit Tugas"
-                                            >
-                                              <Pencil className="w-3.5 h-3.5" />
-                                            </button>
-                                            <button 
                                               onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }} 
                                               className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
                                               title="Hapus Tugas"
