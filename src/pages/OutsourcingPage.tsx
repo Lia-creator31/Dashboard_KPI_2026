@@ -115,18 +115,13 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [lineDate, setLineDate] = useState('');
   const [lineWorkOrderId, setLineWorkOrderId] = useState('');
+  const [lineDescription, setLineDescription] = useState('');
   const [lineEffective, setLineEffective] = useState('8');
   const [lineOvertime, setLineOvertime] = useState('0');
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
 
   // State work orders
   const [availableWorkOrders, setAvailableWorkOrders] = useState<any[]>([]);
-
-  // Work order yang sedang dipilih di modal (untuk preview deskripsi otomatis)
-  const selectedWorkOrder = useMemo(
-    () => availableWorkOrders.find(w => w.id === lineWorkOrderId),
-    [availableWorkOrders, lineWorkOrderId]
-  );
 
   // Load timesheet dari Supabase
   const loadTimesheets = useCallback(async () => {
@@ -260,6 +255,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
     setEditingLineId(null);
     setLineDate(dateStart);
     setLineWorkOrderId('');
+    setLineDescription('');
     setLineEffective('8');
     setLineOvertime('0');
     setIsModalOpen(true);
@@ -270,6 +266,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
   const handleLineDateChange = (newDate: string) => {
     setLineDate(newDate);
     setLineWorkOrderId('');
+    setLineDescription('');
     if (newDate) {
       loadAvailableWorkOrders(newDate);
     }
@@ -297,7 +294,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
       date: lineDate,
       workOrderId: lineWorkOrderId,
       workOrderCode: selectedWo.kode_jc || selectedWo.kodeJc || '',
-      description: getWoDescription(selectedWo),
+      description: lineDescription.trim() || getWoDescription(selectedWo),
       effectiveHours: parseFloat(lineEffective) || 0,
       overtimeHours: parseFloat(lineOvertime) || 0,
       plannedHour: '08:00',
@@ -325,6 +322,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
     setEditingLineId(line.id);
     setLineDate(line.date);
     setLineWorkOrderId(line.workOrderId);
+    setLineDescription(line.description);
     setLineEffective(String(line.effectiveHours));
     setLineOvertime(String(line.overtimeHours));
     setIsModalOpen(true);
@@ -844,7 +842,12 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                   <label className="block text-slate-400 mb-1">Work Order (Terbitan Kabiro) <span className="text-rose-400">*</span></label>
                   <select
                     value={lineWorkOrderId}
-                    onChange={(e) => setLineWorkOrderId(e.target.value)}
+                    onChange={(e) => {
+                      setLineWorkOrderId(e.target.value);
+                      const found = availableWorkOrders.find(w => w.id === e.target.value);
+                      // Deskripsi work order disalin ke form timesheet, tetap bisa diedit
+                      setLineDescription(found ? getWoDescription(found) : '');
+                    }}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                   >
                     <option value="">-- Pilih Work Order --</option>
@@ -861,14 +864,16 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                   )}
                 </div>
 
-                {/* Description otomatis dari Work Order */}
+                {/* Description timesheet: terisi dari work order, bisa diedit */}
                 <div>
-                  <label className="block text-slate-400 mb-1">Description (otomatis dari Work Order)</label>
-                  <div className="w-full px-3 py-2 bg-slate-950/50 border border-slate-800 rounded-lg text-slate-300 min-h-[56px]">
-                    {getWoDescription(selectedWorkOrder) || (
-                      <span className="text-slate-600 italic">Pilih work order terlebih dahulu</span>
-                    )}
-                  </div>
+                  <label className="block text-slate-400 mb-1">Description</label>
+                  <textarea
+                    value={lineDescription}
+                    onChange={(e) => setLineDescription(e.target.value)}
+                    placeholder="Uraian pekerjaan harian (terisi otomatis dari work order, bisa diubah)..."
+                    rows={3}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white resize-none"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
