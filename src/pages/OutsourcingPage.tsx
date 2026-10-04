@@ -853,7 +853,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                     <option value="">-- Pilih Work Order --</option>
                     {availableWorkOrders.map((wo) => (
                       <option key={wo.id} value={wo.id}>
-                        {wo.kode_jc || wo.kodeJc || '-'} ({formatDisplayDate(wo.start_date || wo.startDate)} s/d {formatDisplayDate(wo.end_date || wo.endDate)})
+                        {wo.kode_jc || wo.kodeJc || '-'} - {getWoDescription(wo) || wo.project || '-'}
                       </option>
                     ))}
                   </select>
