@@ -909,14 +909,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return filteredTasks.map((task, idx) => ({ ...task, packageTitle: `${prefix}${idx + 1}` }));
   }, [subconSelectedBiro, currentActiveBiroTasks, getSubconMembersForBiro]);
 
-  const organicBiroTasks = useMemo(() => {
-    if (!selectedFormBiro?.biroName) return [];
-    return currentActiveBiroTasks.filter(t => 
-      currentBiroMembers.some(m => cleanText(m.nama) === cleanText(t.pic)) &&
-      (!t.kodeJc || t.kodeJc.trim() === '')
-    );
-  }, [currentActiveBiroTasks, currentBiroMembers, selectedFormBiro]);
-
   const projectOptions = useMemo((): string[] => {
     const projectMap = new Map<string, string>();
     GOOGLE_DRIVE_SHEETS.forEach(s => {
@@ -1012,13 +1004,24 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook]);
 
-  const pendingTasksCount = useMemo(() => {
-    let count = 0;
+  // Planner gabungan: semua tugas dari SEMUA biro yang belum punya kode Jobcard, dikelompokkan per biro
+  const pendingTasksByBiro = useMemo((): [string, TaskItem[]][] => {
+    const groups: Record<string, TaskItem[]> = {};
     Object.values(manualTasks).forEach(tasks => {
-      tasks.forEach(t => { if (!t.kodeJc || t.kodeJc.trim() === '') count++; });
+      tasks.forEach(t => {
+        if (!t.kodeJc || t.kodeJc.trim() === '') {
+          const key = t.biroName || 'Tanpa Biro';
+          if (!groups[key]) groups[key] = [];
+          groups[key].push(t);
+        }
+      });
     });
-    return count;
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
   }, [manualTasks]);
+
+  const pendingTasksCount = useMemo(() => {
+    return pendingTasksByBiro.reduce((total, [, list]) => total + list.length, 0);
+  }, [pendingTasksByBiro]);
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
@@ -1350,6 +1353,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <Clock className="w-3.5 h-3.5 text-emerald-400" /><span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                 </label>
+                <button
+                  onClick={() => setIsPlannerOpen(true)}
+                  className="relative px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  title={pendingTasksCount > 0 ? `${pendingTasksCount} tugas menunggu kode Jobcard` : 'Tidak ada tugas yang menunggu kode Jobcard'}
+                >
+                  <FileCheck className="w-3.5 h-3.5" /> Planner
+                  {pendingTasksCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center border-2 border-slate-950">
+                      {pendingTasksCount > 99 ? '99+' : pendingTasksCount}
+                    </span>
+                  )}
+                </button>
                 <input type="text" placeholder="Cari..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
               </div>
@@ -1424,10 +1439,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     Form
                   </button>
                 </div>
-                <button onClick={() => setIsPlannerOpen(true)}
-                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer">
-                  <FileCheck className="w-3 h-3" /> Planner
-                </button>
               </div>
             </div>
 
@@ -1834,13 +1845,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         </div>
       )}
 
-      {/* ✅ PLANNER MODAL — TANPA PASSWORD, LANGSUNG TERBUKA */}
+      {/* PLANNER MODAL — gabungan semua biro, tanpa password */}
       {isPlannerOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
             <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
               <span className="font-bold text-xs text-white flex items-center gap-1.5">
-                <FileCheck className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard ({pendingTasksCount} Menunggu)
+                <FileCheck className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard Semua Biro ({pendingTasksCount} Menunggu)
               </span>
               <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
                 <X className="w-4 h-4" />
@@ -1849,26 +1860,34 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             <div className="p-4">
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
-                  <span className="text-slate-400">Daftar Pengajuan Jobcard ({organicBiroTasks.length})</span>
+                  <span className="text-slate-400">Daftar Pengajuan Jobcard ({pendingTasksCount}) dari {pendingTasksByBiro.length} Biro</span>
                 </div>
-                <div className="max-h-80 overflow-y-auto space-y-2">
-                  {organicBiroTasks.length > 0 ? organicBiroTasks.map((task, idx) => (
-                    <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
-                      <div>
-                        <div className="font-semibold text-white">{task.pic} <span className="font-mono text-slate-500">#{idx + 1}</span>{task.rev && <span className="ml-2 font-mono text-[10px] text-cyan-400">Rev.{task.rev}</span>}</div>
-                        <div className="text-slate-400 text-[11px]">{task.taskName}</div>
-                        <div className="text-emerald-400 font-mono text-[10px]">{task.project} • {task.biroName}</div>
+                <div className="max-h-96 overflow-y-auto space-y-4 pr-1">
+                  {pendingTasksByBiro.length > 0 ? pendingTasksByBiro.map(([biroName, list]) => (
+                    <div key={biroName} className="space-y-2">
+                      <div className="flex items-center justify-between text-[11px] px-1">
+                        <span className="font-bold text-slate-300">{biroName}</span>
+                        <span className="font-mono text-amber-400">{list.length} menunggu</span>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <input type="text" value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
-                          onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
-                          placeholder="Jobcard (misal: JC020926 39833)..."
-                          className="w-48 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none" />
-                        <button onClick={() => handleSaveKodeJcForTask(task.id)}
-                          className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer">Simpan</button>
-                      </div>
+                      {list.map((task, idx) => (
+                        <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
+                          <div>
+                            <div className="font-semibold text-white">{task.pic} <span className="font-mono text-slate-500">#{idx + 1}</span>{task.rev && <span className="ml-2 font-mono text-[10px] text-cyan-400">Rev.{task.rev}</span>}</div>
+                            <div className="text-slate-400 text-[11px]">{task.taskName}</div>
+                            <div className="text-emerald-400 font-mono text-[10px]">{task.project}</div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <input type="text" value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
+                              onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
+                              placeholder="Jobcard (misal: JC020926 39833)..."
+                              className="w-48 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none" />
+                            <button onClick={() => handleSaveKodeJcForTask(task.id)}
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer">Simpan</button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  )) : <div className="py-8 text-center text-xs text-slate-500">Tidak ada pengajuan tugas organik</div>}
+                  )) : <div className="py-8 text-center text-xs text-slate-500">Semua tugas sudah memiliki kode Jobcard</div>}
                 </div>
               </div>
             </div>
