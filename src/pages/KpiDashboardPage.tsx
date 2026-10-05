@@ -17,7 +17,7 @@ interface KpiDashboardPageProps {
 const WEIGHT_A = 0.6;                 // bobot Efisiensi JO
 const WEIGHT_B = 0.4;                 // bobot Release Drawing (semua revisi)
 const CAP_EFFICIENCY = 100;           // A dibatasi maksimal 100%
-const A_ONLY_FROM_RELEASED = true;    // A hanya dari jobcard yang drawing-nya sudah released
+const A_ONLY_FROM_RELEASED = false;   // false = A tetap dihitung walau drawing belum release
 const A_ONLY_REV0 = false;            // true = jam kerja hanya dari drawing Rev.0
 const REQUIRE_JOBCARD_CODE = true;    // jobcard tanpa kode (Menunggu Planner) belum valid
 const COUNT_DRAFT_TIMESHEET = false;  // timesheet Draft tidak dihitung sebagai Real JO
@@ -317,6 +317,8 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
   const [selectedDept, setSelectedDept] = useState<string | null>(null);
   const [selectedBiro, setSelectedBiro] = useState<string | null>(null);
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+  const toggleProject = (k: string) => setExpandedProjects(prev => ({ ...prev, [k]: !prev[k] }));
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -710,7 +712,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                 <Donut value={activePerson.a} size={130} color="#34d399" text={activePerson.a === null ? '—' : `${Math.round(activePerson.a)}%`} />
                 <div className="text-xs font-bold text-white">A · Efisiensi JO</div>
                 <div className="text-[11px] text-slate-400">
-                  {activePerson.a === null ? 'Belum ada jobcard released dengan Real JO' : 'Planned JO ÷ Actual JO (maks 100%)'}
+                  {activePerson.a === null ? 'Belum ada jobcard dengan Plan JO dan Real JO' : 'Planned JO ÷ Actual JO (maks 100%)'}
                 </div>
               </div>
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center gap-2 text-center">
@@ -729,6 +731,118 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                 {activePerson.kpi === null && <div className="text-[11px] text-slate-400">Menunggu data A dan B</div>}
               </div>
             </div>
+
+            {/* Rincian per proyek */}
+            {(() => {
+              const valid = activePerson.cards.filter(c => !REQUIRE_JOBCARD_CODE || c.kodeJc.trim() !== '');
+              const map = new Map<string, { project: string; plan: number; real: number; total: number; released: number; cards: JobCardRow[] }>();
+              valid.forEach(c => {
+                const k = c.project || '(tanpa proyek)';
+                if (!map.has(k)) map.set(k, { project: k, plan: 0, real: 0, total: 0, released: 0, cards: [] });
+                const r = map.get(k)!;
+                r.total += 1;
+                r.cards.push(c);
+                if (c.release !== '') r.released += 1;
+                if (c.plannedJo > 0 && c.realJo > 0 && (!A_ONLY_FROM_RELEASED || c.release !== '') && (!A_ONLY_REV0 || Number(c.rev) === 0)) {
+                  r.plan += c.plannedJo;
+                  r.real += c.realJo;
+                }
+              });
+              const rows = Array.from(map.values()).sort((x, y) => x.project.localeCompare(y.project));
+              if (rows.length === 0) return null;
+              const maxJo = Math.max(1, ...rows.flatMap(r => [r.plan, r.real]));
+              return (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <h2 className="text-sm font-bold text-white">Rincian per proyek ({rows.length})</h2>
+                    <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                      <span className="flex items-center gap-1"><i className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: '#a78bfa' }} /> Plan JO</span>
+                      <span className="flex items-center gap-1"><i className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: '#34d399' }} /> Real JO</span>
+                      <span className="flex items-center gap-1"><i className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: '#fbbf24' }} /> Release</span>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {rows.map(r => {
+                      const eff = r.plan > 0 && r.real > 0 ? Math.min((r.plan / r.real) * 100, CAP_EFFICIENCY) : null;
+                      const relPct = r.total ? (r.released / r.total) * 100 : 0;
+                      return (
+                        <div key={r.project} className="space-y-2">
+                        <div onClick={() => toggleProject(r.project)}
+                          className="grid grid-cols-12 gap-3 items-center text-xs cursor-pointer hover:bg-slate-950/60 rounded-lg p-1.5 -m-1.5 transition">
+                          <div className="col-span-12 sm:col-span-2 font-mono font-bold text-emerald-400 flex items-center gap-1">
+                            <ChevronRight className={`w-3.5 h-3.5 text-slate-500 transition-transform ${expandedProjects[r.project] ? 'rotate-90 text-blue-400' : ''}`} />
+                            {r.project}
+                            <span className="text-[10px] font-normal text-slate-500">({r.total})</span>
+                          </div>
+                          <div className="col-span-12 sm:col-span-6 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-2.5 rounded-full" style={{ width: `${(r.plan / maxJo) * 100}%`, background: '#a78bfa' }} />
+                              </div>
+                              <span className="w-14 text-right font-mono text-violet-300">{r.plan ? Math.round(r.plan * 100) / 100 : '-'}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-2.5 rounded-full" style={{ width: `${(r.real / maxJo) * 100}%`, background: '#34d399' }} />
+                              </div>
+                              <span className="w-14 text-right font-mono text-emerald-400">{r.real ? Math.round(r.real * 100) / 100 : '-'}</span>
+                            </div>
+                          </div>
+                          <div className="col-span-6 sm:col-span-1 text-center">
+                            <div className="font-bold text-slate-200">{eff === null ? '—' : `${Math.round(eff)}%`}</div>
+                            <div className="text-[10px] text-slate-500">A</div>
+                          </div>
+                          <div className="col-span-6 sm:col-span-3 space-y-1">
+                            <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                              <div className="h-2.5 rounded-full" style={{ width: `${relPct}%`, background: '#fbbf24' }} />
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono">{r.released}/{r.total} release</div>
+                          </div>
+                        </div>
+
+                        {expandedProjects[r.project] && (
+                          <div className="ml-4 pl-3 border-l border-slate-700 space-y-2">
+                            {(() => {
+                              const maxCard = Math.max(1, ...r.cards.flatMap(c => [c.plannedJo, c.realJo]));
+                              return r.cards.map(c => {
+                                const st = cardStatus(c);
+                                return (
+                                  <div key={c.id} className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg space-y-1.5 text-xs">
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="text-slate-200">{c.taskName || '-'}</div>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <span className="font-mono text-[10px] text-slate-400">Rev {c.rev}</span>
+                                        <span className={`text-[10px] font-semibold ${st.cls}`}>{st.text}</span>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                                        <div className="h-2 rounded-full" style={{ width: `${(c.plannedJo / maxCard) * 100}%`, background: '#a78bfa' }} />
+                                      </div>
+                                      <span className="w-12 text-right font-mono text-violet-300">{c.plannedJo || '-'}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                                        <div className="h-2 rounded-full" style={{ width: `${(c.realJo / maxCard) * 100}%`, background: '#34d399' }} />
+                                      </div>
+                                      <span className="w-12 text-right font-mono text-emerald-400">{c.realJo ? Math.round(c.realJo * 100) / 100 : '-'}</span>
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 font-mono">
+                                      {c.kodeJc} · Plan Finish {formatDisplayDate(c.endDate)} · Release {formatDisplayDate(c.release)}
+                                    </div>
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
+                        )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
               <h2 className="text-sm font-bold text-white">Data pekerjaan ({activePerson.cards.length})</h2>
