@@ -3,7 +3,7 @@ import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
-import { ArrowLeft, FileSpreadsheet, Save, AlertTriangle, Check } from 'lucide-react';
+import { ArrowLeft, FileSpreadsheet, Save, AlertTriangle, Check, Sparkles } from 'lucide-react';
 
 interface ImportJobcardPageProps {
   user: UserSession;
@@ -11,9 +11,6 @@ interface ImportJobcardPageProps {
   onBack?: () => void;
 }
 
-/* ============================================================
-   PEMETAAN SHEET EXCEL -> DEPARTEMEN (ubah di sini bila berubah)
-   ============================================================ */
 const SHEET_DEPT: Record<string, string> = {
   'desaindasar': 'Departemen Desain Dasar',
   'spl(1)': 'Departemen Struktur dan Perlengkapan Lambung',
@@ -23,6 +20,7 @@ const SHEET_DEPT: Record<string, string> = {
   'mo': 'Departemen Struktur & Perlengkapan Permesinan',
   'eo': 'Departemen Perlengkapan Listrik & Elektronika',
 };
+
 const DEPT_ORDER = [
   'Departemen Desain Dasar',
   'Departemen Struktur dan Perlengkapan Lambung',
@@ -30,11 +28,10 @@ const DEPT_ORDER = [
   'Departemen Perlengkapan Listrik & Elektronika',
 ];
 
-// Kolom Excel (indeks mulai 0): B=1 Tgl permintaan, C=2 Project, D=3 Task Name, E=4 Work Center,
-// F=5 Start, G=6 End, H=7 Total personil, I=8 PIC, J=9 JO, K=10 Kode Job Card
 const COL = { project: 2, task: 3, workCenter: 4, start: 5, end: 6, pic: 8, jo: 9, kode: 10, reqDate: 1 };
-
 const MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
   query: '?url',
@@ -72,7 +69,6 @@ interface ImportRow {
   include: boolean;
 }
 
-/* ============================ Helper ============================ */
 function cleanText(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
@@ -105,7 +101,6 @@ function parseTextDate(val: string): string {
   return '';
 }
 
-// Tanggal dari sel Excel: angka serial, objek Date, atau teks
 function parseCellDate(v: any): string {
   if (v === null || v === undefined || v === '') return '';
   if (v instanceof Date) return `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}`;
@@ -129,7 +124,6 @@ function cleanProjectString(raw: any): string {
   return s.trim();
 }
 
-// Revisi dibaca dari nama task: "R2 - ...", "..._R0", "... - R1", "REV 2 - ..."
 function detectRev(name: string): { rev: string; detected: boolean } {
   const s = name.trim();
   let m = s.match(/^R\s*(\d+)\s*[-–_ ]/i);
@@ -155,20 +149,10 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
 }
 
 const normDept = (s: string) => cleanText((s || '').replace(/&/g, 'dan'));
-
 const nameTokens = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
-
 const isMultiPerson = (pic: string) => /[,&/+]|\sdan\s|\sdkk\b/i.test(pic);
-
-// Dua kata dianggap sama bila identik, atau salah satunya awalan/singkatan dari yang lain
-// (mis. "moh" ~ "mohammad", "ihya" ~ "ihyail", "r" ~ "rahadian")
 const tokEq = (a: string, b: string) => a === b || a.startsWith(b) || b.startsWith(a);
 
-// Cocokkan teks PIC ke satu personel secara toleran:
-// - nama persis -> langsung cocok
-// - selain itu, hitung berapa kata PIC yang cocok dengan tiap personel
-//   (PIC 1 kata: butuh 1 kata cocok; PIC 2+ kata: butuh minimal 2 kata cocok)
-// - dipilih personel dengan kata cocok terbanyak; bila seri / tidak ada -> null (pilih manual)
 function matchPerson(pic: string, pool: ParsedMember[]): ParsedMember | null {
   const cp = cleanText(pic);
   if (!cp || isMultiPerson(pic)) return null;
@@ -235,7 +219,7 @@ async function loadIm4Workbook(): Promise<XLSX.WorkBook | null> {
   try {
     const { data, error } = await supabase.storage.from('master-files').download('im4.xlsx');
     if (!error && data) return XLSX.read(await data.arrayBuffer(), { type: 'array' });
-  } catch { /* lanjut ke fallback */ }
+  } catch {}
   const urls: string[] = [];
   Object.entries(excelGlobUrls).forEach(([path, url]) => {
     const p = path.toLowerCase();
@@ -249,7 +233,7 @@ async function loadIm4Workbook(): Promise<XLSX.WorkBook | null> {
       const buf = await res.arrayBuffer();
       const b = new Uint8Array(buf.slice(0, 4));
       if (b[0] === 80 && b[1] === 75 && b[2] === 3 && b[3] === 4) return XLSX.read(buf, { type: 'array' });
-    } catch { /* coba berikutnya */ }
+    } catch {}
   }
   return null;
 }
@@ -265,10 +249,33 @@ async function fetchAllJobCards(): Promise<any[]> {
   return all;
 }
 
+// Fungsi otomatis menarik tanggal release dari Google Drive Drawing Control
+async function fetchAutoReleaseDate(projectCode: string, taskName: string, targetRev: string): Promise<string> {
+  if (!projectCode) return '';
+  try {
+    const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        const cleanTarget = taskName.toLowerCase().trim();
+        const match = json.data.find((item: any) => {
+          const fullDesc = String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).toLowerCase();
+          const rowRev = String(item.rev || '0').trim();
+          return (fullDesc.includes(cleanTarget) || cleanTarget.includes(fullDesc)) && rowRev === String(targetRev || '0').trim();
+        });
+        if (match && match.finishDate) {
+          return String(match.finishDate).slice(0, 10);
+        }
+      }
+    }
+  } catch {}
+  return '';
+}
+
 const dupKey = (kode: string, pic: string, project: string, task: string, start: string) =>
   kode ? `k|${cleanText(kode)}|${cleanText(pic)}` : `t|${cleanText(pic)}|${cleanText(project)}|${cleanText(task)}|${(start || '').slice(0, 10)}`;
 
-/* ============================= Halaman ============================= */
 export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobcardPageProps) {
   const [members, setMembers] = useState<ParsedMember[]>([]);
   const [im4Loaded, setIm4Loaded] = useState(false);
@@ -312,7 +319,6 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
     return m;
   }, [members, deptByName]);
 
-  // Semua personel (unik) - cadangan bila nama PIC tidak ada di daftar departemen sheet-nya
   const allPool = useMemo(() => {
     const seen = new Set<string>();
     return members.filter(p => {
@@ -334,8 +340,6 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
     return '';
   };
 
-  // Bangun ulang baris impor bila file / bulan / daftar personel berubah.
-  // Hanya baris dengan Tgl permintaan (kolom B), Start, dan End semuanya di bulan & tahun terpilih yang diambil.
   useEffect(() => {
     if (!jobWb) { setRows([]); return; }
     const ym = `${year}-${pad(month)}`;
@@ -350,7 +354,6 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
         const row = data[r]; if (!row) continue;
         if (String(row[COL.reqDate] ?? '').toUpperCase().includes('CONTOH')) continue;
 
-        // Filter utama: kolom B (Tgl permintaan) harus jatuh di bulan terpilih
         const reqDate = parseCellDate(row[COL.reqDate]);
         if (reqDate.slice(0, 7) !== ym) continue;
 
@@ -360,7 +363,6 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
 
         const startDate = parseCellDate(row[COL.start]);
         const endDate = parseCellDate(row[COL.end]);
-        // Start dan End juga harus di bulan yang sama
         if (startDate.slice(0, 7) !== ym || endDate.slice(0, 7) !== ym) continue;
         const pic = String(row[COL.pic] ?? '').replace(/\s+/g, ' ').trim();
         const person = matchPerson(pic, pool) || matchPerson(pic, allPool);
@@ -391,7 +393,6 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
     setRows(built);
     setSavedKeys(new Set());
     setResultMsg('');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobWb, month, year, poolByDept, allPool]);
 
   const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
@@ -417,7 +418,7 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
 
   const blockers = (r: ImportRow): string[] => {
     const b: string[] = [];
-    if (!r.person) b.push(r.pic ? (isMultiPerson(r.pic) ? 'PIC lebih dari satu orang, pilih personel' : 'PIC tidak cocok, pilih personel') : 'PIC kosong, pilih personel');
+    if (!r.person) b.push(r.pic ? (isMultiPerson(r.pic) ? 'PIC lebih dari satu orang' : 'PIC tidak cocok') : 'PIC kosong');
     else if (!r.biroName) b.push('Biro personel tidak dikenali');
     if (!r.project) b.push('Proyek kosong');
     if (!r.taskName) b.push('Deskripsi kosong');
@@ -428,7 +429,7 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
 
   const notes = (r: ImportRow): string[] => {
     const n: string[] = [];
-    if (r.approx) n.push('Nama dicocokkan perkiraan, mohon dicek');
+    if (r.approx) n.push('Nama dicocokkan perkiraan');
     if (!r.revDetected) n.push('Rev tidak terdeteksi (0)');
     if (!r.kodeJc) n.push('Tanpa kode Jobcard (menunggu Planner)');
     return n;
@@ -438,9 +439,10 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
 
   const handleSave = async () => {
     if (!readyRows.length) { alert('Tidak ada baris yang siap disimpan.'); return; }
-    if (!window.confirm(`Simpan ${readyRows.length} penugasan ke database?`)) return;
+    if (!window.confirm(`Simpan ${readyRows.length} penugasan ke database (dengan pencarian otomatis tanggal release)?`)) return;
     setIsSaving(true);
-    setResultMsg('');
+    setResultMsg('Sedang memeriksa tanggal release otomatis dari Google Drive & menyimpan...');
+
     try {
       const { data: biroList } = await supabase.from('biros').select('id, name');
       const existing = await fetchAllJobCards();
@@ -455,9 +457,14 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
         fresh.push(r);
       });
 
-const payloadOf = (r: ImportRow, withRev: boolean) => {
+      // Proses otomatis menarik tanggal release untuk setiap baris dari Google Drive sebelum insert
+      const payloadPromises = fresh.map(async (r) => {
         const biro = (biroList || []).find((b: any) => isBiroMatch(b.name, r.biroName)) || (biroList || [])[0];
-        const p: any = {
+        
+        // ✨ Ambil tanggal release otomatis dari Google Drive
+        const autoRelease = await fetchAutoReleaseDate(r.project, r.taskName, r.rev);
+
+        return {
           biro_id: biro ? biro.id : null,
           biro_name: r.biroName,
           personil_name: r.person,
@@ -470,34 +477,34 @@ const payloadOf = (r: ImportRow, withRev: boolean) => {
           jo: r.jo,
           kode_jc: r.kodeJc,
           status: r.kodeJc ? 'approved' : 'pending',
+          rev: r.rev || '0',
+          release: autoRelease || '', // Terisi otomatis jika ada di Drive!
         };
-        // Otomatis menyertakan rev dan mengosongkan release awal saat di-import
-        if (withRev) { 
-          p.rev = r.rev || '0'; 
-          p.release = ''; // Release diisi otomatis kosong saat import, nanti diisi via form Rendal bila sudah rilis
-        }
-        return p;
-      };
+      });
+
+      const processedPayloads = await Promise.all(payloadPromises);
 
       let inserted = 0;
       const savedNow: string[] = [];
       let failMsg = '';
-      for (let i = 0; i < fresh.length; i += 50) {
-        const batch = fresh.slice(i, i + 50);
-        let { error } = await supabase.from('job_cards').insert(batch.map(r => payloadOf(r, true)));
+
+      for (let i = 0; i < processedPayloads.length; i += 50) {
+        const batch = processedPayloads.slice(i, i + 50);
+        let { error } = await supabase.from('job_cards').insert(batch);
         if (error && /rev|release/i.test(error.message || '')) {
-          ({ error } = await supabase.from('job_cards').insert(batch.map(r => payloadOf(r, false))));
+          const fallbackBatch = batch.map(({ rev, release, ...rest }) => rest);
+          ({ error } = await supabase.from('job_cards').insert(fallbackBatch));
         }
         if (error) { failMsg = error.message; break; }
         inserted += batch.length;
-        batch.forEach(r => savedNow.push(r.key));
+        fresh.slice(i, i + 50).forEach(r => savedNow.push(r.key));
       }
 
       setSavedKeys(prev => new Set([...Array.from(prev), ...savedNow]));
       setResultMsg(
-        `Tersimpan ${inserted} penugasan` +
-        (skipped ? `, ${skipped} dilewati karena sudah ada di database` : '') +
-        (failMsg ? `. Berhenti karena error: ${failMsg}` : '.')
+        `Tersimpan ${inserted} penugasan (dengan auto-release Google Drive)` +
+        (skipped ? `, ${skipped} dilewati karena sudah ada` : '') +
+        (failMsg ? `. Error: ${failMsg}` : '.')
       );
     } catch (err: any) {
       setResultMsg('Gagal menyimpan: ' + (err?.message || 'kesalahan tidak diketahui'));
@@ -507,7 +514,6 @@ const payloadOf = (r: ImportRow, withRev: boolean) => {
   };
 
   const deptRows = (deptName: string) => rows.filter(r => r.deptName === deptName);
-
   const activeRows = useMemo(() => rows.filter(r => r.deptName === activeDept), [rows, activeDept]);
   const groups = useMemo(() => {
     const map = new Map<string, ImportRow[]>();
@@ -533,7 +539,7 @@ const payloadOf = (r: ImportRow, withRev: boolean) => {
               </button>
             )}
             <div className="p-1.5 bg-emerald-600 rounded-lg text-white"><FileSpreadsheet className="w-4 h-4" /></div>
-            <span className="font-bold text-sm text-white">IMPORT JOBCARD BULANAN</span>
+            <span className="font-bold text-sm text-white">IMPORT JOBCARD BULANAN (AUTO-RELEASE)</span>
             <span className="text-xs text-slate-400">— {user.nama}</span>
           </div>
           <button onClick={onLogout} className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer">
@@ -543,7 +549,6 @@ const payloadOf = (r: ImportRow, withRev: boolean) => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8 space-y-5">
-        {/* Pengaturan */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
           <div className="flex items-end gap-3 flex-wrap text-xs">
             <label className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg flex items-center gap-1.5 cursor-pointer">
@@ -551,7 +556,7 @@ const payloadOf = (r: ImportRow, withRev: boolean) => {
               <input type="file" accept=".xlsx,.xls" onChange={handleFile} className="hidden" />
             </label>
             <div>
-              <div className="text-slate-400 mb-1">Bulan (semua tanggal)</div>
+              <div className="text-slate-400 mb-1">Bulan</div>
               <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
                 className="px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white cursor-pointer">
                 {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
@@ -566,21 +571,20 @@ const payloadOf = (r: ImportRow, withRev: boolean) => {
           <div className="text-[11px] text-slate-400 space-y-1">
             <div>
               {fileName ? <>File: <b className="text-slate-200">{fileName}</b> · </> : null}
-              Master IM4: {im4Loaded ? (members.length > 0 ? <b className="text-emerald-400">{members.length} personel terbaca</b> : <b className="text-rose-400">tidak terbaca, pencocokan nama tidak bisa berjalan</b>) : 'memuat...'}
+              Master IM4: {im4Loaded ? (members.length > 0 ? <b className="text-emerald-400">{members.length} personel terbaca</b> : <b className="text-rose-400">tidak terbaca</b>) : 'memuat...'}
             </div>
-            <div>Hanya baris yang Tgl permintaan (kolom B), Start, dan End-nya semua berada di bulan dan tahun terpilih yang diambil. Nama PIC dicocokkan otomatis ke personel di departemennya. PIC kosong, tidak cocok, atau berisi beberapa nama harus dipilih manual (atau dilewati).</div>
+            <div>Saat disimpan, sistem otomatis mencari tanggal <b>Release</b> dari Google Drive *Drawing Control* yang sesuai dengan nama gambar dan revisinya.</div>
           </div>
         </div>
 
         {!jobWb && (
           <div className="py-16 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-            Pilih file JOBCARD_DESAIN.xlsx untuk mulai. Hanya baris yang Tgl permintaan, Start, dan End-nya semua di bulan yang dipilih yang akan ditampilkan.
+            Pilih file JOBCARD_DESAIN.xlsx untuk mulai.
           </div>
         )}
 
         {jobWb && (
           <>
-            {/* Tab departemen */}
             <div className="flex gap-2 flex-wrap">
               {DEPT_ORDER.map(d => {
                 const list = deptRows(d);
@@ -598,11 +602,10 @@ const payloadOf = (r: ImportRow, withRev: boolean) => {
               })}
             </div>
 
-            {/* Isi departemen */}
             <div className="space-y-4">
               {groups.length === 0 && (
                 <div className="py-10 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-                  Tidak ada baris yang seluruh tanggalnya (permintaan, start, end) di {MONTHS[month - 1]} {year} pada departemen ini.
+                  Tidak ada baris yang sesuai pada departemen ini di bulan {MONTHS[month - 1]} {year}.
                 </div>
               )}
               {groups.map(([person, list]) => {
@@ -698,7 +701,6 @@ const payloadOf = (r: ImportRow, withRev: boolean) => {
               })}
             </div>
 
-            {/* Bar simpan */}
             <div className="sticky bottom-4 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-2xl p-4 flex items-center justify-between gap-3 flex-wrap shadow-2xl">
               <div className="text-xs">
                 <div className="text-slate-200">
@@ -708,7 +710,7 @@ const payloadOf = (r: ImportRow, withRev: boolean) => {
               </div>
               <button onClick={handleSave} disabled={isSaving || readyRows.length === 0}
                 className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer">
-                <Save className="w-4 h-4" /> {isSaving ? 'Menyimpan...' : 'Simpan ke Database'}
+                <Save className="w-4 h-4" /> {isSaving ? 'Menyimpan & Menarik Release...' : 'Simpan ke Database'}
               </button>
             </div>
           </>
