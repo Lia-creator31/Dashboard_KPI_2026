@@ -2,26 +2,29 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
-import { Building2, ArrowLeft, ChevronRight, RefreshCw, Users } from 'lucide-react';
+import { departmentsData } from '../data';
+import { Building2, ArrowLeft, ChevronRight, RefreshCw, Users, Layers } from 'lucide-react';
 
 interface KpiDashboardPageProps {
   user: UserSession;
   onLogout: () => void;
+  onBack?: () => void;
 }
 
 /* ============================================================
    PENGATURAN ATURAN HITUNG (ubah di sini bila aturan berubah)
    ============================================================ */
-const WEIGHT_A = 0.6;                 // bobot Efisiensi JO
-const WEIGHT_B = 0.4;                 // bobot Pencapaian Drawing Rev.0
-const CAP_EFFICIENCY = 100;           // A dibatasi maksimal 100% (Real JO jauh < Plan JO tidak membuat skor melonjak)
-const A_ONLY_FROM_RELEASED = true;    // A hanya dihitung dari jobcard yang drawing-nya sudah released (jam sudah final)
-const A_ONLY_REV0 = false;            // true = jam kerja hanya dari drawing Rev.0
-const REQUIRE_JOBCARD_CODE = true;    // jobcard tanpa kode (Menunggu Planner) belum dianggap valid
-const COUNT_DRAFT_TIMESHEET = false;  // timesheet berstatus Draft tidak dihitung sebagai Real JO
-const PARTIAL_KPI = false;            // true = bila hanya A atau B yang ada, KPI memakai komponen yang ada saja
+const WEIGHT_A = 0.6;
+const WEIGHT_B = 0.4;
+const CAP_EFFICIENCY = 100;
+const A_ONLY_FROM_RELEASED = true;
+const A_ONLY_REV0 = false;
+const REQUIRE_JOBCARD_CODE = true;
+const COUNT_DRAFT_TIMESHEET = false;
+const PARTIAL_KPI = false;
 
 const MASTER_BUCKET = 'master-files';
+const OTHER_DEPT_ID = '__other__';
 
 interface JobCardRow {
   id: string;
@@ -50,6 +53,7 @@ interface PersonScore {
 }
 
 interface BiroScore {
+  id: string;
   name: string;
   persons: PersonScore[];
   kpi: number | null;
@@ -58,9 +62,36 @@ interface BiroScore {
   scored: number;
 }
 
+interface DeptScore {
+  id: string;
+  name: string;
+  biros: BiroScore[];
+  kpi: number | null;
+  a: number | null;
+  b: number | null;
+  personCount: number;
+  scored: number;
+}
+
 /* ============================ Helper ============================ */
 function cleanText(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+}
+
+// Sama dengan logika di KabiroPage
+function isBiroMatch(biro1: string, biro2: string): boolean {
+  const b1 = (biro1 || '').toLowerCase().replace('&', ' dan ').trim();
+  const b2 = (biro2 || '').toLowerCase().replace('&', ' dan ').trim();
+  if (!b1 || !b2) return false;
+  if (b1 === b2) return true;
+  if (b1.includes('pengembangan') && b2.includes('pengembangan')) return true;
+  if ((b1.includes('kapal selam') || b1.includes('submarine') || b1.includes('scorpne')) && (b2.includes('kapal selam') || b2.includes('submarine') || b2.includes('scorpne'))) return true;
+  if (b1.includes('non kapal') && b2.includes('non kapal')) return true;
+  if ((b1.includes('kapal permukaan') || b1.includes('surface')) && (b2.includes('kapal permukaan') || b2.includes('surface'))) return true;
+  const c1 = cleanText(b1.replace(/biro|departemen|dept|divisi|dan/gi, ''));
+  const c2 = cleanText(b2.replace(/biro|departemen|dept|divisi|dan/gi, ''));
+  if (c1 && c2) return c1 === c2 || c1.includes(c2) || c2.includes(c1);
+  return false;
 }
 
 function normalizeDate(val: any): string {
@@ -105,7 +136,6 @@ function getCategory(score: number | null): { label: string; color: string } {
 
 const fmt = (v: number | null, digits = 1) => (v === null ? '—' : v.toFixed(digits).replace(/\.0$/, ''));
 
-/* Real JO dari file Realisasi JO.xlsx (sama dengan logika di RendalPage), kunci = kode jobcard */
 function buildRealisasiMap(wb: XLSX.WorkBook | null): Map<string, number> {
   const map = new Map<string, number>();
   if (!wb) return map;
@@ -140,7 +170,6 @@ function buildRealisasiMap(wb: XLSX.WorkBook | null): Map<string, number> {
 function scorePerson(name: string, biro: string, cards: JobCardRow[]): PersonScore {
   const valid = cards.filter(c => !REQUIRE_JOBCARD_CODE || c.kodeJc.trim() !== '');
 
-  // A = Planned JO / Actual JO x 100%
   const aCards = valid.filter(c =>
     c.plannedJo > 0 && c.realJo > 0 &&
     (!A_ONLY_FROM_RELEASED || c.release !== '') &&
@@ -150,7 +179,6 @@ function scorePerson(name: string, biro: string, cards: JobCardRow[]): PersonSco
   const sumReal = aCards.reduce((s, c) => s + c.realJo, 0);
   const a = aCards.length ? Math.min((sumPlan / sumReal) * 100, CAP_EFFICIENCY) : null;
 
-  // B = Drawing Rev.0 released tepat waktu / total target Rev.0 x 100%
   const targets = valid.filter(c => Number(c.rev) === 0);
   const onTime = targets.filter(c => c.release !== '' && c.endDate !== '' && c.release <= c.endDate);
   const b = targets.length ? (onTime.length / targets.length) * 100 : null;
@@ -165,6 +193,37 @@ function scorePerson(name: string, biro: string, cards: JobCardRow[]): PersonSco
     targetRev0: targets.length,
     onTimeRev0: onTime.length,
     pendingCount: cards.length - valid.length,
+  };
+}
+
+function buildBiroScore(id: string, name: string, cards: JobCardRow[]): BiroScore {
+  const byPerson = new Map<string, JobCardRow[]>();
+  cards.forEach(c => {
+    const pk = cleanText(c.pic);
+    if (!byPerson.has(pk)) byPerson.set(pk, []);
+    byPerson.get(pk)!.push(c);
+  });
+  const persons: PersonScore[] = [];
+  byPerson.forEach(list => persons.push(scorePerson(list[0].pic, name, list)));
+  persons.sort((x, y) => (y.kpi ?? -1) - (x.kpi ?? -1) || x.name.localeCompare(y.name));
+  return {
+    id, name, persons,
+    kpi: avg(persons.map(p => p.kpi)),
+    a: avg(persons.map(p => p.a)),
+    b: avg(persons.map(p => p.b)),
+    scored: persons.filter(p => p.kpi !== null).length,
+  };
+}
+
+function buildDeptScore(id: string, name: string, biros: BiroScore[]): DeptScore {
+  const allPersons = biros.flatMap(b => b.persons);
+  return {
+    id, name, biros,
+    kpi: avg(allPersons.map(p => p.kpi)),
+    a: avg(allPersons.map(p => p.a)),
+    b: avg(allPersons.map(p => p.b)),
+    personCount: allPersons.length,
+    scored: allPersons.filter(p => p.kpi !== null).length,
   };
 }
 
@@ -199,11 +258,12 @@ function Pill({ score }: { score: number | null }) {
 }
 
 /* ============================= Halaman ============================= */
-export default function KpiDashboardPage({ user, onLogout }: KpiDashboardPageProps) {
+export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboardPageProps) {
   const [cards, setCards] = useState<JobCardRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [period, setPeriod] = useState('all');
+  const [selectedDept, setSelectedDept] = useState<string | null>(null);
   const [selectedBiro, setSelectedBiro] = useState<string | null>(null);
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
 
@@ -220,13 +280,11 @@ export default function KpiDashboardPage({ user, onLogout }: KpiDashboardPagePro
 
       if (jcRes.error) throw jcRes.error;
 
-      // Real JO dari Excel Realisasi JO (pegawai organik)
       let excelMap = new Map<string, number>();
       if (!wbRes.error && wbRes.data) {
         try { excelMap = buildRealisasiMap(XLSX.read(await wbRes.data.arrayBuffer(), { type: 'array' })); } catch { /* abaikan */ }
       }
 
-      // Real JO dari timesheet outsourcing (kunci = kode Work Order = kode_jc)
       const statusById = new Map<string, string>();
       (tsRes.data || []).forEach((t: any) => statusById.set(t.id, t.status || 'Draft'));
       const tsMap = new Map<string, number>();
@@ -274,7 +332,6 @@ export default function KpiDashboardPage({ user, onLogout }: KpiDashboardPagePro
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Periode = bulan dari Plan Finish
   const periodOptions = useMemo(() => {
     const set = new Set<string>();
     cards.forEach(c => { if (c.endDate) set.add(c.endDate.slice(0, 7)); });
@@ -287,36 +344,59 @@ export default function KpiDashboardPage({ user, onLogout }: KpiDashboardPagePro
     return `${names[Number(m) - 1]} ${y}`;
   };
 
-  const biroScores = useMemo<BiroScore[]>(() => {
+  // Struktur: Departemen -> Biro -> Individu
+  const deptScores = useMemo<DeptScore[]>(() => {
     const filtered = period === 'all' ? cards : cards.filter(c => c.endDate.startsWith(period));
-    const byBiro = new Map<string, Map<string, JobCardRow[]>>();
+    const depts = departmentsData || [];
+
+    // Setiap job card dipetakan ke SATU biro master (yang pertama cocok) agar tidak terhitung ganda
+    const bucket = new Map<string, JobCardRow[]>();       // key: deptId|biroId
+    const unmapped = new Map<string, JobCardRow[]>();     // key: nama biro mentah
+
     filtered.forEach(c => {
-      if (!byBiro.has(c.biro)) byBiro.set(c.biro, new Map());
-      const pm = byBiro.get(c.biro)!;
-      const pk = cleanText(c.pic);
-      if (!pm.has(pk)) pm.set(pk, []);
-      pm.get(pk)!.push(c);
+      let placed = false;
+      for (const d of depts) {
+        const b = d.biros.find(bb => isBiroMatch(c.biro, bb.name));
+        if (b) {
+          const k = `${d.id}|${b.id}`;
+          if (!bucket.has(k)) bucket.set(k, []);
+          bucket.get(k)!.push(c);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        if (!unmapped.has(c.biro)) unmapped.set(c.biro, []);
+        unmapped.get(c.biro)!.push(c);
+      }
     });
-    const result: BiroScore[] = [];
-    byBiro.forEach((pm, biroName) => {
-      const persons: PersonScore[] = [];
-      pm.forEach(list => persons.push(scorePerson(list[0].pic, biroName, list)));
-      persons.sort((x, y) => (y.kpi ?? -1) - (x.kpi ?? -1) || x.name.localeCompare(y.name));
-      result.push({
-        name: biroName,
-        persons,
-        kpi: avg(persons.map(p => p.kpi)),
-        a: avg(persons.map(p => p.a)),
-        b: avg(persons.map(p => p.b)),
-        scored: persons.filter(p => p.kpi !== null).length,
-      });
+
+    const result: DeptScore[] = depts.map(d => {
+      const biros = d.biros.map(b => buildBiroScore(String(b.id), b.name, bucket.get(`${d.id}|${b.id}`) || []));
+      return buildDeptScore(String(d.id), d.name, biros);
     });
-    return result.sort((x, y) => x.name.localeCompare(y.name));
+
+    if (unmapped.size > 0) {
+      const biros: BiroScore[] = [];
+      unmapped.forEach((list, name) => biros.push(buildBiroScore(`other-${cleanText(name)}`, name, list)));
+      biros.sort((x, y) => x.name.localeCompare(y.name));
+      result.push(buildDeptScore(OTHER_DEPT_ID, 'Lainnya (belum terpetakan)', biros));
+    }
+    return result;
   }, [cards, period]);
 
-  const activeBiro = biroScores.find(b => b.name === selectedBiro) || null;
+  const activeDept = deptScores.find(d => d.id === selectedDept) || null;
+  const activeBiro = activeDept?.biros.find(b => b.id === selectedBiro) || null;
   const activePerson = activeBiro?.persons.find(p => p.name === selectedPerson) || null;
-  const divisionKpi = avg(biroScores.map(b => b.kpi));
+
+  const allPersons = deptScores.flatMap(d => d.biros.flatMap(b => b.persons));
+  const divisionKpi = avg(allPersons.map(p => p.kpi));
+
+  const goBack = () => {
+    if (selectedPerson) setSelectedPerson(null);
+    else if (selectedBiro) setSelectedBiro(null);
+    else if (selectedDept) setSelectedDept(null);
+  };
 
   const legend = [
     { label: 'Excellent', range: '≥ 90', color: '#34d399' },
@@ -334,6 +414,11 @@ export default function KpiDashboardPage({ user, onLogout }: KpiDashboardPagePro
       : { text: 'Terlambat', cls: 'text-rose-300' };
   };
 
+  const pageTitle = activePerson ? activePerson.name
+    : activeBiro ? activeBiro.name
+    : activeDept ? activeDept.name
+    : 'KPI Individual — Per Departemen';
+
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
       <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
@@ -341,9 +426,15 @@ export default function KpiDashboardPage({ user, onLogout }: KpiDashboardPagePro
           <div className="flex items-center gap-2.5">
             <div className="p-1.5 bg-purple-600 rounded-lg text-white"><Building2 className="w-4 h-4" /></div>
             <span className="font-bold text-sm text-white">DASHBOARD KPI INDIVIDUAL</span>
-            <span className="text-xs text-slate-400">— {user.nama}</span>
+            <span className="text-xs text-slate-400 hidden sm:inline">— {user.nama}</span>
           </div>
           <div className="flex items-center gap-2">
+            {onBack && (
+              <button onClick={onBack}
+                className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer">
+                Ke Portal
+              </button>
+            )}
             <button onClick={loadData} title="Muat ulang data"
               className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer">
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
@@ -359,9 +450,26 @@ export default function KpiDashboardPage({ user, onLogout }: KpiDashboardPagePro
         {/* Judul + filter */}
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-2xl font-extrabold text-white">
-              {activePerson ? activePerson.name : activeBiro ? activeBiro.name : 'KPI Individual — Per Biro'}
-            </h1>
+            {/* Breadcrumb */}
+            <div className="text-[11px] text-slate-500 flex items-center gap-1 flex-wrap mb-1">
+              <button onClick={() => { setSelectedDept(null); setSelectedBiro(null); setSelectedPerson(null); }}
+                className="hover:text-slate-300 cursor-pointer">Semua Departemen</button>
+              {activeDept && (<>
+                <ChevronRight className="w-3 h-3" />
+                <button onClick={() => { setSelectedBiro(null); setSelectedPerson(null); }}
+                  className="hover:text-slate-300 cursor-pointer">{activeDept.name}</button>
+              </>)}
+              {activeBiro && (<>
+                <ChevronRight className="w-3 h-3" />
+                <button onClick={() => setSelectedPerson(null)}
+                  className="hover:text-slate-300 cursor-pointer">{activeBiro.name}</button>
+              </>)}
+              {activePerson && (<>
+                <ChevronRight className="w-3 h-3" />
+                <span className="text-slate-300">{activePerson.name}</span>
+              </>)}
+            </div>
+            <h1 className="text-2xl font-extrabold text-white">{pageTitle}</h1>
             <p className="text-xs text-slate-400 mt-1">
               KPI = ({WEIGHT_A * 100}% × A Efisiensi JO) + ({WEIGHT_B * 100}% × B Pencapaian Drawing Rev.0)
             </p>
@@ -380,11 +488,9 @@ export default function KpiDashboardPage({ user, onLogout }: KpiDashboardPagePro
           </div>
         </div>
 
-        {(selectedBiro || selectedPerson) && (
-          <button
-            onClick={() => (selectedPerson ? setSelectedPerson(null) : setSelectedBiro(null))}
-            className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer"
-          >
+        {selectedDept && (
+          <button onClick={goBack}
+            className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
             <ArrowLeft className="w-3.5 h-3.5" /> Kembali
           </button>
         )}
@@ -392,47 +498,101 @@ export default function KpiDashboardPage({ user, onLogout }: KpiDashboardPagePro
         {errorMsg && <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-300">{errorMsg}</div>}
         {isLoading && <div className="text-center py-12 text-slate-400 text-sm">Memuat data...</div>}
 
-        {/* ===== LEVEL 1: SEMUA BIRO ===== */}
-        {!isLoading && !selectedBiro && (
+        {/* ===== LEVEL 1: SEMUA DEPARTEMEN ===== */}
+        {!isLoading && !selectedDept && (
           <>
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center gap-6 flex-wrap">
               <Donut value={divisionKpi} size={110} color={getCategory(divisionKpi).color} text={fmt(divisionKpi, 0)} />
               <div className="space-y-1">
-                <div className="text-xs text-slate-400">Rata-rata KPI seluruh biro</div>
+                <div className="text-xs text-slate-400">Rata-rata KPI seluruh divisi</div>
                 <Pill score={divisionKpi} />
-                <div className="text-[11px] text-slate-500">{biroScores.length} biro · {biroScores.reduce((s, b) => s + b.persons.length, 0)} personel</div>
+                <div className="text-[11px] text-slate-500">
+                  {deptScores.length} departemen · {deptScores.reduce((s, d) => s + d.biros.length, 0)} biro · {allPersons.length} personel
+                </div>
               </div>
             </div>
 
-            {biroScores.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">Belum ada data penugasan pada periode ini.</div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {biroScores.map(b => (
-                  <div key={b.name} onClick={() => setSelectedBiro(b.name)}
-                    className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-2xl p-5 cursor-pointer transition flex flex-col items-center gap-3">
-                    <div className="w-full flex items-center justify-between">
-                      <h3 className="font-bold text-sm text-white">{b.name}</h3>
-                      <ChevronRight className="w-4 h-4 text-slate-500" />
-                    </div>
-                    <Donut value={b.kpi} size={130} color={getCategory(b.kpi).color} text={fmt(b.kpi, 0)} />
-                    <Pill score={b.kpi} />
-                    <div className="w-full grid grid-cols-3 text-center text-[11px] text-slate-400 pt-2 border-t border-slate-800">
-                      <div><div className="font-bold text-slate-200">{fmt(b.a, 0)}{b.a !== null && '%'}</div>A</div>
-                      <div><div className="font-bold text-slate-200">{fmt(b.b, 0)}{b.b !== null && '%'}</div>B</div>
-                      <div><div className="font-bold text-slate-200">{b.scored}/{b.persons.length}</div>Terhitung</div>
-                    </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {deptScores.map(d => (
+                <div key={d.id} onClick={() => setSelectedDept(d.id)}
+                  className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-2xl p-5 cursor-pointer transition flex flex-col items-center gap-3">
+                  <div className="w-full flex items-center justify-between gap-2">
+                    <h3 className="font-bold text-sm text-white">{d.name}</h3>
+                    <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
                   </div>
-                ))}
-              </div>
-            )}
+                  <Donut value={d.kpi} size={130} color={getCategory(d.kpi).color} text={fmt(d.kpi, 0)} />
+                  <Pill score={d.kpi} />
+                  <div className="w-full grid grid-cols-4 text-center text-[11px] text-slate-400 pt-2 border-t border-slate-800">
+                    <div><div className="font-bold text-slate-200">{fmt(d.a, 0)}{d.a !== null && '%'}</div>A</div>
+                    <div><div className="font-bold text-slate-200">{fmt(d.b, 0)}{d.b !== null && '%'}</div>B</div>
+                    <div><div className="font-bold text-slate-200">{d.biros.length}</div>Biro</div>
+                    <div><div className="font-bold text-slate-200">{d.scored}/{d.personCount}</div>Terhitung</div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </>
         )}
 
-        {/* ===== LEVEL 2: SATU BIRO ===== */}
+        {/* ===== LEVEL 2: SATU DEPARTEMEN -> DAFTAR BIRO ===== */}
+        {!isLoading && activeDept && !selectedBiro && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            <div className="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center gap-4 h-fit">
+              <Donut value={activeDept.kpi} size={170} color={getCategory(activeDept.kpi).color} text={fmt(activeDept.kpi, 0)} />
+              <Pill score={activeDept.kpi} />
+              <div className="text-[11px] text-slate-400 text-center">
+                Rata-rata KPI departemen · {activeDept.scored} dari {activeDept.personCount} personel terhitung
+              </div>
+              <div className="flex gap-6">
+                <div className="text-center">
+                  <Donut value={activeDept.a} size={80} color="#34d399" text={activeDept.a === null ? '—' : `${Math.round(activeDept.a)}%`} />
+                  <div className="text-[11px] text-slate-400 mt-1">A · Efisiensi JO</div>
+                </div>
+                <div className="text-center">
+                  <Donut value={activeDept.b} size={80} color="#fbbf24" text={activeDept.b === null ? '—' : `${Math.round(activeDept.b)}%`} />
+                  <div className="text-[11px] text-slate-400 mt-1">B · Drawing Rev.0</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-8 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <Layers className="w-4 h-4 text-blue-400" /> Skor KPI per biro ({activeDept.biros.length})
+              </h2>
+              {activeDept.biros.length === 0 && (
+                <div className="text-xs text-slate-500 italic py-4 text-center">Departemen ini belum memiliki biro.</div>
+              )}
+              {activeDept.biros.map(b => {
+                const cat = getCategory(b.kpi);
+                return (
+                  <div key={b.id} onClick={() => setSelectedBiro(b.id)}
+                    className="p-3 bg-slate-950 border border-slate-800 hover:border-blue-500 rounded-xl cursor-pointer transition space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-semibold text-sm text-white">{b.name}</span>
+                      <div className="flex items-center gap-3">
+                        <span className="font-extrabold text-white">{fmt(b.kpi)}</span>
+                        <Pill score={b.kpi} />
+                        <ChevronRight className="w-4 h-4 text-slate-500" />
+                      </div>
+                    </div>
+                    <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-2.5 rounded-full" style={{ width: `${b.kpi ?? 0}%`, background: cat.color }} />
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      A {fmt(b.a)}{b.a !== null && '%'} · B {fmt(b.b)}{b.b !== null && '%'} · {b.scored}/{b.persons.length} personel terhitung
+                      {b.persons.length === 0 && <span className="text-slate-600"> · belum ada penugasan</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ===== LEVEL 3: SATU BIRO -> DAFTAR INDIVIDU ===== */}
         {!isLoading && activeBiro && !selectedPerson && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center gap-4">
+            <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center gap-4 h-fit">
               <Donut value={activeBiro.kpi} size={190} color={getCategory(activeBiro.kpi).color} text={fmt(activeBiro.kpi, 0)} />
               <Pill score={activeBiro.kpi} />
               <div className="text-[11px] text-slate-400">Rata-rata KPI biro · {activeBiro.scored} dari {activeBiro.persons.length} personel terhitung</div>
@@ -450,6 +610,9 @@ export default function KpiDashboardPage({ user, onLogout }: KpiDashboardPagePro
 
             <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
               <h2 className="text-sm font-bold text-white flex items-center gap-2"><Users className="w-4 h-4 text-blue-400" /> Skor KPI per personel</h2>
+              {activeBiro.persons.length === 0 && (
+                <div className="text-xs text-slate-500 italic py-4 text-center">Belum ada penugasan di biro ini pada periode terpilih.</div>
+              )}
               {activeBiro.persons.map(p => {
                 const cat = getCategory(p.kpi);
                 return (
@@ -476,7 +639,7 @@ export default function KpiDashboardPage({ user, onLogout }: KpiDashboardPagePro
           </div>
         )}
 
-        {/* ===== LEVEL 3: SATU INDIVIDU ===== */}
+        {/* ===== LEVEL 4: SATU INDIVIDU ===== */}
         {!isLoading && activePerson && (
           <div className="space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
