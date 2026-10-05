@@ -354,67 +354,62 @@ function Pill({ score }: { score: number | null }) {
   );
 }
 
-function ProjectKpiSection({ rows, title }: { rows: ProjectScore[]; title: string }) {
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  if (rows.length === 0) return null;
+function ProjectBarChart({ rows, title, className = '' }: { rows: ProjectScore[]; title: string; className?: string }) {
+  const H = 180;
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+    <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 min-w-0 ${className}`}>
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-sm font-bold text-white flex items-center gap-2">
           <Layers className="w-4 h-4 text-blue-400" /> {title} ({rows.length} proyek)
         </h2>
-        <span className="text-[10px] text-slate-500">KPI proyek = rata-rata KPI individu pada proyek tersebut · klik untuk melihat per personel</span>
+        <span className="text-[10px] text-slate-500">Rata-rata KPI individu per proyek · arahkan kursor ke batang untuk detail</span>
       </div>
-      <div className="space-y-2">
-        {rows.map(r => {
-          const cat = getCategory(r.kpi);
-          const isOpen = !!open[r.project];
-          return (
-            <div key={r.project} className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
-              <div onClick={() => setOpen(prev => ({ ...prev, [r.project]: !prev[r.project] }))}
-                className="p-3 cursor-pointer hover:bg-slate-900/60 transition space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-mono font-bold text-sm text-emerald-400 flex items-center gap-1">
-                    <ChevronRight className={`w-3.5 h-3.5 text-slate-500 transition-transform ${isOpen ? 'rotate-90 text-blue-400' : ''}`} />
-                    {r.project}
-                  </span>
-                  <div className="flex items-center gap-3">
-                    <span className="font-extrabold text-white">{fmt(r.kpi)}</span>
-                    <Pill score={r.kpi} />
-                  </div>
-                </div>
-                <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-2.5 rounded-full" style={{ width: `${r.kpi ?? 0}%`, background: cat.color }} />
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  A {fmt(r.a)}{r.a !== null && '%'} · B {fmt(r.b)}{r.b !== null && '%'} · {r.released}/{r.total} drawing release · {r.scored}/{r.persons.length} personel terhitung
-                </div>
-              </div>
-              {isOpen && (
-                <div className="px-3 pb-3 pt-1 border-t border-slate-800 space-y-2">
-                  {r.persons.map(pr => {
-                    const pc = getCategory(pr.kpi);
-                    return (
-                      <div key={pr.name} className="space-y-1">
-                        <div className="flex items-center justify-between gap-3 text-xs">
-                          <span className="text-slate-200">{pr.name}</span>
-                          <span className="font-bold text-white">{fmt(pr.kpi)}</span>
-                        </div>
-                        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                          <div className="h-2 rounded-full" style={{ width: `${pr.kpi ?? 0}%`, background: pc.color }} />
-                        </div>
-                        <div className="text-[10px] text-slate-500">
-                          A {fmt(pr.a)}{pr.a !== null && '%'} · B {fmt(pr.b)}{pr.b !== null && '%'}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+      {rows.length === 0 ? (
+        <div className="text-xs text-slate-500 italic py-10 text-center">Belum ada data proyek pada periode ini.</div>
+      ) : (
+        <div className="overflow-x-auto pb-1">
+          <div className="flex gap-2" style={{ minWidth: rows.length * 64 + 36 }}>
+            {/* Sumbu Y */}
+            <div className="relative shrink-0 w-7" style={{ height: H }}>
+              {[100, 75, 50, 25, 0].map(t => (
+                <span key={t} className="absolute right-0 text-[9px] text-slate-500 -translate-y-1/2" style={{ top: `${100 - t}%` }}>{t}</span>
+              ))}
             </div>
-          );
-        })}
-      </div>
+            <div className="flex-1 min-w-0">
+              {/* Area batang */}
+              <div className="relative flex gap-3" style={{ height: H }}>
+                {[0, 25, 50, 75, 100].map(t => (
+                  <div key={t} className="absolute left-0 right-0 border-t border-slate-800 pointer-events-none" style={{ top: `${100 - t}%` }} />
+                ))}
+                {rows.map(r => {
+                  const cat = getCategory(r.kpi);
+                  const tip = `${r.project}\nKPI ${fmt(r.kpi)} (${cat.label})\nA ${fmt(r.a)}${r.a !== null ? '%' : ''} · B ${fmt(r.b)}${r.b !== null ? '%' : ''}\n${r.released}/${r.total} drawing release\n${r.scored}/${r.persons.length} personel terhitung`;
+                  return (
+                    <div key={r.project} title={tip} className="relative flex-1 min-w-[52px] h-full">
+                      {r.kpi !== null ? (
+                        <>
+                          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[44px] rounded-t-md"
+                            style={{ height: `${Math.max(0, Math.min(100, r.kpi))}%`, background: cat.color }} />
+                          <span className="absolute left-0 right-0 text-center text-[10px] font-bold text-slate-100"
+                            style={{ bottom: `calc(${Math.max(0, Math.min(100, r.kpi))}% + 2px)` }}>{fmt(r.kpi, 0)}</span>
+                        </>
+                      ) : (
+                        <span className="absolute left-0 right-0 bottom-1 text-center text-[10px] text-slate-500">—</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Label proyek */}
+              <div className="flex gap-3 mt-1.5">
+                {rows.map(r => (
+                  <div key={r.project} title={r.project} className="flex-1 min-w-[52px] text-center text-[10px] font-mono text-emerald-400 truncate">{r.project}</div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -689,8 +684,9 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
         {/* ===== LEVEL 1: SEMUA DEPARTEMEN ===== */}
         {!isLoading && !selectedDept && (
           <>
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center gap-6 flex-wrap">
-              <Donut value={divisionKpi} size={110} color={getCategory(divisionKpi).color} text={fmt(divisionKpi, 0)} />
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            <div className="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center text-center gap-4">
+              <Donut value={divisionKpi} size={150} color={getCategory(divisionKpi).color} text={fmt(divisionKpi, 0)} />
               <div className="space-y-1">
                 <div className="text-xs text-slate-400">Rata-rata KPI seluruh divisi</div>
                 <Pill score={divisionKpi} />
@@ -698,6 +694,8 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                   {deptScores.length} departemen · {deptScores.reduce((s, d) => s + d.biros.length, 0)} biro · {allPersons.length} personel organik
                 </div>
               </div>
+            </div>
+            <ProjectBarChart key="division" className="lg:col-span-8" title="KPI per proyek — Divisi Desain" rows={divisionProjects} />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -722,14 +720,10 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
           </>
         )}
 
-        {!isLoading && !selectedDept && (
-          <ProjectKpiSection key="division" title="KPI per proyek — Divisi Desain" rows={divisionProjects} />
-        )}
-
         {/* ===== LEVEL 2: SATU DEPARTEMEN -> DAFTAR BIRO ===== */}
         {!isLoading && activeDept && !selectedBiro && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            <div className="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center gap-4 h-fit">
+            <div className="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center gap-4">
               <Donut value={activeDept.kpi} size={170} color={getCategory(activeDept.kpi).color} text={fmt(activeDept.kpi, 0)} />
               <Pill score={activeDept.kpi} />
               <div className="text-[11px] text-slate-400 text-center">
@@ -747,7 +741,9 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
               </div>
             </div>
 
-            <div className="lg:col-span-8 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+            <ProjectBarChart key={`dept-${activeDept.id}`} className="lg:col-span-8" title={`KPI per proyek — ${activeDept.name}`} rows={deptProjects} />
+
+            <div className="lg:col-span-12 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
               <h2 className="text-sm font-bold text-white flex items-center gap-2">
                 <Layers className="w-4 h-4 text-blue-400" /> Skor KPI per biro ({activeDept.biros.length})
               </h2>
@@ -781,14 +777,10 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
           </div>
         )}
 
-        {!isLoading && activeDept && !selectedBiro && (
-          <ProjectKpiSection key={`dept-${activeDept.id}`} title={`KPI per proyek — ${activeDept.name}`} rows={deptProjects} />
-        )}
-
         {/* ===== LEVEL 3: SATU BIRO -> DAFTAR INDIVIDU ===== */}
         {!isLoading && activeBiro && !selectedPerson && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center gap-4 h-fit">
+            <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center gap-4">
               <Donut value={activeBiro.kpi} size={190} color={getCategory(activeBiro.kpi).color} text={fmt(activeBiro.kpi, 0)} />
               <Pill score={activeBiro.kpi} />
               <div className="text-[11px] text-slate-400">Rata-rata KPI biro · {activeBiro.scored} dari {activeBiro.persons.length} personel terhitung</div>
@@ -804,7 +796,9 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
               </div>
             </div>
 
-            <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+            <ProjectBarChart key={`biro-${activeBiro.id}`} className="lg:col-span-7" title={`KPI per proyek — ${activeBiro.name}`} rows={biroProjects} />
+
+            <div className="lg:col-span-12 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
               <h2 className="text-sm font-bold text-white flex items-center gap-2"><Users className="w-4 h-4 text-blue-400" /> Skor KPI per personel</h2>
               {activeBiro.persons.length === 0 && (
                 <div className="text-xs text-slate-500 italic py-4 text-center">Belum ada penugasan di biro ini pada periode terpilih.</div>
@@ -833,10 +827,6 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
               })}
             </div>
           </div>
-        )}
-
-        {!isLoading && activeBiro && !selectedPerson && (
-          <ProjectKpiSection key={`biro-${activeBiro.id}`} title={`KPI per proyek — ${activeBiro.name}`} rows={biroProjects} />
         )}
 
         {/* ===== LEVEL 4: SATU INDIVIDU ===== */}
