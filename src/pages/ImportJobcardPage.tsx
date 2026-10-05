@@ -455,7 +455,7 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
         fresh.push(r);
       });
 
-      const payloadOf = (r: ImportRow, withRev: boolean) => {
+const payloadOf = (r: ImportRow, withRev: boolean) => {
         const biro = (biroList || []).find((b: any) => isBiroMatch(b.name, r.biroName)) || (biroList || [])[0];
         const p: any = {
           biro_id: biro ? biro.id : null,
@@ -471,7 +471,11 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
           kode_jc: r.kodeJc,
           status: r.kodeJc ? 'approved' : 'pending',
         };
-        if (withRev) { p.rev = r.rev || '0'; p.release = ''; }
+        // Otomatis menyertakan rev dan mengosongkan release awal saat di-import
+        if (withRev) { 
+          p.rev = r.rev || '0'; 
+          p.release = ''; // Release diisi otomatis kosong saat import, nanti diisi via form Rendal bila sudah rilis
+        }
         return p;
       };
 
