@@ -73,6 +73,17 @@ interface DeptScore {
   scored: number;
 }
 
+interface ProjectScore {
+  project: string;
+  persons: PersonScore[];
+  kpi: number | null;
+  a: number | null;
+  b: number | null;
+  scored: number;
+  total: number;
+  released: number;
+}
+
 /* ============================ Helper ============================ */
 function cleanText(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
@@ -278,6 +289,41 @@ function buildDeptScore(id: string, name: string, biros: BiroScore[]): DeptScore
   };
 }
 
+/* KPI per proyek untuk sekumpulan jobcard (biro / departemen / divisi).
+   Tiap orang dihitung KPI-nya di proyek itu, lalu dirata-rata. */
+function buildProjectScores(cards: JobCardRow[]): ProjectScore[] {
+  const byProj = new Map<string, Map<string, JobCardRow[]>>();
+  cards.forEach(c => {
+    const proj = c.project || '(tanpa proyek)';
+    if (!byProj.has(proj)) byProj.set(proj, new Map());
+    const pm = byProj.get(proj)!;
+    const pk = cleanText(c.pic);
+    if (!pm.has(pk)) pm.set(pk, []);
+    pm.get(pk)!.push(c);
+  });
+  const out: ProjectScore[] = [];
+  byProj.forEach((pm, project) => {
+    const persons: PersonScore[] = [];
+    pm.forEach(list => persons.push(scorePerson(list[0].pic, list[0].biro, list)));
+    persons.sort((x, y) => (y.kpi ?? -1) - (x.kpi ?? -1) || x.name.localeCompare(y.name));
+    let total = 0, released = 0;
+    persons.forEach(pr => {
+      const valid = pr.cards.filter(c => !REQUIRE_JOBCARD_CODE || c.kodeJc.trim() !== '');
+      total += valid.length;
+      released += valid.filter(c => c.release !== '').length;
+    });
+    out.push({
+      project, persons,
+      kpi: avg(persons.map(x => x.kpi)),
+      a: avg(persons.map(x => x.a)),
+      b: avg(persons.map(x => x.b)),
+      scored: persons.filter(x => x.kpi !== null).length,
+      total, released,
+    });
+  });
+  return out.sort((x, y) => x.project.localeCompare(y.project));
+}
+
 /* ========================= Komponen UI ========================= */
 function Donut({ value, size = 120, color, text, stroke = 10 }: {
   value: number | null; size?: number; color: string; text?: string; stroke?: number;
@@ -305,6 +351,71 @@ function Pill({ score }: { score: number | null }) {
     <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full text-slate-950 whitespace-nowrap" style={{ background: cat.color }}>
       {cat.label}
     </span>
+  );
+}
+
+function ProjectKpiSection({ rows, title }: { rows: ProjectScore[]; title: string }) {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  if (rows.length === 0) return null;
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-sm font-bold text-white flex items-center gap-2">
+          <Layers className="w-4 h-4 text-blue-400" /> {title} ({rows.length} proyek)
+        </h2>
+        <span className="text-[10px] text-slate-500">KPI proyek = rata-rata KPI individu pada proyek tersebut · klik untuk melihat per personel</span>
+      </div>
+      <div className="space-y-2">
+        {rows.map(r => {
+          const cat = getCategory(r.kpi);
+          const isOpen = !!open[r.project];
+          return (
+            <div key={r.project} className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden">
+              <div onClick={() => setOpen(prev => ({ ...prev, [r.project]: !prev[r.project] }))}
+                className="p-3 cursor-pointer hover:bg-slate-900/60 transition space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-mono font-bold text-sm text-emerald-400 flex items-center gap-1">
+                    <ChevronRight className={`w-3.5 h-3.5 text-slate-500 transition-transform ${isOpen ? 'rotate-90 text-blue-400' : ''}`} />
+                    {r.project}
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="font-extrabold text-white">{fmt(r.kpi)}</span>
+                    <Pill score={r.kpi} />
+                  </div>
+                </div>
+                <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-2.5 rounded-full" style={{ width: `${r.kpi ?? 0}%`, background: cat.color }} />
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  A {fmt(r.a)}{r.a !== null && '%'} · B {fmt(r.b)}{r.b !== null && '%'} · {r.released}/{r.total} drawing release · {r.scored}/{r.persons.length} personel terhitung
+                </div>
+              </div>
+              {isOpen && (
+                <div className="px-3 pb-3 pt-1 border-t border-slate-800 space-y-2">
+                  {r.persons.map(pr => {
+                    const pc = getCategory(pr.kpi);
+                    return (
+                      <div key={pr.name} className="space-y-1">
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="text-slate-200">{pr.name}</span>
+                          <span className="font-bold text-white">{fmt(pr.kpi)}</span>
+                        </div>
+                        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                          <div className="h-2 rounded-full" style={{ width: `${pr.kpi ?? 0}%`, background: pc.color }} />
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          A {fmt(pr.a)}{pr.a !== null && '%'} · B {fmt(pr.b)}{pr.b !== null && '%'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -458,6 +569,18 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
   const activePerson = activeBiro?.persons.find(p => p.name === selectedPerson) || null;
 
   const allPersons = deptScores.flatMap(d => d.biros.flatMap(b => b.persons));
+  const divisionProjects = useMemo(
+    () => buildProjectScores(deptScores.flatMap(d => d.biros.flatMap(b => b.persons.flatMap(p => p.cards)))),
+    [deptScores]
+  );
+  const deptProjects = useMemo(
+    () => activeDept ? buildProjectScores(activeDept.biros.flatMap(b => b.persons.flatMap(p => p.cards))) : [],
+    [activeDept]
+  );
+  const biroProjects = useMemo(
+    () => activeBiro ? buildProjectScores(activeBiro.persons.flatMap(p => p.cards)) : [],
+    [activeBiro]
+  );
   const divisionKpi = avg(allPersons.map(p => p.kpi));
 
   const goBack = () => {
@@ -599,6 +722,10 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
           </>
         )}
 
+        {!isLoading && !selectedDept && (
+          <ProjectKpiSection key="division" title="KPI per proyek — Divisi Desain" rows={divisionProjects} />
+        )}
+
         {/* ===== LEVEL 2: SATU DEPARTEMEN -> DAFTAR BIRO ===== */}
         {!isLoading && activeDept && !selectedBiro && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -654,6 +781,10 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
           </div>
         )}
 
+        {!isLoading && activeDept && !selectedBiro && (
+          <ProjectKpiSection key={`dept-${activeDept.id}`} title={`KPI per proyek — ${activeDept.name}`} rows={deptProjects} />
+        )}
+
         {/* ===== LEVEL 3: SATU BIRO -> DAFTAR INDIVIDU ===== */}
         {!isLoading && activeBiro && !selectedPerson && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -702,6 +833,10 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
               })}
             </div>
           </div>
+        )}
+
+        {!isLoading && activeBiro && !selectedPerson && (
+          <ProjectKpiSection key={`biro-${activeBiro.id}`} title={`KPI per proyek — ${activeBiro.name}`} rows={biroProjects} />
         )}
 
         {/* ===== LEVEL 4: SATU INDIVIDU ===== */}
@@ -763,6 +898,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                   </div>
                   <div className="space-y-3">
                     {rows.map(r => {
+                      const ps = scorePerson(activePerson.name, activePerson.biro, r.cards);
                       const eff = r.plan > 0 && r.real > 0 ? Math.min((r.plan / r.real) * 100, CAP_EFFICIENCY) : null;
                       const relPct = r.total ? (r.released / r.total) * 100 : 0;
                       return (
@@ -773,6 +909,9 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                             <ChevronRight className={`w-3.5 h-3.5 text-slate-500 transition-transform ${expandedProjects[r.project] ? 'rotate-90 text-blue-400' : ''}`} />
                             {r.project}
                             <span className="text-[10px] font-normal text-slate-500">({r.total})</span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-slate-950 ml-1" style={{ background: getCategory(ps.kpi).color }}>
+                              KPI {fmt(ps.kpi, 0)}
+                            </span>
                           </div>
                           <div className="col-span-12 sm:col-span-6 space-y-1">
                             <div className="flex items-center gap-2">
