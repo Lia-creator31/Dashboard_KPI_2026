@@ -14,14 +14,14 @@ interface KpiDashboardPageProps {
 /* ============================================================
    PENGATURAN ATURAN HITUNG (ubah di sini bila aturan berubah)
    ============================================================ */
-const WEIGHT_A = 0.6;
-const WEIGHT_B = 0.4;
-const CAP_EFFICIENCY = 100;
-const A_ONLY_FROM_RELEASED = true;
-const A_ONLY_REV0 = false;
-const REQUIRE_JOBCARD_CODE = true;
-const COUNT_DRAFT_TIMESHEET = false;
-const PARTIAL_KPI = false;
+const WEIGHT_A = 0.6;                 // bobot Efisiensi JO
+const WEIGHT_B = 0.4;                 // bobot Pencapaian Drawing Rev.0
+const CAP_EFFICIENCY = 100;           // A dibatasi maksimal 100%
+const A_ONLY_FROM_RELEASED = true;    // A hanya dari jobcard yang drawing-nya sudah released
+const A_ONLY_REV0 = false;            // true = jam kerja hanya dari drawing Rev.0
+const REQUIRE_JOBCARD_CODE = true;    // jobcard tanpa kode (Menunggu Planner) belum valid
+const COUNT_DRAFT_TIMESHEET = false;  // timesheet Draft tidak dihitung sebagai Real JO
+const PARTIAL_KPI = false;            // true = bila hanya A atau B ada, KPI memakai komponen yang ada
 
 const MASTER_BUCKET = 'master-files';
 const OTHER_DEPT_ID = '__other__';
@@ -136,6 +136,7 @@ function getCategory(score: number | null): { label: string; color: string } {
 
 const fmt = (v: number | null, digits = 1) => (v === null ? '—' : v.toFixed(digits).replace(/\.0$/, ''));
 
+/* Real JO dari file Realisasi JO.xlsx, kunci = kode jobcard */
 function buildRealisasiMap(wb: XLSX.WorkBook | null): Map<string, number> {
   const map = new Map<string, number>();
   if (!wb) return map;
@@ -166,10 +167,59 @@ function buildRealisasiMap(wb: XLSX.WorkBook | null): Map<string, number> {
   return map;
 }
 
+/* Baca daftar nama organik & outsourcing dari master IM4 (logika sama dengan KabiroPage) */
+function parseMemberNames(wb: XLSX.WorkBook | null): { organic: Set<string>; outsourcing: Set<string> } {
+  const organic = new Set<string>();
+  const outsourcing = new Set<string>();
+  if (!wb) return { organic, outsourcing };
+  try {
+    const sheetName = wb.SheetNames.find(s => s.toLowerCase().includes('education')) || wb.SheetNames[0];
+    const sheet = wb.Sheets[sheetName]; if (!sheet) return { organic, outsourcing };
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    let headerIdx = -1;
+    for (let r = 0; r < Math.min(15, rows.length); r++) {
+      const vals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+      if (vals.includes('nama') && (vals.includes('nip') || vals.includes('status') || vals.includes('jabatan'))) { headerIdx = r; break; }
+    }
+    if (headerIdx === -1) return { organic, outsourcing };
+    const headers = rows[headerIdx].map(v => String(v).trim().toLowerCase());
+    const namaCol = headers.findIndex(h => h === 'nama');
+    const statusCol = headers.findIndex(h => h === 'status');
+    for (let r = headerIdx + 1; r < rows.length; r++) {
+      const row = rows[r]; if (!row) continue;
+      const nama = String(row[namaCol] || '').trim();
+      if (!nama || nama.toLowerCase() === 'nan' || nama.toLowerCase() === 'nama') continue;
+      const status = String(row[statusCol] || '').trim().toLowerCase();
+      const key = cleanText(nama);
+      if (status.includes('outsourcing')) outsourcing.add(key);
+      else organic.add(key);
+    }
+  } catch { /* abaikan */ }
+  return { organic, outsourcing };
+}
+
+async function loadIm4Workbook(): Promise<XLSX.WorkBook | null> {
+  try {
+    const { data, error } = await supabase.storage.from(MASTER_BUCKET).download('im4.xlsx');
+    if (!error && data) return XLSX.read(await data.arrayBuffer(), { type: 'array' });
+  } catch { /* lanjut ke fallback */ }
+  for (const p of ['/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx']) {
+    try {
+      const res = await fetch(p);
+      if (!res.ok) continue;
+      const buf = await res.arrayBuffer();
+      const b = new Uint8Array(buf.slice(0, 4));
+      if (b[0] === 80 && b[1] === 75 && b[2] === 3 && b[3] === 4) return XLSX.read(buf, { type: 'array' });
+    } catch { /* abaikan */ }
+  }
+  return null;
+}
+
 /* ====================== Perhitungan skor ====================== */
 function scorePerson(name: string, biro: string, cards: JobCardRow[]): PersonScore {
   const valid = cards.filter(c => !REQUIRE_JOBCARD_CODE || c.kodeJc.trim() !== '');
 
+  // A = Planned JO / Actual JO x 100%
   const aCards = valid.filter(c =>
     c.plannedJo > 0 && c.realJo > 0 &&
     (!A_ONLY_FROM_RELEASED || c.release !== '') &&
@@ -179,6 +229,7 @@ function scorePerson(name: string, biro: string, cards: JobCardRow[]): PersonSco
   const sumReal = aCards.reduce((s, c) => s + c.realJo, 0);
   const a = aCards.length ? Math.min((sumPlan / sumReal) * 100, CAP_EFFICIENCY) : null;
 
+  // B = Drawing Rev.0 released tepat waktu / total target Rev.0 x 100%
   const targets = valid.filter(c => Number(c.rev) === 0);
   const onTime = targets.filter(c => c.release !== '' && c.endDate !== '' && c.release <= c.endDate);
   const b = targets.length ? (onTime.length / targets.length) * 100 : null;
@@ -271,20 +322,31 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const [jcRes, tsRes, lineRes, wbRes] = await Promise.all([
+      const [jcRes, tsRes, lineRes, wbRes, im4Wb] = await Promise.all([
         supabase.from('job_cards').select('*'),
         supabase.from('outsourcing_timesheets').select('id, status'),
         supabase.from('outsourcing_timesheet_lines').select('timesheet_id, work_order_code, effective_hours, overtime_hours'),
         supabase.storage.from(MASTER_BUCKET).download('realisasi.xlsx'),
+        loadIm4Workbook(),
       ]);
 
       if (jcRes.error) throw jcRes.error;
 
+      // Daftar pegawai organik dari master IM4
+      const { organic, outsourcing } = parseMemberNames(im4Wb);
+      if (organic.size === 0) {
+        setCards([]);
+        setErrorMsg('Master IM4 belum termuat, sehingga daftar pegawai organik tidak bisa ditentukan. Upload master IM4 terlebih dahulu.');
+        return;
+      }
+
+      // Real JO dari Excel Realisasi JO
       let excelMap = new Map<string, number>();
       if (!wbRes.error && wbRes.data) {
         try { excelMap = buildRealisasiMap(XLSX.read(await wbRes.data.arrayBuffer(), { type: 'array' })); } catch { /* abaikan */ }
       }
 
+      // Real JO dari timesheet (kunci = kode Work Order = kode_jc)
       const statusById = new Map<string, string>();
       (tsRes.data || []).forEach((t: any) => statusById.set(t.id, t.status || 'Draft'));
       const tsMap = new Map<string, number>();
@@ -319,7 +381,11 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
           release: normalizeDate(rawRelease),
           realJo: key ? (excelMap.get(key) || 0) + (tsMap.get(key) || 0) : 0,
         };
-      }).filter((r: JobCardRow) => r.pic !== '');
+      }).filter((r: JobCardRow) => {
+        if (r.pic === '') return false;
+        const k = cleanText(r.pic);
+        return organic.has(k) && !outsourcing.has(k);   // hanya pegawai organik
+      });
 
       setCards(rows);
     } catch (err: any) {
@@ -471,7 +537,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
             </div>
             <h1 className="text-2xl font-extrabold text-white">{pageTitle}</h1>
             <p className="text-xs text-slate-400 mt-1">
-              KPI = ({WEIGHT_A * 100}% × A Efisiensi JO) + ({WEIGHT_B * 100}% × B Pencapaian Drawing Rev.0)
+              Pegawai organik · KPI = ({WEIGHT_A * 100}% × A Efisiensi JO) + ({WEIGHT_B * 100}% × B Pencapaian Drawing Rev.0)
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -507,7 +573,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                 <div className="text-xs text-slate-400">Rata-rata KPI seluruh divisi</div>
                 <Pill score={divisionKpi} />
                 <div className="text-[11px] text-slate-500">
-                  {deptScores.length} departemen · {deptScores.reduce((s, d) => s + d.biros.length, 0)} biro · {allPersons.length} personel
+                  {deptScores.length} departemen · {deptScores.reduce((s, d) => s + d.biros.length, 0)} biro · {allPersons.length} personel organik
                 </div>
               </div>
             </div>
