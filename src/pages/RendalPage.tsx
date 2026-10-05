@@ -3,10 +3,12 @@ import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
+import KpiDashboardPage from './KpiDashboardPage';
+import ImportJobcardPage from './ImportJobcardPage';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, 
-  FileSpreadsheet, Users, Search
+  FileSpreadsheet, Users, Search, TrendingUp
 } from 'lucide-react';
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
@@ -379,6 +381,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     pic: '', jo: '', rev: '0', realJo: '', release: '',
   });
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
+  const [showKpi, setShowKpi] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
@@ -1023,6 +1027,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return pendingTasksByBiro.reduce((total, [, list]) => total + list.length, 0);
   }, [pendingTasksByBiro]);
 
+  if (showKpi) {
+    return <KpiDashboardPage user={user} onLogout={onLogout} onBack={() => setShowKpi(false)} />;
+  }
+
+  if (showImport) {
+    return <ImportJobcardPage user={user} onLogout={onLogout} onBack={() => setShowImport(false)} />;
+  }
+
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
       <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
@@ -1364,6 +1376,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       {pendingTasksCount > 99 ? '99+' : pendingTasksCount}
                     </span>
                   )}
+                </button>
+                <button
+                  onClick={() => setShowKpi(true)}
+                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  title="Buka Dashboard KPI Individual"
+                >
+                  <TrendingUp className="w-3.5 h-3.5" /> Dashboard KPI
+                </button>
+                <button
+                  onClick={() => setShowImport(true)}
+                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  title="Impor Jobcard bulanan dari JOBCARD_DESAIN.xlsx"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" /> Import Jobcard
                 </button>
                 <input type="text" placeholder="Cari..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
