@@ -20,7 +20,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 const cleanNama = nama.trim().toLowerCase();
 const cleanNip = nip.trim();
 
-// Nama yang termasuk daftar admin (baru nama, belum cek NIP)
+// Nama yang termasuk  daftar admin (baru nama, belum cek NIP)
 const matchedAdmin = ADMIN_ACCOUNTS.find(a => cleanNama.includes(a.nama));
 const isAdmin = !!matchedAdmin;
 
