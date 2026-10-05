@@ -68,6 +68,7 @@ interface ImportRow {
   kodeJc: string;
   rev: string;
   revDetected: boolean;
+  approx: boolean;
   include: boolean;
 }
 
@@ -159,7 +160,15 @@ const nameTokens = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9\s]/g
 
 const isMultiPerson = (pic: string) => /[,&/+]|\sdan\s|\sdkk\b/i.test(pic);
 
-// Cocokkan teks PIC ke satu personel; null bila tidak ada / lebih dari satu kandidat
+// Dua kata dianggap sama bila identik, atau salah satunya awalan/singkatan dari yang lain
+// (mis. "moh" ~ "mohammad", "ihya" ~ "ihyail", "r" ~ "rahadian")
+const tokEq = (a: string, b: string) => a === b || a.startsWith(b) || b.startsWith(a);
+
+// Cocokkan teks PIC ke satu personel secara toleran:
+// - nama persis -> langsung cocok
+// - selain itu, hitung berapa kata PIC yang cocok dengan tiap personel
+//   (PIC 1 kata: butuh 1 kata cocok; PIC 2+ kata: butuh minimal 2 kata cocok)
+// - dipilih personel dengan kata cocok terbanyak; bila seri / tidak ada -> null (pilih manual)
 function matchPerson(pic: string, pool: ParsedMember[]): ParsedMember | null {
   const cp = cleanText(pic);
   if (!cp || isMultiPerson(pic)) return null;
@@ -167,11 +176,17 @@ function matchPerson(pic: string, pool: ParsedMember[]): ParsedMember | null {
   if (exact.length === 1) return exact[0];
   const pt = nameTokens(pic);
   if (!pt.length) return null;
-  const cand = pool.filter(p => {
-    const nt = nameTokens(p.nama);
-    return pt.every(t => nt.some(n => n === t || (t.length >= 3 && n.startsWith(t))));
-  });
-  return cand.length === 1 ? cand[0] : null;
+  const need = pt.length === 1 ? 1 : 2;
+  const scored = pool
+    .map(p => {
+      const nt = nameTokens(p.nama);
+      return { p, hit: pt.filter(t => nt.some(n => tokEq(t, n))).length };
+    })
+    .filter(x => x.hit >= need);
+  if (!scored.length) return null;
+  const best = Math.max(...scored.map(x => x.hit));
+  const top = scored.filter(x => x.hit === best);
+  return top.length === 1 ? top[0].p : null;
 }
 
 function parseIm4(wb: XLSX.WorkBook | null): ParsedMember[] {
@@ -368,6 +383,7 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
           kodeJc,
           rev,
           revDetected: detected,
+          approx: !!person && cleanText(person.nama) !== cleanText(pic),
           include: true,
         });
       }
@@ -396,7 +412,7 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
 
   const changePerson = (key: string, deptName: string, nama: string) => {
     const p = members.find(m => m.nama === nama);
-    updateRow(key, { person: p ? p.nama : '', biroName: p ? resolveBiroName(p, deptName) : '' });
+    updateRow(key, { person: p ? p.nama : '', biroName: p ? resolveBiroName(p, deptName) : '', approx: false });
   };
 
   const blockers = (r: ImportRow): string[] => {
@@ -412,6 +428,7 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
 
   const notes = (r: ImportRow): string[] => {
     const n: string[] = [];
+    if (r.approx) n.push('Nama dicocokkan perkiraan, mohon dicek');
     if (!r.revDetected) n.push('Rev tidak terdeteksi (0)');
     if (!r.kodeJc) n.push('Tanpa kode Jobcard (menunggu Planner)');
     return n;
