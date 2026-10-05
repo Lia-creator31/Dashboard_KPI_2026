@@ -15,7 +15,7 @@ interface KpiDashboardPageProps {
    PENGATURAN ATURAN HITUNG (ubah di sini bila aturan berubah)
    ============================================================ */
 const WEIGHT_A = 0.6;                 // bobot Efisiensi JO
-const WEIGHT_B = 0.4;                 // bobot Pencapaian Drawing Rev.0
+const WEIGHT_B = 0.4;                 // bobot Release Drawing (semua revisi)
 const CAP_EFFICIENCY = 100;           // A dibatasi maksimal 100%
 const A_ONLY_FROM_RELEASED = true;    // A hanya dari jobcard yang drawing-nya sudah released
 const A_ONLY_REV0 = false;            // true = jam kerja hanya dari drawing Rev.0
@@ -229,9 +229,9 @@ function scorePerson(name: string, biro: string, cards: JobCardRow[]): PersonSco
   const sumReal = aCards.reduce((s, c) => s + c.realJo, 0);
   const a = aCards.length ? Math.min((sumPlan / sumReal) * 100, CAP_EFFICIENCY) : null;
 
-  // B = Drawing Rev.0 released tepat waktu / total target Rev.0 x 100%
-  const targets = valid.filter(c => Number(c.rev) === 0);
-  const onTime = targets.filter(c => c.release !== '' && c.endDate !== '' && c.release <= c.endDate);
+  // B = jumlah drawing yang sudah ada tanggal release / total list drawing x 100% (semua revisi)
+  const targets = valid;
+  const onTime = targets.filter(c => c.release !== '');   // = drawing yang sudah release
   const b = targets.length ? (onTime.length / targets.length) * 100 : null;
 
   let kpi: number | null = null;
@@ -473,11 +473,8 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
 
   const cardStatus = (c: JobCardRow): { text: string; cls: string } => {
     if (REQUIRE_JOBCARD_CODE && !c.kodeJc) return { text: 'Menunggu Planner', cls: 'text-rose-300' };
-    if (Number(c.rev) !== 0) return { text: `Rev ${c.rev} · tidak dihitung di B`, cls: 'text-slate-400' };
     if (!c.release) return { text: 'Belum release', cls: 'text-amber-300' };
-    return c.release <= c.endDate
-      ? { text: 'Tepat waktu', cls: 'text-emerald-300' }
-      : { text: 'Terlambat', cls: 'text-rose-300' };
+    return { text: `Sudah release (Rev ${c.rev})`, cls: 'text-emerald-300' };
   };
 
   const pageTitle = activePerson ? activePerson.name
@@ -537,7 +534,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
             </div>
             <h1 className="text-2xl font-extrabold text-white">{pageTitle}</h1>
             <p className="text-xs text-slate-400 mt-1">
-              Pegawai organik · KPI = ({WEIGHT_A * 100}% × A Efisiensi JO) + ({WEIGHT_B * 100}% × B Pencapaian Drawing Rev.0)
+              Pegawai organik · KPI = ({WEIGHT_A * 100}% × A Efisiensi JO) + ({WEIGHT_B * 100}% × B Release Drawing)
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -616,7 +613,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                 </div>
                 <div className="text-center">
                   <Donut value={activeDept.b} size={80} color="#fbbf24" text={activeDept.b === null ? '—' : `${Math.round(activeDept.b)}%`} />
-                  <div className="text-[11px] text-slate-400 mt-1">B · Drawing Rev.0</div>
+                  <div className="text-[11px] text-slate-400 mt-1">B · Release Drawing</div>
                 </div>
               </div>
             </div>
@@ -669,7 +666,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                 </div>
                 <div className="text-center">
                   <Donut value={activeBiro.b} size={90} color="#fbbf24" text={activeBiro.b === null ? '—' : `${Math.round(activeBiro.b)}%`} />
-                  <div className="text-[11px] text-slate-400 mt-1">B · Drawing Rev.0</div>
+                  <div className="text-[11px] text-slate-400 mt-1">B · Release Drawing</div>
                 </div>
               </div>
             </div>
@@ -718,11 +715,11 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
               </div>
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center gap-2 text-center">
                 <Donut value={activePerson.b} size={130} color="#fbbf24" text={activePerson.b === null ? '—' : `${Math.round(activePerson.b)}%`} />
-                <div className="text-xs font-bold text-white">B · Drawing Rev.0</div>
+                <div className="text-xs font-bold text-white">B · Release Drawing</div>
                 <div className="text-[11px] text-slate-400">
                   {activePerson.targetRev0 === 0
-                    ? 'Belum ada target Rev.0'
-                    : `${activePerson.onTimeRev0} dari ${activePerson.targetRev0} drawing Rev.0 tepat waktu`}
+                    ? 'Belum ada drawing dalam daftar'
+                    : `${activePerson.onTimeRev0} dari ${activePerson.targetRev0} drawing sudah release`}
                 </div>
               </div>
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center gap-2 text-center">
