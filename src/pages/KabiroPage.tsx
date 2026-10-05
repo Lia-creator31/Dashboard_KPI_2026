@@ -3,9 +3,10 @@ import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
+import KpiDashboardPage from './KpiDashboardPage';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
-  Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, Search
+  Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, Search, TrendingUp
 } from 'lucide-react';
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
@@ -346,6 +347,7 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
   const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showKpi, setShowKpi] = useState(false);
   
   // Subkon State
   const [subconSelectedDept, setSubconSelectedDept] = useState<Department | null>(null);
@@ -955,6 +957,11 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [formData.kodeProyek, drawingControlMap, jobcardWorkbook]);
 
+  // Halaman Dashboard KPI Individual (dibuka dari tombol di portal Organik)
+  if (showKpi) {
+    return <KpiDashboardPage user={user} onLogout={onLogout} onBack={() => setShowKpi(false)} />;
+  }
+
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
       {/* Header */}
@@ -1274,6 +1281,13 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {/* TOMBOL UPLOAD DIHAPUS UNTUK KABIRO */}
+                <button
+                  onClick={() => setShowKpi(true)}
+                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  title="Buka Dashboard KPI Individual"
+                >
+                  <TrendingUp className="w-3.5 h-3.5" /> Dashboard KPI
+                </button>
                 <input
                   type="text"
                   placeholder="Cari..."
