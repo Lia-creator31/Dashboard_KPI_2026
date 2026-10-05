@@ -297,6 +297,17 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
     return m;
   }, [members, deptByName]);
 
+  // Semua personel (unik) - cadangan bila nama PIC tidak ada di daftar departemen sheet-nya
+  const allPool = useMemo(() => {
+    const seen = new Set<string>();
+    return members.filter(p => {
+      const k = p.nip || p.nama;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [members]);
+
   const resolveBiroName = (person: ParsedMember, deptName: string): string => {
     const d = deptByName.get(deptName);
     const inDept = d?.biros.find(b => isBiroMatch(person.biro, b.name));
@@ -309,7 +320,7 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
   };
 
   // Bangun ulang baris impor bila file / bulan / daftar personel berubah.
-  // Hanya baris dengan Tgl permintaan (kolom B) pada bulan & tahun terpilih yang diambil.
+  // Hanya baris dengan Tgl permintaan (kolom B), Start, dan End semuanya di bulan & tahun terpilih yang diambil.
   useEffect(() => {
     if (!jobWb) { setRows([]); return; }
     const ym = `${year}-${pad(month)}`;
@@ -334,8 +345,10 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
 
         const startDate = parseCellDate(row[COL.start]);
         const endDate = parseCellDate(row[COL.end]);
+        // Start dan End juga harus di bulan yang sama
+        if (startDate.slice(0, 7) !== ym || endDate.slice(0, 7) !== ym) continue;
         const pic = String(row[COL.pic] ?? '').replace(/\s+/g, ' ').trim();
-        const person = matchPerson(pic, pool);
+        const person = matchPerson(pic, pool) || matchPerson(pic, allPool);
         const joNum = parseFloat(String(row[COL.jo] ?? '').replace(',', '.'));
         const { rev, detected } = detectRev(taskName);
         built.push({
@@ -363,7 +376,7 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
     setSavedKeys(new Set());
     setResultMsg('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobWb, month, year, poolByDept]);
+  }, [jobWb, month, year, poolByDept, allPool]);
 
   const handleFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -517,7 +530,7 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
               <input type="file" accept=".xlsx,.xls" onChange={handleFile} className="hidden" />
             </label>
             <div>
-              <div className="text-slate-400 mb-1">Bulan (Tgl permintaan)</div>
+              <div className="text-slate-400 mb-1">Bulan (semua tanggal)</div>
               <select value={month} onChange={(e) => setMonth(Number(e.target.value))}
                 className="px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white cursor-pointer">
                 {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
@@ -534,13 +547,13 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
               {fileName ? <>File: <b className="text-slate-200">{fileName}</b> · </> : null}
               Master IM4: {im4Loaded ? (members.length > 0 ? <b className="text-emerald-400">{members.length} personel terbaca</b> : <b className="text-rose-400">tidak terbaca, pencocokan nama tidak bisa berjalan</b>) : 'memuat...'}
             </div>
-            <div>Hanya baris dengan Tgl permintaan (kolom B) pada bulan dan tahun terpilih yang diambil. Nama PIC dicocokkan otomatis ke personel di departemennya. PIC kosong, tidak cocok, atau berisi beberapa nama harus dipilih manual (atau dilewati).</div>
+            <div>Hanya baris yang Tgl permintaan (kolom B), Start, dan End-nya semua berada di bulan dan tahun terpilih yang diambil. Nama PIC dicocokkan otomatis ke personel di departemennya. PIC kosong, tidak cocok, atau berisi beberapa nama harus dipilih manual (atau dilewati).</div>
           </div>
         </div>
 
         {!jobWb && (
           <div className="py-16 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-            Pilih file JOBCARD_DESAIN.xlsx untuk mulai. Hanya baris dengan Tgl permintaan (kolom B) pada bulan yang dipilih yang akan ditampilkan.
+            Pilih file JOBCARD_DESAIN.xlsx untuk mulai. Hanya baris yang Tgl permintaan, Start, dan End-nya semua di bulan yang dipilih yang akan ditampilkan.
           </div>
         )}
 
@@ -568,7 +581,7 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
             <div className="space-y-4">
               {groups.length === 0 && (
                 <div className="py-10 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">
-                  Tidak ada baris dengan Tgl permintaan {MONTHS[month - 1]} {year} di departemen ini.
+                  Tidak ada baris yang seluruh tanggalnya (permintaan, start, end) di {MONTHS[month - 1]} {year} pada departemen ini.
                 </div>
               )}
               {groups.map(([person, list]) => {
