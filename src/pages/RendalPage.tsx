@@ -762,7 +762,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     if (!editingTask) return;
 
     const revVal = (editFormData.rev && editFormData.rev.trim() !== '') ? editFormData.rev.trim() : '0';
-    const releaseVal = editFormData.release ? editFormData.release.trim() : '';
+    let releaseVal = editFormData.release ? editFormData.release.trim() : '';
+    const keyChanged = editingTask.project !== editFormData.project
+      || editingTask.taskName !== editFormData.taskName
+      || String(editingTask.rev || '0') !== revVal;
+    if (keyChanged) {
+      const cached = drawingControlMap[cleanText(editFormData.project)];
+      const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(editFormData.project);
+      releaseVal = findReleaseInRows(rows, editFormData.taskName, revVal);
+    }
 
     const updatePayload: any = {
       project: editFormData.project,
