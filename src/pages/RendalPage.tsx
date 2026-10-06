@@ -375,20 +375,30 @@ async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlR
 }
 
 // Cari tanggal Release (FINISH DATE) untuk gambar + Rev tertentu. Hasil "YYYY-MM-DD" atau '' bila tidak ada.
+// Ambil NOMOR gambar dari deskripsi, mis. "E11600.03101 SUPERSTRUCTURE ..." -> "E11600.03101"
+function extractDrawingNumber(desc: string): string {
+  let s = (desc || '').replace(/\s+/g, ' ').trim();
+  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-–_:]\s*/i, '');            // buang awalan revisi "R2 - " / "REV - "
+  const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);    // nomor di awal deskripsi
+  if (m) return m[0].toUpperCase();
+  const first = s.split(/\s+-\s+|\s+/)[0] || '';                        // cadangan: kata pertama bila memuat angka
+  return /\d/.test(first) && first.length >= 4 ? first.toUpperCase() : '';
+}
+
+const drawingKey = (v: string) => cleanText(extractDrawingNumber(v) || v);
+
+// Cari Release (FINISH DATE) berdasarkan NOMOR gambar + Rev yang sama. Hasil "YYYY-MM-DD" atau ''.
 function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
   if (!rows || rows.length === 0 || !taskName) return '';
-  const target = cleanText(taskName);
+  const wanted = drawingKey(taskName);
+  if (!wanted) return '';
   const toNum = (v: any) => { const n = parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10); return isNaN(n) ? 0 : n; };
   const wantRev = toNum(rev);
-  const hits = rows.filter(r => {
-    if (toNum(r.rev) !== wantRev) return false;
-    const dwg = cleanText(r.noDwg);
-    if (dwg) return target.includes(dwg);
-    const nm = cleanText(r.drawingName);
-    return nm.length >= 5 && target.includes(nm);
-  });
-  const withDate = hits.find(r => parseToStandardDate(r.finishDate) && /^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(r.finishDate)));
-  return withDate ? parseToStandardDate(withDate.finishDate) : '';
+  const hit = rows.find(r =>
+    toNum(r.rev) === wantRev &&
+    drawingKey(r.noDwg) === wanted &&
+    /^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(r.finishDate)));
+  return hit ? parseToStandardDate(hit.finishDate) : '';
 }
 
 const MASTER_BUCKET = 'master-files';
