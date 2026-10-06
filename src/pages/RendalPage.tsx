@@ -5,7 +5,6 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import ImportJobcardPage from './ImportJobcardPage';
-import SyncReleasePage from './SyncReleasePage';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, 
@@ -461,7 +460,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [showSync, setShowSync] = useState(false);
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
@@ -1162,10 +1160,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return <ImportJobcardPage user={user} onLogout={onLogout} onBack={() => setShowImport(false)} />;
   }
 
-  if (showSync) {
-    return <SyncReleasePage user={user} onLogout={onLogout} onBack={() => { setShowSync(false); loadAllJobCards(); }} />;
-  }
-
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
       <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
@@ -1526,13 +1520,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   title="Impor Jobcard bulanan dari JOBCARD_DESAIN.xlsx"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" /> Import Jobcard
-                </button>
-                <button
-                  onClick={() => setShowSync(true)}
-                  className="px-2.5 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                  title="Isi tanggal Release otomatis dari Drawing Control (Google Drive)"
-                >
-                  <Sparkles className="w-3.5 h-3.5" /> Sinkron Release
                 </button>
                 <input type="text" placeholder="Cari..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
