@@ -317,7 +317,7 @@ function getProjectNormKey(s: string): string {
 
 // Ambil seluruh baris Drawing Control sebuah proyek (Google Apps Script dulu, lalu CSV Google Sheets).
 // Dipakai untuk mengisi Release otomatis saat form disimpan dan oleh tombol sprinkel.
-async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlRow[]> {
+async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlRow[]> {
   const cleanProj = cleanText(projectCode);
   if (!cleanProj) return [];
   try {
@@ -357,6 +357,22 @@ async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlR
     } catch { /* tidak ada data */ }
   }
   return [];
+}
+
+// "W0000304 - 305" -> "W000304" (satu huruf + 6 digit); kode lain dibiarkan
+function normalizeProjectCode(raw: string): string {
+  const m = (raw || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z])0*(\d+)/);
+  if (!m || m[2].length > 6) return '';
+  return m[1] + m[2].padStart(6, '0');
+}
+
+// Coba kode proyek apa adanya, lalu bentuk standarnya bila kosong
+async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlRow[]> {
+  let rows = await fetchDrawingRowsRaw(projectCode);
+  if (rows.length > 0) return rows;
+  const alt = normalizeProjectCode(projectCode);
+  if (alt && cleanText(alt) !== cleanText(projectCode)) rows = await fetchDrawingRowsRaw(alt);
+  return rows;
 }
 
 // Cari tanggal Release (FINISH DATE) untuk gambar + Rev tertentu. Hasil "YYYY-MM-DD" atau '' bila tidak ada.
@@ -501,6 +517,65 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     initMasterFiles();
     loadAllJobCards();
   }, [loadAllJobCards]);
+
+  // ===== Sinkron Release OTOMATIS dari Drawing Control (tanpa klik apa pun) =====
+  // Tugas yang Release-nya masih kosong dicocokkan ke Drive saat data dimuat, lalu disimpan sendiri.
+  // Yang tidak ketemu dicoba lagi tiap 10 menit (mis. Finish Date baru diisi di Drive).
+  const autoTried = useRef<Set<string>>(new Set());
+  const autoRunning = useRef(false);
+  const [autoSyncMsg, setAutoSyncMsg] = useState('');
+
+  const autoSyncReleases = useCallback(async (retryAll: boolean) => {
+    if (autoRunning.current) return;
+    const all = ([] as TaskItem[]).concat(...Object.values(manualTasks));
+    const todo = all.filter(t =>
+      t.project && t.taskName &&
+      !/^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(t.release)) &&
+      (retryAll || !autoTried.current.has(`${t.id}|${t.rev || '0'}`)));
+    if (todo.length === 0) return;
+    autoRunning.current = true;
+    try {
+      const projects = Array.from(new Set(todo.map(t => t.project)));
+      const rowsByProject = new Map<string, DrawingControlRow[]>();
+      for (let i = 0; i < projects.length; i += 4) {
+        await Promise.all(projects.slice(i, i + 4).map(async p => {
+          try { rowsByProject.set(p, await fetchDrawingRowsFor(p)); } catch { rowsByProject.set(p, []); }
+        }));
+      }
+      const found = new Map<string, string>();
+      todo.forEach(t => {
+        autoTried.current.add(`${t.id}|${t.rev || '0'}`);
+        const rel = findReleaseInRows(rowsByProject.get(t.project) || [], t.taskName, t.rev || '0');
+        if (rel) found.set(t.id, rel);
+      });
+      if (found.size === 0) return;
+      const ids = Array.from(found.keys());
+      for (let i = 0; i < ids.length; i += 10) {
+        await Promise.all(ids.slice(i, i + 10).map(async id => {
+          const rel = found.get(id)!;
+          saveLocalRelease(id, rel);
+          try { await supabase.from('job_cards').update({ release: rel }).eq('id', id); } catch {}
+        }));
+      }
+      setManualTasks(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(k => {
+          updated[k] = updated[k].map(t => found.has(t.id) ? { ...t, release: found.get(t.id)! } : t);
+        });
+        return updated;
+      });
+      setAutoSyncMsg(`${found.size} tanggal Release terisi otomatis dari Drawing Control`);
+      setTimeout(() => setAutoSyncMsg(''), 8000);
+    } finally {
+      autoRunning.current = false;
+    }
+  }, [manualTasks]);
+
+  useEffect(() => { autoSyncReleases(false); }, [autoSyncReleases]);
+  useEffect(() => {
+    const timer = setInterval(() => autoSyncReleases(true), 10 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [autoSyncReleases]);
 
   const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -1109,6 +1184,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {autoSyncMsg && (
+              <span className="px-2.5 py-1 text-[11px] bg-cyan-500/10 text-cyan-300 rounded-lg border border-cyan-500/30 flex items-center gap-1">
+                <Sparkles className="w-3 h-3" /> {autoSyncMsg}
+              </span>
+            )}
             {accessMode !== 'landing' && (
               <button onClick={() => { setAccessMode('landing'); setSelectedDept(null); setSelectedFormBiro(null); setSubconSelectedBiro(null); setSubconSelectedDept(null); }}
                 className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer">
