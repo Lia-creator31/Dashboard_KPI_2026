@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
+import { projectCandidates, dedupeRows } from '../lib/projectCandidates';
 import { ArrowLeft, RefreshCw, Save, Check, AlertTriangle } from 'lucide-react';
 
 interface SyncReleasePageProps {
@@ -75,7 +76,7 @@ function parseToStandardDate(val: any): string {
 
 const dcCache = new Map<string, DrawingControlRow[]>();
 
-// Ambil seluruh baris Drawing Control sebuah proyek: Google Apps Script dulu, lalu CSV Google Sheets
+// Ambil seluruh baris Drawing Control satu nama proyek: Google Apps Script dulu, lalu CSV Google Sheets
 async function fetchDrawingRows(project: string): Promise<DrawingControlRow[]> {
   const proj = dcClean(project);
   if (!proj) return [];
@@ -156,22 +157,15 @@ function clearDrawingCache() { dcCache.clear(); }
 
 const MONTH_NAMES = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
-// "W0000304 - 305" -> "W000304" (satu huruf + 6 digit); kode lain dibiarkan
-function normalizeProject(raw: string): string {
-  const m = (raw || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z])0*(\d+)/);
-  if (!m || m[2].length > 6) return '';
-  return m[1] + m[2].padStart(6, '0');
-}
-
+// Satu teks proyek (mis. "WFFBNW - W000304") dicari ke Drive dengan SEMUA nama kandidatnya,
+// lalu hasilnya digabung. Varian WFFBNW1 / WFFBNW2 ikut dianggap WFFBNW.
 async function loadProject(raw: string): Promise<{ rows: DrawingControlRow[]; usedCode: string }> {
-  let rows = await fetchDrawingRows(raw);
-  if (rows.length) return { rows, usedCode: raw };
-  const alt = normalizeProject(raw);
-  if (alt && dcClean(alt) !== dcClean(raw)) {
-    rows = await fetchDrawingRows(alt);
-    if (rows.length) return { rows, usedCode: alt };
-  }
-  return { rows: [], usedCode: '' };
+  const cands = projectCandidates(raw);
+  if (!cands.length) cands.push(raw);
+  const results = await Promise.all(cands.map(c => fetchDrawingRows(c).catch(() => [] as DrawingControlRow[])));
+  const rows = dedupeRows(results.flat());
+  const used = cands.filter((_, i) => results[i].length > 0);
+  return { rows, usedCode: used.join(' + ') };
 }
 
 function getLocalRev(id: string): string {
