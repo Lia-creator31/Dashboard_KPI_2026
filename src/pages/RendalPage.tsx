@@ -375,7 +375,6 @@ async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlR
 }
 
 // Cari tanggal Release (FINISH DATE) untuk gambar + Rev tertentu. Hasil "YYYY-MM-DD" atau '' bila tidak ada.
-// Ambil NOMOR gambar dari deskripsi, mis. "E11600.03101 SUPERSTRUCTURE ..." -> "E11600.03101"
 function extractDrawingNumber(desc: string): string {
   let s = (desc || '').replace(/\s+/g, ' ').trim();
   s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-–_:]\s*/i, '');            // buang awalan revisi "R2 - " / "REV - "
