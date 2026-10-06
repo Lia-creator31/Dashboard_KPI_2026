@@ -966,9 +966,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         autoKode = `${prefix}${currentList.length + 1}`;
       }
       const revVal = (formData.rev && formData.rev.trim() !== '') ? formData.rev.trim() : '0';
-      let releaseVal = formData.release ? formData.release.trim() : '';
-      // Release belum terisi (mis. data Drive belum selesai dimuat saat form diisi) -> tarik otomatis saat disimpan
-      if (!releaseVal && formData.kodeProyek && formData.taskName) {
+      let releaseVal = '';
+      if (formData.kodeProyek && formData.taskName) {
         const cp = cleanText(formData.kodeProyek);
         const cached = drawingControlMap[cp];
         const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(formData.kodeProyek);
