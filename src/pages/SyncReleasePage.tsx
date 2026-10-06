@@ -132,19 +132,23 @@ const dcRevNum = (v: any) => {
 };
 
 // Cari tanggal Release (FINISH DATE) untuk gambar + Rev tertentu. Hasil "YYYY-MM-DD", atau '' bila tidak ada.
+function extractDrawingNumber(desc: string): string {
+  let s = (desc || '').replace(/\s+/g, ' ').trim();
+  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-–_:]\s*/i, '');
+  const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);
+  if (m) return m[0].toUpperCase();
+  const first = s.split(/\s+-\s+|\s+/)[0] || '';
+  return /\d/.test(first) && first.length >= 4 ? first.toUpperCase() : '';
+}
+const drawingKey = (v: string) => dcClean(extractDrawingNumber(v) || v);
+
 function findReleaseDate(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
   if (!rows.length || !taskName) return '';
-  const target = dcClean(taskName);
+  const wanted = drawingKey(taskName);
+  if (!wanted) return '';
   const wantRev = dcRevNum(rev);
-  const hits = rows.filter(r => {
-    if (dcRevNum(r.rev) !== wantRev) return false;
-    const dwg = dcClean(r.noDwg);
-    if (dwg) return target.includes(dwg);          // nomor gambar ada di deskripsi
-    const nm = dcClean(r.drawingName);
-    return nm.length >= 5 && target.includes(nm);  // cadangan: cocokkan nama gambar
-  });
-  const withDate = hits.find(r => parseToStandardDate(r.finishDate));
-  return withDate ? parseToStandardDate(withDate.finishDate) : '';
+  const hit = rows.find(r => dcRevNum(r.rev) === wantRev && drawingKey(r.noDwg) === wanted && parseToStandardDate(r.finishDate));
+  return hit ? parseToStandardDate(hit.finishDate) : '';
 }
 
 
