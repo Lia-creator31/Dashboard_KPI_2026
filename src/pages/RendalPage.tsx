@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import ImportJobcardPage from './ImportJobcardPage';
+import SyncReleasePage from './SyncReleasePage';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, 
@@ -314,6 +315,67 @@ function getProjectNormKey(s: string): string {
   return k.replace(/0/g, 'o');
 }
 
+// Ambil seluruh baris Drawing Control sebuah proyek (Google Apps Script dulu, lalu CSV Google Sheets).
+// Dipakai untuk mengisi Release otomatis saat form disimpan dan oleh tombol sprinkel.
+async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlRow[]> {
+  const cleanProj = cleanText(projectCode);
+  if (!cleanProj) return [];
+  try {
+    const res = await fetch(`${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        return json.data.map((item: any) => ({
+          noDwg: String(item.noDwg || '').trim(), drawingName: String(item.drawingName || '').trim(),
+          fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
+          rev: String(item.rev || '0').trim(), finishDate: String(item.finishDate || '').trim(),
+        }));
+      }
+    }
+  } catch { /* lanjut ke cadangan CSV */ }
+
+  const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(s.projectKey) === cleanProj || cleanProj.includes(cleanText(s.projectKey)));
+  if (match) {
+    try {
+      const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`);
+      if (res.ok) {
+        const wb = XLSX.read(await res.text(), { type: 'string' });
+        const rawRows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+        const rows: DrawingControlRow[] = [];
+        for (let r = 1; r < rawRows.length; r++) {
+          const row = rawRows[r]; if (!row) continue;
+          const noDwg = String(row[0] || '').trim(); const dwgName = String(row[1] || '').trim();
+          if (!noDwg && !dwgName) continue;
+          rows.push({
+            noDwg, drawingName: dwgName,
+            fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg),
+            rev: String(row[14] || '0').trim(), finishDate: String(row[15] || '').trim(),
+          });
+        }
+        if (rows.length > 0) return rows;
+      }
+    } catch { /* tidak ada data */ }
+  }
+  return [];
+}
+
+// Cari tanggal Release (FINISH DATE) untuk gambar + Rev tertentu. Hasil "YYYY-MM-DD" atau '' bila tidak ada.
+function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
+  if (!rows || rows.length === 0 || !taskName) return '';
+  const target = cleanText(taskName);
+  const toNum = (v: any) => { const n = parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10); return isNaN(n) ? 0 : n; };
+  const wantRev = toNum(rev);
+  const hits = rows.filter(r => {
+    if (toNum(r.rev) !== wantRev) return false;
+    const dwg = cleanText(r.noDwg);
+    if (dwg) return target.includes(dwg);
+    const nm = cleanText(r.drawingName);
+    return nm.length >= 5 && target.includes(nm);
+  });
+  const withDate = hits.find(r => parseToStandardDate(r.finishDate) && /^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(r.finishDate)));
+  return withDate ? parseToStandardDate(withDate.finishDate) : '';
+}
+
 const MASTER_BUCKET = 'master-files';
 type MasterKey = 'jobcard' | 'im4' | 'realisasi';
 
@@ -383,6 +445,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showSync, setShowSync] = useState(false);
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
@@ -782,42 +845,22 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     setEditingReleaseId(null);
   };
 
+  // Tombol sprinkel: tarik Release dari Drive (GAS, lalu cadangan CSV) untuk satu tugas
   const handleSyncReleaseFromDrive = async (task: TaskItem) => {
     const cleanProj = cleanText(task.project);
-    let rows = drawingControlMap[cleanProj];
+    let rows: DrawingControlRow[] | undefined = drawingControlMap[cleanProj];
     if (!rows || rows.length === 0) {
-      try {
-        const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(task.project.trim())}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const json = await res.json();
-          if (json.success && Array.isArray(json.data)) {
-            rows = json.data.map((item: any) => ({
-              noDwg: String(item.noDwg || '').trim(), drawingName: String(item.drawingName || '').trim(),
-              fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
-              rev: String(item.rev || '0').trim(), finishDate: String(item.finishDate || '').trim(),
-            }));
-            setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rows }));
-          }
-        }
-      } catch (err) { console.error(err); }
-    }
-    if (rows && rows.length > 0) {
-      const cleanTarget = cleanText(task.taskName);
-      const currentTaskRev = String(task.rev || '0').trim();
-      const exactMatch = rows.find(r => {
-        const cFull = cleanText(r.fullDeskripsi); const cDwg = cleanText(r.noDwg); const cName = cleanText(r.drawingName);
-        const rowRev = String(r.rev || '0').trim();
-        const isRevMatch = rowRev === currentTaskRev;
-        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
-        return isNameMatch && isRevMatch;
-      });
-      if (exactMatch && exactMatch.finishDate) {
-        const standardDate = parseToStandardDate(exactMatch.finishDate);
-        await handleQuickSaveRelease(task.id, standardDate);
-        alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(standardDate)}`);
-        return;
+      rows = await fetchDrawingRowsFor(task.project);
+      if (rows.length > 0) {
+        const fetched = rows;
+        setDrawingControlMap(prev => ({ ...prev, [cleanProj]: fetched }));
       }
+    }
+    const rel = findReleaseInRows(rows || [], task.taskName, task.rev || '0');
+    if (rel) {
+      await handleQuickSaveRelease(task.id, rel);
+      alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(rel)}`);
+      return;
     }
     alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
   };
@@ -841,7 +884,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         autoKode = `${prefix}${currentList.length + 1}`;
       }
       const revVal = (formData.rev && formData.rev.trim() !== '') ? formData.rev.trim() : '0';
-      const releaseVal = formData.release ? formData.release.trim() : '';
+      let releaseVal = formData.release ? formData.release.trim() : '';
+      // Release belum terisi (mis. data Drive belum selesai dimuat saat form diisi) -> tarik otomatis saat disimpan
+      if (!releaseVal && formData.kodeProyek && formData.taskName) {
+        const cp = cleanText(formData.kodeProyek);
+        const cached = drawingControlMap[cp];
+        const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(formData.kodeProyek);
+        releaseVal = findReleaseInRows(rows, formData.taskName, revVal);
+      }
       const insertPayload: any = {
         biro_id: validBiroId, biro_name: activeBiro, personil_name: formData.nama, project_code: formData.kodeProyek,
         project: formData.kodeProyek, task_name: formData.taskName, start_date: formData.startDate, end_date: formData.endDate,
@@ -856,6 +906,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         if (retryError) { alert('Gagal simpan: ' + retryError.message); return; }
         insertedRow = retryData;
       } else { insertedRow = resData; }
+
+      if (releaseVal) saveLocalRelease(insertedRow.id, releaseVal);
       
       const newTask: TaskItem = {
         id: insertedRow.id, biroName: activeBiro, project: formData.kodeProyek, taskName: formData.taskName,
@@ -990,7 +1042,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             
             const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
             
-            if (!raw || raw.toLowerCase() === 'nan' || raw.toLowerCase().includes('deskripsi') || raw.toLowerCase() === 'task') return;
+            if (!raw || raw.toLowerCase() === 'nan' || raw.toLowerCase().includes('deskripsi') || raw.toLowerCase() === 'task' || raw.toLowerCase() === 'task name' || raw.toUpperCase().startsWith('REVISI KE - NO DOC')) return;
             
             const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
             const normKey = cleanText(cleaned);
@@ -1033,6 +1085,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   if (showImport) {
     return <ImportJobcardPage user={user} onLogout={onLogout} onBack={() => setShowImport(false)} />;
+  }
+
+  if (showSync) {
+    return <SyncReleasePage user={user} onLogout={onLogout} onBack={() => { setShowSync(false); loadAllJobCards(); }} />;
   }
 
   return (
@@ -1390,6 +1446,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   title="Impor Jobcard bulanan dari JOBCARD_DESAIN.xlsx"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" /> Import Jobcard
+                </button>
+                <button
+                  onClick={() => setShowSync(true)}
+                  className="px-2.5 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  title="Isi tanggal Release otomatis dari Drawing Control (Google Drive)"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> Sinkron Release
                 </button>
                 <input type="text" placeholder="Cari..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
