@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import ImportJobcardPage from './ImportJobcardPage';
+import { projectCandidates, dedupeRows } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, 
@@ -314,8 +315,7 @@ function getProjectNormKey(s: string): string {
   return k.replace(/0/g, 'o');
 }
 
-// Ambil seluruh baris Drawing Control sebuah proyek (Google Apps Script dulu, lalu CSV Google Sheets).
-// Dipakai untuk mengisi Release otomatis saat form disimpan dan oleh tombol sprinkel.
+// Ambil baris Drawing Control untuk SATU nama proyek (Google Apps Script dulu, lalu cadangan CSV Google Sheets).
 async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlRow[]> {
   const cleanProj = cleanText(projectCode);
   if (!cleanProj) return [];
@@ -358,20 +358,13 @@ async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlR
   return [];
 }
 
-// "W0000304 - 305" -> "W000304" (satu huruf + 6 digit); kode lain dibiarkan
-function normalizeProjectCode(raw: string): string {
-  const m = (raw || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z])0*(\d+)/);
-  if (!m || m[2].length > 6) return '';
-  return m[1] + m[2].padStart(6, '0');
-}
-
-// Coba kode proyek apa adanya, lalu bentuk standarnya bila kosong
+// Satu teks proyek (mis. "WFFBNW - W000304") dicari dengan SEMUA nama kandidatnya
+// (WFFBNW, FFBNW, W000304, dan varian WFFBNW1/WFFBNW2), hasilnya digabung tanpa duplikat.
 async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlRow[]> {
-  let rows = await fetchDrawingRowsRaw(projectCode);
-  if (rows.length > 0) return rows;
-  const alt = normalizeProjectCode(projectCode);
-  if (alt && cleanText(alt) !== cleanText(projectCode)) rows = await fetchDrawingRowsRaw(alt);
-  return rows;
+  const cands = projectCandidates(projectCode);
+  if (!cands.length) cands.push(projectCode);
+  const results = await Promise.all(cands.map(c => fetchDrawingRowsRaw(c).catch(() => [] as DrawingControlRow[])));
+  return dedupeRows(results.flat());
 }
 
 // Cari tanggal Release (FINISH DATE) untuk gambar + Rev tertentu. Hasil "YYYY-MM-DD" atau '' bila tidak ada.
@@ -852,50 +845,19 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     }
   };
 
+  // Dipakai dropdown form dan dialog edit: ambil Drawing Control dengan semua nama kandidat proyek
   const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
     const cleanProj = cleanText(projectCode); if (!cleanProj) return;
     setIsFetchingDrawing(true);
     try {
-      const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-          const rowsList: DrawingControlRow[] = json.data.map((item: any) => ({
-            noDwg: String(item.noDwg || '').trim(), drawingName: String(item.drawingName || '').trim(),
-            fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
-            rev: String(item.rev || '0').trim(), finishDate: String(item.finishDate || '').trim(),
-          }));
-          setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList }));
-          setActiveDrawingSheetTitle(json.fileName || `Drawing Control ${projectCode}`);
-          setIsFetchingDrawing(false); return;
-        }
+      const rows = await fetchDrawingRowsFor(projectCode);
+      if (rows.length > 0) {
+        setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rows }));
+        setActiveDrawingSheetTitle(`Drawing Control ${projectCode}`);
       }
-    } catch (err) { console.warn('Gagal koneksi ke Google Apps Script, mencoba fallback...', err); }
-
-    const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(s.projectKey) === cleanProj || cleanProj.includes(cleanText(s.projectKey)) || cleanText(s.title).includes(cleanProj));
-    if (match) {
-      try {
-        const csvUrl = `https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`;
-        const res = await fetch(csvUrl);
-        if (res.ok) {
-          const csvText = await res.text();
-          const wb = XLSX.read(csvText, { type: 'string' });
-          const sheet = wb.Sheets[wb.SheetNames[0]];
-          const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-          const rowsList: DrawingControlRow[] = [];
-          for (let r = 1; r < rawRows.length; r++) {
-            const row = rawRows[r]; if (!row) continue;
-            const noDwg = String(row[0] || '').trim(); const dwgName = String(row[1] || '').trim();
-            const rev = String(row[14] || '0').trim(); const finishRaw = String(row[15] || '').trim();
-            if (!noDwg && !dwgName) continue;
-            rowsList.push({ noDwg, drawingName: dwgName, fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg), rev, finishDate: finishRaw });
-          }
-          if (rowsList.length > 0) { setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList })); setActiveDrawingSheetTitle(match.title); }
-        }
-      } catch {}
+    } finally {
+      setIsFetchingDrawing(false);
     }
-    setIsFetchingDrawing(false);
   }, []);
 
   const handleProjectChange = (newProject: string) => {
