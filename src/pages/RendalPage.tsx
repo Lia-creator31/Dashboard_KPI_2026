@@ -411,7 +411,7 @@ async function loadMasterFile(key: MasterKey): Promise<XLSX.WorkBook | null> {
   } catch { return null; }
 }
 
-/* ===== HOUR PLANNER: nilai jam sendiri per Jobcard, dihubungkan ke job card lewat kode Jobcard ===== */
+/* ===== HOUR PLANNER: nilai jam per Jobcard, dihubungkan ke job card lewat kode Jobcard, lalu ditulis ke kolom Plan JO (jo) ===== */
 const HOUR_PLANNER_FILE = 'hourplanner.json';
 
 interface HourPlannerEntry {
@@ -687,8 +687,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     reader.readAsBinaryString(file);
   };
 
-  // Import file Excel Hour Planner: nilai disimpan sendiri, dihubungkan ke job card lewat kode Jobcard.
-  // Hasil digabung dengan data sebelumnya (kode yang sama ditimpa nilai terbaru), jadi bulan lama tidak hilang.
+  // Import file Excel Hour Planner: kolom "Hour Planned" ditulis ke kolom Plan JO (jo) di job_cards,
+  // dicocokkan lewat kode Jobcard (kolom "Name"). Nilai juga disimpan di hourplanner.json (digabung dengan
+  // data sebelumnya, kode yang sama ditimpa nilai terbaru) supaya job card yang kodenya diisi belakangan
+  // tetap otomatis terisi Plan JO-nya (lihat handleSaveKodeJcForTask).
   const handleImportHourPlanner = async (e: ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
     const file = input.files?.[0]; if (!file) return;
@@ -703,16 +705,39 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const saveErr = await saveHourPlanner(merged);
       setHourPlannerMap(merged);
 
+      // Tulis Hour Planned ke kolom jo (Plan JO) pada job card yang kode Jobcard-nya cocok
       const allTasks = ([] as TaskItem[]).concat(...Object.values(manualTasks));
-      const linked = allTasks.filter(t => t.kodeJc && entries[cleanText(t.kodeJc)]).length;
-      const noJobcard = Object.keys(entries).length - new Set(
-        allTasks.map(t => cleanText(t.kodeJc || '')).filter(k => k && entries[k])
-      ).size;
+      const toUpdate = allTasks.filter(t => t.kodeJc && entries[cleanText(t.kodeJc)]);
+
+      let okCount = 0, failCount = 0;
+      const newJo = new Map<string, string>();
+      for (let i = 0; i < toUpdate.length; i += 10) {
+        await Promise.all(toUpdate.slice(i, i + 10).map(async t => {
+          const hour = String(entries[cleanText(t.kodeJc)].hour);
+          const { error: upErr } = await supabase.from('job_cards').update({ jo: hour }).eq('id', t.id);
+          if (upErr) failCount++;
+          else { okCount++; newJo.set(t.id, hour); }
+        }));
+      }
+
+      if (newJo.size > 0) {
+        setManualTasks(prev => {
+          const updated = { ...prev };
+          Object.keys(updated).forEach(k => {
+            updated[k] = updated[k].map(t => newJo.has(t.id) ? { ...t, jo: newJo.get(t.id)! } : t);
+          });
+          return updated;
+        });
+      }
+
+      const linkedKeys = new Set(toUpdate.map(t => cleanText(t.kodeJc)));
+      const noJobcard = Object.keys(entries).filter(k => !linkedKeys.has(k)).length;
 
       alert(
         `Hour Planner "${file.name}" diimpor: ${rowCount} baris.\n` +
-        `• Terhubung ke job card yang sudah ada: ${linked}\n` +
-        `• Belum ada job card dengan kode itu: ${noJobcard} (tetap disimpan, tersambung otomatis saat job card dibuat)` +
+        `• Plan JO terisi pada job card yang sudah ada: ${okCount}\n` +
+        `• Belum ada job card dengan kode itu: ${noJobcard} (tetap disimpan, Plan JO terisi otomatis saat kode Jobcard diisi di Planner)` +
+        (failCount ? `\n\nPERHATIAN: ${failCount} job card gagal diperbarui Plan JO-nya (cek tipe kolom jo di Supabase).` : '') +
         (saveErr ? `\n\nPERHATIAN: gagal disimpan permanen ke server (${saveErr.message}). Data hanya ada di sesi ini.` : '')
       );
     } catch {
@@ -1089,14 +1114,25 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     } catch { alert('Koneksi database bermasalah.'); }
   };
 
+  // Simpan kode Jobcard dari Planner. Bila kode itu sudah ada di data Hour Planner,
+  // Plan JO (jo) otomatis terisi dari Hour Planned.
   const handleSaveKodeJcForTask = async (taskId: string) => {
     const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase();
     if (!inputVal) return;
-    const { error } = await supabase.from('job_cards').update({ kode_jc: inputVal, status: 'approved' }).eq('id', taskId);
+
+    const hp = hourPlannerMap[cleanText(inputVal)];
+    const payload: any = { kode_jc: inputVal, status: 'approved' };
+    if (hp) payload.jo = String(hp.hour);
+
+    const { error } = await supabase.from('job_cards').update(payload).eq('id', taskId);
     if (error) { alert('Gagal simpan Jobcard: ' + error.message); return; }
     setManualTasks(prev => {
       const updated = { ...prev };
-      Object.keys(updated).forEach(k => { updated[k] = updated[k].map(t => t.id === taskId ? { ...t, kodeJc: inputVal } : t); });
+      Object.keys(updated).forEach(k => {
+        updated[k] = updated[k].map(t => t.id === taskId
+          ? { ...t, kodeJc: inputVal, ...(hp ? { jo: String(hp.hour) } : {}) }
+          : t);
+      });
       return updated;
     });
     setEditingTaskKode(prev => { const next = { ...prev }; delete next[taskId]; return next; });
@@ -1503,8 +1539,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     </div>
                     <div>
                       <label className="block text-slate-400 mb-1">Nomor JO</label>
-                      <input type="text" inputMode="numeric" value={formData.jo}
-                        onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9]/g, '') }))}
+                      <input type="text" inputMode="decimal" value={formData.jo}
+                        onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
                         placeholder="Contoh: 300426" required
                         className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
                     </div>
@@ -1613,7 +1649,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 </button>
                 <label
                   className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                  title="Impor Hour Planner (Hour_Planner.xlsx): jam per Jobcard, dihubungkan lewat kode Jobcard"
+                  title="Impor Hour Planner (Hour_Planner.xlsx): kolom Hour Planned masuk ke Plan JO sesuai kode Jobcard"
                 >
                   <Clock className="w-3.5 h-3.5" />
                   {isImportingHour ? 'Mengimpor...' : `Import Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}
@@ -1732,7 +1768,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                   <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
                                   <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
                                   <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
-                                  <th className="py-2 px-2.5 font-mono text-sky-300">Hour Planner</th>
                                   <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
                                   <th className="py-2 px-2.5 font-mono text-cyan-300">Release</th>
                                   <th className="py-2 px-2.5 text-center w-20">Aksi</th>
@@ -1741,7 +1776,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                   {personTasks.map((task, tIdx) => {
                                     const jcKey = cleanText(task.kodeJc || '');
                                     const calculatedRealHours = jcKey ? realisasiMap.get(jcKey) : undefined;
-                                    const hourPlan = jcKey ? hourPlannerMap[jcKey] : undefined;
                                     return (
                                       <tr key={task.id} className="hover:bg-slate-900/40">
                                         <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
@@ -1752,11 +1786,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate)}</td>
                                         <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate)}</td>
                                         <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo ? String(task.jo).replace(/^#+/, '') : '-'}</td>
-                                        <td className="py-2 px-2.5 font-mono">
-                                          {hourPlan
-                                            ? <span className="text-sky-300 font-semibold" title={`Planner: ${hourPlan.planner || '-'}\nJadwal: ${formatDisplayDate(hourPlan.start)} s/d ${formatDisplayDate(hourPlan.end)}`}>{hourPlan.hour}</span>
-                                            : <span className="text-slate-600">-</span>}
-                                        </td>
                                         <td className="py-2 px-2.5 font-mono font-bold">
                                           {calculatedRealHours !== undefined ? (
                                             <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">{Math.round(calculatedRealHours * 100) / 100} Jam</span>
@@ -1833,8 +1862,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     </div>
                     <div>
                       <label className="block text-slate-400 mb-1">Plan JO</label>
-                      <input type="text" inputMode="numeric" value={formData.jo}
-                        onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9]/g, '') }))}
+                      <input type="text" inputMode="decimal" value={formData.jo}
+                        onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
                         placeholder="Contoh: 300426" required
                         className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
                     </div>
@@ -1939,9 +1968,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   </label>
                   <input
                     type="text"
-                    inputMode="numeric"
+                    inputMode="decimal"
                     value={editFormData.jo}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9]/g, '') }))}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
                     required
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                   />
