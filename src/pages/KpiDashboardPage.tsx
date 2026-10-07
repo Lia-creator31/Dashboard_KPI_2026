@@ -40,6 +40,13 @@ interface JobCardRow {
   realJo: number;
 }
 
+// Anggota organik dari master IM4 (dipakai agar semua anggota biro tampil walau belum punya job card)
+interface MemberRow {
+  nama: string;
+  biro: string;
+  dept: string;
+}
+
 interface PersonScore {
   name: string;
   biro: string;
@@ -178,35 +185,59 @@ function buildRealisasiMap(wb: XLSX.WorkBook | null): Map<string, number> {
   return map;
 }
 
-/* Baca daftar nama organik & outsourcing dari master IM4 (logika sama dengan KabiroPage) */
-function parseMemberNames(wb: XLSX.WorkBook | null): { organic: Set<string>; outsourcing: Set<string> } {
+/* Baca master IM4: daftar nama organik & outsourcing, plus daftar anggota organik beserta biro/departemennya
+   (penanda biro/departemen berjalan, logikanya sama dengan RendalPage) */
+function parseMemberNames(wb: XLSX.WorkBook | null): { organic: Set<string>; outsourcing: Set<string>; members: MemberRow[] } {
   const organic = new Set<string>();
   const outsourcing = new Set<string>();
-  if (!wb) return { organic, outsourcing };
+  const members: MemberRow[] = [];
+  if (!wb) return { organic, outsourcing, members };
   try {
     const sheetName = wb.SheetNames.find(s => s.toLowerCase().includes('education')) || wb.SheetNames[0];
-    const sheet = wb.Sheets[sheetName]; if (!sheet) return { organic, outsourcing };
+    const sheet = wb.Sheets[sheetName]; if (!sheet) return { organic, outsourcing, members };
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     let headerIdx = -1;
     for (let r = 0; r < Math.min(15, rows.length); r++) {
       const vals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
       if (vals.includes('nama') && (vals.includes('nip') || vals.includes('status') || vals.includes('jabatan'))) { headerIdx = r; break; }
     }
-    if (headerIdx === -1) return { organic, outsourcing };
+    if (headerIdx === -1) return { organic, outsourcing, members };
     const headers = rows[headerIdx].map(v => String(v).trim().toLowerCase());
     const namaCol = headers.findIndex(h => h === 'nama');
     const statusCol = headers.findIndex(h => h === 'status');
+    const unitCol = headers.findIndex(h => h.includes('unit'));
+    const jabatanCol = headers.findIndex(h => h.includes('jabatan'));
+    let currentDept = '', currentBiro = '';
+    const seen = new Set<string>();
     for (let r = headerIdx + 1; r < rows.length; r++) {
       const row = rows[r]; if (!row) continue;
       const nama = String(row[namaCol] || '').trim();
       if (!nama || nama.toLowerCase() === 'nan' || nama.toLowerCase() === 'nama') continue;
+      const unit = String(row[unitCol] || '').trim();
+      const jabatan = String(row[jabatanCol] || '').trim();
+      const jl = jabatan.toLowerCase();
+      const hasUnit = unit !== '' && unit.toLowerCase() !== 'nan';
+
+      if (jl.includes('kepala divisi')) { currentDept = 'Div. Desain'; currentBiro = 'Div. Desain'; }
+      else if (jl.includes('kepala departemen') || jl.includes('kadep')) {
+        currentDept = hasUnit ? unit : jabatan;
+        currentBiro = `Staf ${currentDept}`;
+      } else if (jl.includes('kepala biro') || jl.includes('kabiro')) {
+        currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').replace(/Kabiro/gi, 'Biro').trim();
+        if (hasUnit) currentDept = unit;
+      }
+
       const status = String(row[statusCol] || '').trim().toLowerCase();
       const key = cleanText(nama);
-      if (status.includes('outsourcing')) outsourcing.add(key);
-      else organic.add(key);
+      if (status.includes('outsourcing')) {
+        outsourcing.add(key);
+      } else {
+        organic.add(key);
+        if (!seen.has(key)) { seen.add(key); members.push({ nama, biro: currentBiro, dept: currentDept }); }
+      }
     }
   } catch { /* abaikan */ }
-  return { organic, outsourcing };
+  return { organic, outsourcing, members };
 }
 
 async function loadIm4Workbook(): Promise<XLSX.WorkBook | null> {
@@ -258,7 +289,8 @@ function scorePerson(name: string, biro: string, cards: JobCardRow[]): PersonSco
   };
 }
 
-function buildBiroScore(id: string, name: string, cards: JobCardRow[]): BiroScore {
+// memberNames = anggota biro dari master IM4 yang belum punya job card; tetap ditampilkan (skor "Belum lengkap")
+function buildBiroScore(id: string, name: string, cards: JobCardRow[], memberNames: string[] = []): BiroScore {
   const byPerson = new Map<string, JobCardRow[]>();
   cards.forEach(c => {
     const pk = cleanText(c.pic);
@@ -267,6 +299,13 @@ function buildBiroScore(id: string, name: string, cards: JobCardRow[]): BiroScor
   });
   const persons: PersonScore[] = [];
   byPerson.forEach(list => persons.push(scorePerson(list[0].pic, name, list)));
+
+  const seen = new Set(byPerson.keys());
+  memberNames.forEach(n => {
+    const k = cleanText(n);
+    if (!seen.has(k)) { seen.add(k); persons.push(scorePerson(n, name, [])); }
+  });
+
   persons.sort((x, y) => (y.kpi ?? -1) - (x.kpi ?? -1) || x.name.localeCompare(y.name));
   return {
     id, name, persons,
@@ -417,6 +456,7 @@ function ProjectBarChart({ rows, title, className = '' }: { rows: ProjectScore[]
 /* ============================= Halaman ============================= */
 export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboardPageProps) {
   const [cards, setCards] = useState<JobCardRow[]>([]);
+  const [members, setMembers] = useState<MemberRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [period, setPeriod] = useState('all');
@@ -440,8 +480,9 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
 
       if (jcRes.error) throw jcRes.error;
 
-      // Daftar pegawai organik dari master IM4
-      const { organic, outsourcing } = parseMemberNames(im4Wb);
+      // Daftar pegawai organik (dan anggota per biro) dari master IM4
+      const { organic, outsourcing, members: memberList } = parseMemberNames(im4Wb);
+      setMembers(memberList);
       if (organic.size === 0) {
         setCards([]);
         setErrorMsg('Master IM4 belum termuat, sehingga daftar pegawai organik tidak bisa ditentukan. Upload master IM4 terlebih dahulu.');
@@ -545,19 +586,47 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
       }
     });
 
+    // Anggota IM4 yang belum punya job card pada periode ini -> dipetakan ke biro master lewat biro di IM4
+    const withCards = new Set(filtered.map(c => cleanText(c.pic)));
+    const memberBucket = new Map<string, string[]>();     // key: deptId|biroId
+    const memberUnmapped = new Map<string, string[]>();   // key: nama biro mentah dari IM4
+    members.filter(m => !withCards.has(cleanText(m.nama))).forEach(m => {
+      let placed = false;
+      for (const d of depts) {
+        const b = d.biros.find(bb => isBiroMatch(m.biro, bb.name));
+        if (b) {
+          const k = `${d.id}|${b.id}`;
+          if (!memberBucket.has(k)) memberBucket.set(k, []);
+          memberBucket.get(k)!.push(m.nama);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        const k = m.biro || 'Tanpa Biro';
+        if (!memberUnmapped.has(k)) memberUnmapped.set(k, []);
+        memberUnmapped.get(k)!.push(m.nama);
+      }
+    });
+
     const result: DeptScore[] = depts.map(d => {
-      const biros = d.biros.map(b => buildBiroScore(String(b.id), b.name, bucket.get(`${d.id}|${b.id}`) || []));
+      const biros = d.biros.map(b => {
+        const k = `${d.id}|${b.id}`;
+        return buildBiroScore(String(b.id), b.name, bucket.get(k) || [], memberBucket.get(k) || []);
+      });
       return buildDeptScore(String(d.id), d.name, biros);
     });
 
-    if (unmapped.size > 0) {
+    const otherNames = new Set<string>([...unmapped.keys(), ...memberUnmapped.keys()]);
+    if (otherNames.size > 0) {
       const biros: BiroScore[] = [];
-      unmapped.forEach((list, name) => biros.push(buildBiroScore(`other-${cleanText(name)}`, name, list)));
+      otherNames.forEach(name =>
+        biros.push(buildBiroScore(`other-${cleanText(name)}`, name, unmapped.get(name) || [], memberUnmapped.get(name) || [])));
       biros.sort((x, y) => x.name.localeCompare(y.name));
       result.push(buildDeptScore(OTHER_DEPT_ID, 'Lainnya (belum terpetakan)', biros));
     }
     return result;
-  }, [cards, period]);
+  }, [cards, period, members]);
 
   const activeDept = deptScores.find(d => d.id === selectedDept) || null;
   const activeBiro = activeDept?.biros.find(b => b.id === selectedBiro) || null;
@@ -768,7 +837,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                     </div>
                     <div className="text-[11px] text-slate-500">
                       A {fmt(b.a)}{b.a !== null && '%'} · B {fmt(b.b)}{b.b !== null && '%'} · {b.scored}/{b.persons.length} personel terhitung
-                      {b.persons.length === 0 && <span className="text-slate-600"> · belum ada penugasan</span>}
+                      {b.persons.length === 0 && <span className="text-slate-600"> · belum ada anggota</span>}
                     </div>
                   </div>
                 );
@@ -799,9 +868,9 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
             <ProjectBarChart key={`biro-${activeBiro.id}`} className="lg:col-span-7" title={`KPI per proyek — ${activeBiro.name}`} rows={biroProjects} />
 
             <div className="lg:col-span-12 bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-              <h2 className="text-sm font-bold text-white flex items-center gap-2"><Users className="w-4 h-4 text-blue-400" /> Skor KPI per personel</h2>
+              <h2 className="text-sm font-bold text-white flex items-center gap-2"><Users className="w-4 h-4 text-blue-400" /> Skor KPI per personel ({activeBiro.persons.length})</h2>
               {activeBiro.persons.length === 0 && (
-                <div className="text-xs text-slate-500 italic py-4 text-center">Belum ada penugasan di biro ini pada periode terpilih.</div>
+                <div className="text-xs text-slate-500 italic py-4 text-center">Belum ada anggota di biro ini.</div>
               )}
               {activeBiro.persons.map(p => {
                 const cat = getCategory(p.kpi);
@@ -820,6 +889,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                     </div>
                     <div className="text-[11px] text-slate-500">
                       A {fmt(p.a)}{p.a !== null && '%'} · B {fmt(p.b)}{p.b !== null && '%'}
+                      {p.cards.length === 0 && <span className="text-slate-600"> · belum ada penugasan</span>}
                       {p.pendingCount > 0 && <span className="text-rose-300"> · {p.pendingCount} menunggu Planner</span>}
                     </div>
                   </div>
@@ -991,6 +1061,9 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-300">
+                    {activePerson.cards.length === 0 && (
+                      <tr><td colSpan={9} className="py-6 text-center text-slate-500 italic">Belum ada penugasan pada periode terpilih.</td></tr>
+                    )}
                     {activePerson.cards.map(c => {
                       const st = cardStatus(c);
                       return (
