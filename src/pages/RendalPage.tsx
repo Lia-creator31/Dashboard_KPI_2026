@@ -411,6 +411,79 @@ async function loadMasterFile(key: MasterKey): Promise<XLSX.WorkBook | null> {
   } catch { return null; }
 }
 
+/* ===== HOUR PLANNER: nilai jam sendiri per Jobcard, dihubungkan ke job card lewat kode Jobcard ===== */
+const HOUR_PLANNER_FILE = 'hourplanner.json';
+
+interface HourPlannerEntry {
+  kode: string;      // kode Jobcard asli, mis. "JC310826 39650"
+  hour: number;      // Hour Planned
+  planner: string;
+  start: string;     // YYYY-MM-DD
+  end: string;       // YYYY-MM-DD
+}
+type HourPlannerMap = Record<string, HourPlannerEntry>;   // kunci = cleanText(kode Jobcard)
+
+async function loadHourPlanner(): Promise<HourPlannerMap> {
+  try {
+    const { data, error } = await supabase.storage.from(MASTER_BUCKET).download(HOUR_PLANNER_FILE);
+    if (error || !data) return {};
+    const parsed = JSON.parse(await data.text());
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch { return {}; }
+}
+
+async function saveHourPlanner(map: HourPlannerMap) {
+  const blob = new Blob([JSON.stringify(map)], { type: 'application/octet-stream' });
+  const { error } = await supabase.storage
+    .from(MASTER_BUCKET)
+    .upload(HOUR_PLANNER_FILE, blob, { upsert: true, contentType: 'application/octet-stream' });
+  return error;
+}
+
+// Baca file Hour Planner (kolom: Name = kode Jobcard, Planner, Schedule Start/End date, Hour Planned)
+function parseHourPlannerWorkbook(wb: XLSX.WorkBook): { entries: HourPlannerMap; rowCount: number; error?: string } {
+  const entries: HourPlannerMap = {};
+  let rowCount = 0;
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) return { entries, rowCount, error: 'Sheet tidak ditemukan.' };
+  const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+  let headerIdx = -1, nameCol = -1, hourCol = -1, plannerCol = -1, startCol = -1, endCol = -1;
+  for (let r = 0; r < Math.min(10, rows.length); r++) {
+    const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+    const n = h.findIndex(c => c === 'name' || c === 'jobcard' || c === 'kode jobcard');
+    const hr = h.findIndex(c => c.includes('hour') && c.includes('plan'));
+    if (n !== -1 && hr !== -1) {
+      headerIdx = r; nameCol = n; hourCol = hr;
+      plannerCol = h.findIndex(c => c === 'planner');
+      startCol = h.findIndex(c => c.includes('start'));
+      endCol = h.findIndex(c => c.includes('end'));
+      break;
+    }
+  }
+  if (headerIdx === -1) return { entries, rowCount, error: 'Kolom "Name" dan "Hour Planned" tidak ditemukan di baris judul.' };
+
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const row = rows[r]; if (!row) continue;
+    const kode = String(row[nameCol] ?? '').replace(/\s+/g, ' ').trim();
+    if (!kode || kode.toLowerCase() === 'nan') continue;
+    const hourRaw = String(row[hourCol] ?? '').trim().replace(',', '.');
+    const hour = parseFloat(hourRaw);
+    if (isNaN(hour)) continue;
+    const key = cleanText(kode);
+    if (!key) continue;
+    rowCount++;
+    entries[key] = {
+      kode,
+      hour,
+      planner: plannerCol !== -1 ? String(row[plannerCol] ?? '').trim() : '',
+      start: startCol !== -1 ? parseToStandardDate(row[startCol]) : '',
+      end: endCol !== -1 ? parseToStandardDate(row[endCol]) : '',
+    };
+  }
+  return { entries, rowCount };
+}
+
 async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
   for (const p of paths) {
     if (!p) continue;
@@ -467,6 +540,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
   const [activeDrawingSheetTitle, setActiveDrawingSheetTitle] = useState<string>('');
   const [isFetchingDrawing, setIsFetchingDrawing] = useState<boolean>(false);
+  const [hourPlannerMap, setHourPlannerMap] = useState<HourPlannerMap>({});
+  const [isImportingHour, setIsImportingHour] = useState(false);
 
   const loadAllJobCards = useCallback(async () => {
     try {
@@ -512,6 +587,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         if (wbJc) setJobcardWorkbook(wbJc);
         if (wbIm4) setIm4Workbook(wbIm4);
         if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
+        setHourPlannerMap(await loadHourPlanner());
       } catch {}
     }
     initMasterFiles();
@@ -609,6 +685,42 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       catch { alert('Gagal membaca file JOBCARD_DESAIN.xlsx.'); }
     };
     reader.readAsBinaryString(file);
+  };
+
+  // Import file Excel Hour Planner: nilai disimpan sendiri, dihubungkan ke job card lewat kode Jobcard.
+  // Hasil digabung dengan data sebelumnya (kode yang sama ditimpa nilai terbaru), jadi bulan lama tidak hilang.
+  const handleImportHourPlanner = async (e: ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0]; if (!file) return;
+    setIsImportingHour(true);
+    try {
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const { entries, rowCount, error } = parseHourPlannerWorkbook(wb);
+      if (error) { alert(`Gagal membaca "${file.name}": ${error}`); return; }
+      if (rowCount === 0) { alert(`Tidak ada baris Hour Planner yang valid di "${file.name}".`); return; }
+
+      const merged: HourPlannerMap = { ...(await loadHourPlanner()), ...entries };
+      const saveErr = await saveHourPlanner(merged);
+      setHourPlannerMap(merged);
+
+      const allTasks = ([] as TaskItem[]).concat(...Object.values(manualTasks));
+      const linked = allTasks.filter(t => t.kodeJc && entries[cleanText(t.kodeJc)]).length;
+      const noJobcard = Object.keys(entries).length - new Set(
+        allTasks.map(t => cleanText(t.kodeJc || '')).filter(k => k && entries[k])
+      ).size;
+
+      alert(
+        `Hour Planner "${file.name}" diimpor: ${rowCount} baris.\n` +
+        `• Terhubung ke job card yang sudah ada: ${linked}\n` +
+        `• Belum ada job card dengan kode itu: ${noJobcard} (tetap disimpan, tersambung otomatis saat job card dibuat)` +
+        (saveErr ? `\n\nPERHATIAN: gagal disimpan permanen ke server (${saveErr.message}). Data hanya ada di sesi ini.` : '')
+      );
+    } catch {
+      alert('Gagal membaca file Excel Hour Planner.');
+    } finally {
+      setIsImportingHour(false);
+      input.value = '';   // agar file yang sama bisa dipilih lagi
+    }
   };
 
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
@@ -1499,6 +1611,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5" /> Import Jobcard
                 </button>
+                <label
+                  className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  title="Impor Hour Planner (Hour_Planner.xlsx): jam per Jobcard, dihubungkan lewat kode Jobcard"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  {isImportingHour ? 'Mengimpor...' : `Import Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}
+                  <input type="file" accept=".xlsx, .xls" onChange={handleImportHourPlanner} disabled={isImportingHour} className="hidden" />
+                </label>
                 <input type="text" placeholder="Cari..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
               </div>
@@ -1612,6 +1732,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                   <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
                                   <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
                                   <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
+                                  <th className="py-2 px-2.5 font-mono text-sky-300">Hour Planner</th>
                                   <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
                                   <th className="py-2 px-2.5 font-mono text-cyan-300">Release</th>
                                   <th className="py-2 px-2.5 text-center w-20">Aksi</th>
@@ -1620,6 +1741,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                   {personTasks.map((task, tIdx) => {
                                     const jcKey = cleanText(task.kodeJc || '');
                                     const calculatedRealHours = jcKey ? realisasiMap.get(jcKey) : undefined;
+                                    const hourPlan = jcKey ? hourPlannerMap[jcKey] : undefined;
                                     return (
                                       <tr key={task.id} className="hover:bg-slate-900/40">
                                         <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
@@ -1630,6 +1752,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate)}</td>
                                         <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate)}</td>
                                         <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo ? String(task.jo).replace(/^#+/, '') : '-'}</td>
+                                        <td className="py-2 px-2.5 font-mono">
+                                          {hourPlan
+                                            ? <span className="text-sky-300 font-semibold" title={`Planner: ${hourPlan.planner || '-'}\nJadwal: ${formatDisplayDate(hourPlan.start)} s/d ${formatDisplayDate(hourPlan.end)}`}>{hourPlan.hour}</span>
+                                            : <span className="text-slate-600">-</span>}
+                                        </td>
                                         <td className="py-2 px-2.5 font-mono font-bold">
                                           {calculatedRealHours !== undefined ? (
                                             <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">{Math.round(calculatedRealHours * 100) / 100} Jam</span>
