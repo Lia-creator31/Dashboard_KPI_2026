@@ -907,7 +907,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                 <Donut value={activePerson.a} size={130} color="#34d399" text={activePerson.a === null ? '—' : `${Math.round(activePerson.a)}%`} />
                 <div className="text-xs font-bold text-white">A · Efisiensi JO</div>
                 <div className="text-[11px] text-slate-400">
-                  {activePerson.a === null ? 'Belum ada jobcard dengan Plan JO dan Real JO' : 'Planned JO ÷ Actual JO (maks 100%)'}
+                  {activePerson.a === null ? 'Belum ada jobcard dengan Plan JO dan Real JO' : 'Planned JO ÷ Actual JO'}
                 </div>
               </div>
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center gap-2 text-center">
