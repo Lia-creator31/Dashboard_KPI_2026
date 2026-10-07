@@ -16,7 +16,7 @@ interface KpiDashboardPageProps {
    ============================================================ */
 const WEIGHT_A = 0.6;                 // bobot Efisiensi JO
 const WEIGHT_B = 0.4;                 // bobot Release Drawing (semua revisi)
-const CAP_EFFICIENCY = Infinity;           // A dibatasi maksimal 100%
+const CAP_EFFICIENCY = Infinity;      // tanpa batas: A tampil apa adanya
 const A_ONLY_FROM_RELEASED = false;   // false = A tetap dihitung walau drawing belum release
 const A_ONLY_REV0 = false;            // true = jam kerja hanya dari drawing Rev.0
 const REQUIRE_JOBCARD_CODE = true;    // jobcard tanpa kode (Menunggu Planner) belum valid
@@ -617,7 +617,9 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
       return buildDeptScore(String(d.id), d.name, biros);
     });
 
-    const otherNames = new Set<string>([...unmapped.keys(), ...memberUnmapped.keys()]);
+    // "Lainnya" hanya muncul bila ada JOB CARD yang biro-nya tidak dikenali (peringatan).
+    // Anggota IM4 tanpa job card yang biro-nya tidak cocok tidak lagi ditampung di sini.
+    const otherNames = new Set<string>([...unmapped.keys()]);
     if (otherNames.size > 0) {
       const biros: BiroScore[] = [];
       otherNames.forEach(name =>
