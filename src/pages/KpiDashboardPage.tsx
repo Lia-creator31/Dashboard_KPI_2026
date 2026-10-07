@@ -393,15 +393,41 @@ function Pill({ score }: { score: number | null }) {
   );
 }
 
+// Jumlah Plan JO dan Real JO dari sekumpulan jobcard (hanya yang sudah punya kode Jobcard bila aturannya demikian)
+function sumJo(cards: JobCardRow[]) {
+  const valid = cards.filter(c => !REQUIRE_JOBCARD_CODE || c.kodeJc.trim() !== '');
+  return {
+    plan: valid.reduce((s, c) => s + c.plannedJo, 0),
+    real: valid.reduce((s, c) => s + c.realJo, 0),
+  };
+}
+
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
 function ProjectBarChart({ rows, title, className = '' }: { rows: ProjectScore[]; title: string; className?: string }) {
   const H = 180;
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const detail = useMemo(() => {
+    const r = rows.find(x => x.project === selected);
+    if (!r) return null;
+    const total = sumJo(r.persons.flatMap(p => p.cards));
+    const persons = r.persons
+      .map(p => ({ name: p.name, biro: p.biro, ...sumJo(p.cards) }))
+      .filter(p => p.plan > 0 || p.real > 0)
+      .sort((x, y) => y.plan - x.plan);
+    return { r, ...total, persons };
+  }, [rows, selected]);
+
+  const pctOf = (plan: number, real: number) => (plan > 0 ? (real / plan) * 100 : null);
+
   return (
     <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 min-w-0 ${className}`}>
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-sm font-bold text-white flex items-center gap-2">
           <Layers className="w-4 h-4 text-blue-400" /> {title} ({rows.length} proyek)
         </h2>
-        <span className="text-[10px] text-slate-500">Rata-rata KPI individu per proyek · arahkan kursor ke batang untuk detail</span>
+        <span className="text-[10px] text-slate-500">Rata-rata KPI individu per proyek · klik batang untuk detail Plan JO &amp; Real JO</span>
       </div>
       {rows.length === 0 ? (
         <div className="text-xs text-slate-500 italic py-10 text-center">Belum ada data proyek pada periode ini.</div>
@@ -422,12 +448,17 @@ function ProjectBarChart({ rows, title, className = '' }: { rows: ProjectScore[]
                 ))}
                 {rows.map(r => {
                   const cat = getCategory(r.kpi);
-                  const tip = `${r.project}\nKPI ${fmt(r.kpi)} (${cat.label})\nA ${fmt(r.a)}${r.a !== null ? '%' : ''} · B ${fmt(r.b)}${r.b !== null ? '%' : ''}\n${r.released}/${r.total} drawing release\n${r.scored}/${r.persons.length} personel terhitung`;
+                  const isSel = selected === r.project;
+                  const dim = selected !== null && !isSel;
+                  const tip = `${r.project}\nKPI ${fmt(r.kpi)} (${cat.label})\nA ${fmt(r.a)}${r.a !== null ? '%' : ''} · B ${fmt(r.b)}${r.b !== null ? '%' : ''}\n${r.released}/${r.total} drawing release\n${r.scored}/${r.persons.length} personel terhitung\n(klik untuk detail Plan JO & Real JO)`;
                   return (
-                    <div key={r.project} title={tip} className="relative flex-1 min-w-[52px] h-full">
+                    <div key={r.project} title={tip}
+                      onClick={() => setSelected(prev => (prev === r.project ? null : r.project))}
+                      className="relative flex-1 min-w-[52px] h-full cursor-pointer transition-opacity"
+                      style={{ opacity: dim ? 0.45 : 1 }}>
                       {r.kpi !== null ? (
                         <>
-                          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[44px] rounded-t-md"
+                          <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[44px] rounded-t-md ${isSel ? 'ring-2 ring-white' : ''}`}
                             style={{ height: `${Math.max(0, Math.min(100, r.kpi))}%`, background: cat.color }} />
                           <span className="absolute left-0 right-0 text-center text-[10px] font-bold text-slate-100"
                             style={{ bottom: `calc(${Math.max(0, Math.min(100, r.kpi))}% + 2px)` }}>{fmt(r.kpi, 0)}</span>
@@ -442,13 +473,84 @@ function ProjectBarChart({ rows, title, className = '' }: { rows: ProjectScore[]
               {/* Label proyek */}
               <div className="flex gap-3 mt-1.5">
                 {rows.map(r => (
-                  <div key={r.project} title={r.project} className="flex-1 min-w-[52px] text-center text-[10px] font-mono text-emerald-400 truncate">{r.project}</div>
+                  <div key={r.project} title={r.project}
+                    onClick={() => setSelected(prev => (prev === r.project ? null : r.project))}
+                    className={`flex-1 min-w-[52px] text-center text-[10px] font-mono truncate cursor-pointer ${selected === r.project ? 'text-white font-bold' : 'text-emerald-400'}`}>
+                    {r.project}
+                  </div>
                 ))}
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* ===== Detail proyek yang diklik ===== */}
+      {detail && (() => {
+        const pct = pctOf(detail.plan, detail.real);
+        const over = pct !== null && pct > 100;
+        return (
+          <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="font-mono font-bold text-emerald-400 text-sm">{detail.r.project}</div>
+              <button onClick={() => setSelected(null)}
+                className="px-2.5 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 cursor-pointer">Tutup</button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="bg-slate-900 border border-slate-800 rounded-lg p-3">
+                <div className="text-lg font-extrabold font-mono text-violet-300">{detail.plan ? round2(detail.plan) : '-'}</div>
+                <div className="text-[10px] text-slate-400">Plan JO (jam)</div>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-lg p-3">
+                <div className="text-lg font-extrabold font-mono text-emerald-400">{detail.real ? round2(detail.real) : '-'}</div>
+                <div className="text-[10px] text-slate-400">Real JO (jam)</div>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 rounded-lg p-3">
+                <div className={`text-lg font-extrabold font-mono ${over ? 'text-rose-300' : 'text-white'}`}>{pct === null ? '—' : `${Math.round(pct)}%`}</div>
+                <div className="text-[10px] text-slate-400">Real JO ÷ Plan JO</div>
+              </div>
+            </div>
+
+            {pct !== null && (
+              <div className="space-y-1">
+                <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-2.5 rounded-full" style={{ width: `${Math.min(pct, 100)}%`, background: over ? '#fb7185' : '#34d399' }} />
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  {over ? 'Jam realisasi melebihi rencana (di atas 100%).' : 'Jam realisasi dibanding rencana.'}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-bold text-slate-300">Per personel ({detail.persons.length})</div>
+              {detail.persons.length === 0 && (
+                <div className="text-[11px] text-slate-500 italic">Belum ada Plan JO atau Real JO pada proyek ini.</div>
+              )}
+              {detail.persons.map(p => {
+                const pp = pctOf(p.plan, p.real);
+                return (
+                  <div key={p.name} className="grid grid-cols-12 gap-2 items-center text-[11px] py-1 border-b border-slate-800/60 last:border-0">
+                    <div className="col-span-5 text-slate-200 truncate" title={`${p.name} · ${p.biro}`}>{p.name}</div>
+                    <div className="col-span-3 text-right font-mono text-violet-300">{p.plan ? round2(p.plan) : '-'}</div>
+                    <div className="col-span-2 text-right font-mono text-emerald-400">{p.real ? round2(p.real) : '-'}</div>
+                    <div className={`col-span-2 text-right font-mono font-bold ${pp !== null && pp > 100 ? 'text-rose-300' : 'text-slate-200'}`}>
+                      {pp === null ? '—' : `${Math.round(pp)}%`}
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="grid grid-cols-12 gap-2 text-[10px] text-slate-500 pt-1">
+                <div className="col-span-5" />
+                <div className="col-span-3 text-right">Plan JO</div>
+                <div className="col-span-2 text-right">Real JO</div>
+                <div className="col-span-2 text-right">%</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
