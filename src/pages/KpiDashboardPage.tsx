@@ -16,7 +16,7 @@ interface KpiDashboardPageProps {
    ============================================================ */
 const WEIGHT_A = 0.6;                 // bobot Efisiensi JO
 const WEIGHT_B = 0.4;                 // bobot Release Drawing (semua revisi)
-const CAP_EFFICIENCY = 100;           // A dibatasi maksimal 100%
+const CAP_EFFICIENCY = Infinity;           // A dibatasi maksimal 100%
 const A_ONLY_FROM_RELEASED = false;   // false = A tetap dihitung walau drawing belum release
 const A_ONLY_REV0 = false;            // true = jam kerja hanya dari drawing Rev.0
 const REQUIRE_JOBCARD_CODE = true;    // jobcard tanpa kode (Menunggu Planner) belum valid
