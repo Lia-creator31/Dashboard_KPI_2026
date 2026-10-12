@@ -1,8 +1,4 @@
-Paham. Kode lengkap di bawah ini digabungkan secara penuh tanpa mengurangi fungsi sebelumnya, termasuk fitur rekapitulasi data absensi/cuti per bulan (`januari` s.d. `juni`), pencarian ketik pada seluruh *dropdown*, integrasi Google Drive, dan pengeditan tanggal *Release*.
 
-### Salin dan Gantikan Seluruh Isi File `src/components/RendalPage.tsx` (atau file halaman Rendal Anda) dengan Kode Ini:
-
-```tsx
 import React, { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
 import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
