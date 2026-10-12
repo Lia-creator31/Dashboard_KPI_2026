@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo, useRef, ChangeEvent } from 'react';
 import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
@@ -13,28 +12,41 @@ import {
   FileSpreadsheet, Users, Search, TrendingUp
 } from 'lucide-react';
 
-// Import File CSV Absensi
-import csvJan from '../absensi_januari.csv?raw';
-import csvFeb from '../absensi_februari.csv?raw';
-import csvMar from '../absensi_maret.csv?raw';
-import csvApr from '../absensi_april.csv?raw';
-import csvMei from '../absensi_mei.csv?raw';
-import csvJun from '../absensi_juni.csv?raw';
-
-const csvMonthMap: Record<string, string> = {
-  januari: csvJan,
-  februari: csvFeb,
-  maret: csvMar,
-  april: csvApr,
-  mei: csvMei,
-  juni: csvJun,
-};
-
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
   query: '?url',
   import: 'default',
   eager: true
 }) as Record<string, string>;
+
+// File Excel di folder src/ (mis. data_kpi.xlsx) - aman bila tidak ada
+const parentExcelGlobUrls = import.meta.glob('../*.xlsx', {
+  query: '?url',
+  import: 'default',
+  eager: true
+}) as Record<string, string>;
+
+// ===== REKAP ABSENSI: bulan Januari - Juni =====
+const MONTHS = [
+  { key: 'januari', label: 'Januari', num: '01' },
+  { key: 'februari', label: 'Februari', num: '02' },
+  { key: 'maret', label: 'Maret', num: '03' },
+  { key: 'april', label: 'April', num: '04' },
+  { key: 'mei', label: 'Mei', num: '05' },
+  { key: 'juni', label: 'Juni', num: '06' },
+];
+
+// File CSV absensi: src/absensi_januari.csv dst. (path relatif dari src/pages/). Aman bila ada yang belum ada.
+const absensiCsvGlob = import.meta.glob('../absensi_*.csv', {
+  query: '?raw',
+  import: 'default',
+  eager: true
+}) as Record<string, string>;
+
+const csvMonthMap: Record<string, string> = {};
+Object.entries(absensiCsvGlob).forEach(([path, raw]) => {
+  const m = MONTHS.find(x => path.toLowerCase().includes(x.key));
+  if (m) csvMonthMap[m.key] = raw;
+});
 
 const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
 
@@ -333,6 +345,7 @@ function getProjectNormKey(s: string): string {
   return k.replace(/0/g, 'o');
 }
 
+// Ambil baris Drawing Control untuk SATU nama proyek (Google Apps Script dulu, lalu cadangan CSV Google Sheets).
 async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlRow[]> {
   const cleanProj = cleanText(projectCode);
   if (!cleanProj) return [];
@@ -375,6 +388,8 @@ async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlR
   return [];
 }
 
+// Satu teks proyek (mis. "WFFBNW - W000304") dicari dengan SEMUA nama kandidatnya
+// (WFFBNW, FFBNW, W000304, dan varian WFFBNW1/WFFBNW2), hasilnya digabung tanpa duplikat.
 async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlRow[]> {
   const cands = projectCandidates(projectCode);
   if (!cands.length) cands.push(projectCode);
@@ -382,17 +397,19 @@ async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlR
   return dedupeRows(results.flat());
 }
 
+// Cari tanggal Release (FINISH DATE) untuk gambar + Rev tertentu. Hasil "YYYY-MM-DD" atau '' bila tidak ada.
 function extractDrawingNumber(desc: string): string {
   let s = (desc || '').replace(/\s+/g, ' ').trim();
-  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-–_:]\s*/i, '');            
-  const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);    
+  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-–_:]\s*/i, '');            // buang awalan revisi "R2 - " / "REV - "
+  const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);    // nomor di awal deskripsi
   if (m) return m[0].toUpperCase();
-  const first = s.split(/\s+-\s+|\s+/)[0] || '';                        
+  const first = s.split(/\s+-\s+|\s+/)[0] || '';                        // cadangan: kata pertama bila memuat angka
   return /\d/.test(first) && first.length >= 4 ? first.toUpperCase() : '';
 }
 
 const drawingKey = (v: string) => cleanText(extractDrawingNumber(v) || v);
 
+// Cari Release (FINISH DATE) berdasarkan NOMOR gambar + Rev yang sama. Hasil "YYYY-MM-DD" atau ''.
 function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
   if (!rows || rows.length === 0 || !taskName) return '';
   const wanted = drawingKey(taskName);
@@ -424,16 +441,17 @@ async function loadMasterFile(key: MasterKey): Promise<XLSX.WorkBook | null> {
   } catch { return null; }
 }
 
+/* ===== HOUR PLANNER: nilai jam per Jobcard, dihubungkan ke job card lewat kode Jobcard, lalu ditulis ke kolom Plan JO (jo) ===== */
 const HOUR_PLANNER_FILE = 'hourplanner.json';
 
 interface HourPlannerEntry {
-  kode: string;     
-  hour: number;     
+  kode: string;      // kode Jobcard asli, mis. "JC310826 39650"
+  hour: number;      // Hour Planned
   planner: string;
-  start: string;     
-  end: string;       
+  start: string;     // YYYY-MM-DD
+  end: string;       // YYYY-MM-DD
 }
-type HourPlannerMap = Record<string, HourPlannerEntry>;   
+type HourPlannerMap = Record<string, HourPlannerEntry>;   // kunci = cleanText(kode Jobcard)
 
 async function loadHourPlanner(): Promise<HourPlannerMap> {
   try {
@@ -452,6 +470,7 @@ async function saveHourPlanner(map: HourPlannerMap) {
   return error;
 }
 
+// Baca file Hour Planner (kolom: Name = kode Jobcard, Planner, Schedule Start/End date, Hour Planned)
 function parseHourPlannerWorkbook(wb: XLSX.WorkBook): { entries: HourPlannerMap; rowCount: number; error?: string } {
   const entries: HourPlannerMap = {};
   let rowCount = 0;
@@ -512,11 +531,210 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
   return null;
 }
 
+/* ===== REKAP ABSENSI PER BIRO =====
+   Sumber data (sama seperti program lama):
+   - NIP, Nama, Planned, Effective, Overtime, Idle -> data_kpi.xlsx (1 sheet per bulan, biro dicocokkan lewat kolom H)
+   - Terlambat, Sakit -> absensi_<bulan>.csv (dicocokkan lewat nama)
+*/
+interface AbsensiRow {
+  nip: string;
+  nama: string;
+  planned: number;
+  effective: number;
+  overtime: number;
+  idle: number;
+  terlambat: number;
+  sakit: number;
+}
+
+const absNum = (v: any): number => {
+  if (v === null || v === undefined || v === '') return 0;
+  if (typeof v === 'number') return isNaN(v) ? 0 : v;
+  const n = parseFloat(String(v).trim().replace('%', '').replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+};
+const fmtNum = (n: number) => String(Math.round(n * 100) / 100);
+
+function findMonthSheet(wb: XLSX.WorkBook | null, monthKey: string): string | undefined {
+  if (!wb) return undefined;
+  return wb.SheetNames.find(s => {
+    const l = s.toLowerCase().trim();
+    return l.includes(monthKey) || l.includes(monthKey.slice(0, 3));
+  });
+}
+
+function buildRekap(wb: XLSX.WorkBook | null, biroName: string, monthKey: string, csv: string): AbsensiRow[] {
+  const sheetName = findMonthSheet(wb, monthKey);
+  if (!wb || !sheetName) return [];
+
+  // Terlambat & Sakit dari CSV (kunci: nama)
+  const abs = new Map<string, { terlambat: number; sakit: number }>();
+  (csv || '').split(/\r?\n/).forEach((line, i) => {
+    if (i === 0 || !line.trim()) return;
+    const p = line.split(',');
+    if (p.length < 6) return;
+    const k = cleanText(p[1] || '');
+    if (k) abs.set(k, { terlambat: absNum(p[p.length - 3]), sakit: absNum(p[p.length - 2]) });
+  });
+
+  const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+  const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
+  const planIdx = head.findIndex(h => h.includes('plan'));
+  const PLAN_COL = planIdx >= 0 ? planIdx : 9;   // <- cek: kolom Planned di data_kpi.xlsx
+
+  const people = new Map<string, AbsensiRow>();
+  rows.forEach((row, i) => {
+    if (i === 0 || !row) return;
+    const nip = String(row[0] || '').trim();
+    const nama = String(row[1] || '').trim();
+    if (!(nama || nip)) return;
+    if (!isBiroMatch(String(row[7] || ''), biroName)) return;
+    const key = cleanText(nama || nip);
+    const p = people.get(key) || { nip: nip || '-', nama: nama || '-', planned: 0, effective: 0, overtime: 0, idle: 0, terlambat: 0, sakit: 0 };
+    p.planned += absNum(row[PLAN_COL]);
+    p.effective += absNum(row[10]);
+    p.overtime += absNum(row[11]);
+    p.idle += absNum(row[12]);
+    people.set(key, p);
+  });
+
+  return Array.from(people.values()).map(p => {
+    const a = abs.get(cleanText(p.nama));
+    return { ...p, terlambat: a ? a.terlambat : 0, sakit: a ? a.sakit : 0 };
+  });
+}
+
+function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUploadKpi }: {
+  biroName: string;
+  deptName: string;
+  wb: XLSX.WorkBook | null;
+  monthKey: string | null;
+  onChangeMonth: (k: string | null) => void;
+  onUploadKpi: (e: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  const [q, setQ] = useState('');
+  const month = MONTHS.find(m => m.key === monthKey) || null;
+
+  const allRows = useMemo(
+    () => (month ? buildRekap(wb, biroName, month.key, csvMonthMap[month.key] || '') : []),
+    [wb, biroName, month]
+  );
+
+  const rows = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return s ? allRows.filter(r => r.nip.toLowerCase().includes(s) || r.nama.toLowerCase().includes(s)) : allRows;
+  }, [allRows, q]);
+
+  // ---- Pilihan Bulan ----
+  if (!month) {
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h4 className="text-sm font-bold text-white">Pilih Bulan Rekap Absensi</h4>
+            <span className="text-xs text-slate-400">{biroName}</span>
+          </div>
+          <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+            <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
+            <span>{wb ? 'Update data_kpi.xlsx' : 'Upload data_kpi.xlsx'}</span>
+            <input type="file" accept=".xlsx, .xls" onChange={onUploadKpi} className="hidden" />
+          </label>
+        </div>
+        {!wb && (
+          <div className="text-[11px] text-amber-400">
+            File data_kpi.xlsx belum termuat. Letakkan di folder src/ atau public/, atau upload manual dengan tombol di atas.
+          </div>
+        )}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {MONTHS.map(m => {
+            const ada = !!findMonthSheet(wb, m.key);
+            return (
+              <button key={m.key} disabled={!ada} onClick={() => onChangeMonth(m.key)}
+                className={`p-4 rounded-xl border text-left transition ${ada ? 'bg-slate-950 border-slate-700 hover:border-blue-500 cursor-pointer' : 'bg-slate-950/40 border-slate-800 opacity-40 cursor-not-allowed'}`}>
+                <div className="font-semibold text-white text-sm">{m.label}</div>
+                <div className="text-[11px] text-slate-500 font-mono">{ada ? 'Data tersedia' : 'Sheet belum ada'}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Tabel ----
+  return (
+    <div className="space-y-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex items-start justify-between gap-4 flex-wrap">
+        <div className="space-y-1">
+          <button onClick={() => { onChangeMonth(null); setQ(''); }} className="text-xs text-blue-400 hover:underline flex items-center gap-1 cursor-pointer">
+            <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Pilihan Bulan
+          </button>
+          <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wide">{deptName}</div>
+          <h3 className="text-xl font-bold text-white">{biroName}</h3>
+          <div className="text-xs text-slate-400">
+            Rekapitulasi Jam Kerja &amp; Absensi Pegawai — <span className="text-blue-400 font-semibold">Bulan {month.label}</span>
+          </div>
+        </div>
+        <div className="px-5 py-3 bg-slate-950 border border-slate-800 rounded-xl text-right">
+          <div className="text-2xl font-bold text-blue-400">{allRows.length}</div>
+          <div className="text-[10px] text-slate-400 uppercase tracking-wide">Total Pegawai</div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Cari NIP atau Nama Pegawai..."
+          className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-72" />
+        <span className="text-[11px] text-slate-400">Menampilkan <b className="text-white">{rows.length}</b> data pegawai</span>
+      </div>
+
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead>
+            <tr className="text-slate-400 border-b border-slate-800 uppercase text-[11px]">
+              <th className="py-3 px-3 w-10">No</th>
+              <th className="py-3 px-3">NIP</th>
+              <th className="py-3 px-3">Nama Pegawai</th>
+              <th className="py-3 px-3 text-right">Planned</th>
+              <th className="py-3 px-3 text-right">Effective</th>
+              <th className="py-3 px-3 text-right">Overtime</th>
+              <th className="py-3 px-3 text-right">Idle</th>
+              <th className="py-3 px-3 text-center text-rose-400 bg-rose-500/5">Terlambat</th>
+              <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800 font-mono">
+            {rows.length > 0 ? rows.map((r, i) => (
+              <tr key={`${r.nip}-${i}`} className="hover:bg-slate-800/40">
+                <td className="py-3 px-3 text-slate-500">{i + 1}</td>
+                <td className="py-3 px-3 text-blue-400">{r.nip}</td>
+                <td className="py-3 px-3 font-sans font-semibold text-white">{r.nama}</td>
+                <td className="py-3 px-3 text-right font-bold text-emerald-400">{fmtNum(r.planned)}</td>
+                <td className="py-3 px-3 text-right font-bold text-cyan-400">{fmtNum(r.effective)}</td>
+                <td className="py-3 px-3 text-right font-bold text-amber-400">{fmtNum(r.overtime)}</td>
+                <td className="py-3 px-3 text-right text-slate-200">{fmtNum(r.idle)}</td>
+                <td className="py-3 px-3 text-center font-bold text-rose-400 bg-rose-500/5">{fmtNum(r.terlambat)}</td>
+                <td className="py-3 px-3 text-center font-bold text-amber-400 bg-amber-500/5">{fmtNum(r.sakit)}</td>
+              </tr>
+            )) : (
+              <tr><td colSpan={9} className="py-8 text-center font-sans text-slate-500">
+                {allRows.length === 0
+                  ? `Tidak ada data biro ini di sheet ${month.label} pada data_kpi.xlsx (cek kolom H = nama biro).`
+                  : 'Tidak ada data yang cocok dengan pencarian.'}
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
-  const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
+  const [formPageMode, setFormPageMode] = useState<'members' | 'form' | 'absensi'>('members');
+  const [absensiMonth, setAbsensiMonth] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [subconSelectedDept, setSubconSelectedDept] = useState<Department | null>(null);
   const [subconSelectedBiro, setSubconSelectedBiro] = useState<string | null>(null);
@@ -525,6 +743,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
   const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [kpiWorkbook, setKpiWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>({});
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
   const [editingTaskKode, setEditingTaskKode] = useState<{ [taskId: string]: string }>({});
@@ -554,9 +773,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [hourPlannerMap, setHourPlannerMap] = useState<HourPlannerMap>({});
   const [isImportingHour, setIsImportingHour] = useState(false);
 
-  // State Filter Rekapitulasi Cuti / Absensi Bulanan
-  const [selectedRekapMonth, setSelectedRekapMonth] = useState<string>('januari');
-
   const loadAllJobCards = useCallback(async () => {
     try {
       const { data, error } = await supabase.from('job_cards').select('*').order('created_at', { ascending: true });
@@ -585,11 +801,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       try {
         let im4Url = '';
         let realisasiUrl = '';
+        let kpiUrl = '';
 
         Object.entries(excelGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
-          if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
+          if (pLower.includes('kpi')) kpiUrl = url;
+          else if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
           else if (pLower.includes('realisasi')) realisasiUrl = url;
+        });
+        Object.entries(parentExcelGlobUrls).forEach(([path, url]) => {
+          if (path.toLowerCase().includes('kpi')) kpiUrl = url;
         });
 
         const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
@@ -602,12 +823,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         if (wbIm4) setIm4Workbook(wbIm4);
         if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
         setHourPlannerMap(await loadHourPlanner());
+
+        const wbKpi = await fetchSafeWorkbook([kpiUrl, '/data_kpi.xlsx', './data_kpi.xlsx']);
+        if (wbKpi) setKpiWorkbook(wbKpi);
       } catch {}
     }
     initMasterFiles();
     loadAllJobCards();
   }, [loadAllJobCards]);
 
+  // ===== Sinkron Release OTOMATIS dari Drawing Control (tanpa klik apa pun) =====
+  // Tugas yang Release-nya masih kosong dicocokkan ke Drive saat data dimuat, lalu disimpan sendiri.
+  // Yang tidak ketemu dicoba lagi tiap 10 menit (mis. Finish Date baru diisi di Drive).
   const autoTried = useRef<Set<string>>(new Set());
   const autoRunning = useRef(false);
   const [autoSyncMsg, setAutoSyncMsg] = useState('');
@@ -671,7 +898,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       try {
         setIm4Workbook(XLSX.read(evt.target?.result, { type: 'binary' }));
         const err = await saveMasterFile('im4', file);
-        alert(err ? `File terbaca, tapi gagal disimpan ke server: ${err.message}` : `Master Personel "${file.name}" berhasil diperbarui dan tersimpan!`);
+        alert(err
+          ? `File terbaca, tapi gagal disimpan ke server: ${err.message}`
+          : `Master Personel "${file.name}" berhasil diperbarui dan tersimpan!`);
       } catch { alert('Gagal membaca file Excel Personel IM4.'); }
     };
     reader.readAsBinaryString(file);
@@ -685,13 +914,36 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         const wb = XLSX.read(evt.target?.result, { type: 'binary' });
         setJobcardWorkbook(wb); 
         const err = await saveMasterFile('jobcard', file);
-        if (err) alert(`File "${file.name}" terbaca, tapi gagal disimpan ke server: ${err.message}`);
-        else alert(`Katalog Jobcard "${file.name}" berhasil diperbarui dan tersimpan permanen di server!`);
-      } catch { alert('Gagal membaca file JOBCARD_DESAIN.xlsx.'); }
+        if (err) {
+          alert(`File "${file.name}" terbaca, tapi gagal disimpan ke server: ${err.message}`);
+        } else {
+          alert(`Katalog Jobcard "${file.name}" berhasil diperbarui dan tersimpan permanen di server!`);
+        }
+      } 
+      catch { alert('Gagal membaca file JOBCARD_DESAIN.xlsx.'); }
     };
     reader.readAsBinaryString(file);
   };
 
+  // Upload manual data_kpi.xlsx (hanya untuk sesi ini) bila file belum termuat otomatis
+  const handleUploadKpiExcel = (e: ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        setKpiWorkbook(XLSX.read(evt.target?.result, { type: 'binary' }));
+        alert(`File "${file.name}" berhasil dibaca untuk Rekap Absensi.`);
+      } catch { alert('Gagal membaca file data_kpi.xlsx.'); }
+      input.value = '';
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // Import file Excel Hour Planner: kolom "Hour Planned" ditulis ke kolom Plan JO (jo) di job_cards,
+  // dicocokkan lewat kode Jobcard (kolom "Name"). Nilai juga disimpan di hourplanner.json (digabung dengan
+  // data sebelumnya, kode yang sama ditimpa nilai terbaru) supaya job card yang kodenya diisi belakangan
+  // tetap otomatis terisi Plan JO-nya (lihat handleSaveKodeJcForTask).
   const handleImportHourPlanner = async (e: ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
     const file = input.files?.[0]; if (!file) return;
@@ -706,6 +958,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const saveErr = await saveHourPlanner(merged);
       setHourPlannerMap(merged);
 
+      // Tulis Hour Planned ke kolom jo (Plan JO) pada job card yang kode Jobcard-nya cocok
       const allTasks = ([] as TaskItem[]).concat(...Object.values(manualTasks));
       const toUpdate = allTasks.filter(t => t.kodeJc && entries[cleanText(t.kodeJc)]);
 
@@ -737,14 +990,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         `Hour Planner "${file.name}" diimpor: ${rowCount} baris.\n` +
         `• Plan JO terisi pada job card yang sudah ada: ${okCount}\n` +
         `• Belum ada job card dengan kode itu: ${noJobcard} (tetap disimpan, Plan JO terisi otomatis saat kode Jobcard diisi di Planner)` +
-        (failCount ? `\n\nPERHATIAN: ${failCount} job card gagal diperbarui Plan JO-nya.` : '') +
-        (saveErr ? `\n\nPERHATIAN: gagal disimpan permanen ke server (${saveErr.message}).` : '')
+        (failCount ? `\n\nPERHATIAN: ${failCount} job card gagal diperbarui Plan JO-nya (cek tipe kolom jo di Supabase).` : '') +
+        (saveErr ? `\n\nPERHATIAN: gagal disimpan permanen ke server (${saveErr.message}). Data hanya ada di sesi ini.` : '')
       );
     } catch {
       alert('Gagal membaca file Excel Hour Planner.');
     } finally {
       setIsImportingHour(false);
-      input.value = '';   
+      input.value = '';   // agar file yang sama bisa dipilih lagi
     }
   };
 
@@ -756,9 +1009,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         const wb = XLSX.read(evt.target?.result, { type: 'binary' });
         setRealisasiWorkbook(wb); 
         const err = await saveMasterFile('realisasi', file);
-        if (err) alert(`File "${file.name}" terbaca, tapi gagal disimpan ke server: ${err.message}`);
-        else alert(`File "${file.name}" berhasil diperbarui dan tersimpan permanen! Real JO langsung terhitung otomatis.`);
-      } catch { alert('Gagal membaca file Realisasi JO.xlsx.'); }
+        if (err) {
+          alert(`File "${file.name}" terbaca, tapi gagal disimpan ke server: ${err.message}`);
+        } else {
+          alert(`File "${file.name}" berhasil diperbarui dan tersimpan permanen! Real JO langsung terhitung otomatis.`);
+        }
+      } 
+      catch { alert('Gagal membaca file Realisasi JO.xlsx.'); }
     };
     reader.readAsBinaryString(file);
   };
@@ -978,6 +1235,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     }
   };
 
+  // Dipakai dropdown form dan dialog edit: ambil Drawing Control dengan semua nama kandidat proyek
   const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
     const cleanProj = cleanText(projectCode); if (!cleanProj) return;
     setIsFetchingDrawing(true);
@@ -1029,6 +1287,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     setEditingReleaseId(null);
   };
 
+  // Tombol sprinkel: tarik Release dari Drive (GAS, lalu cadangan CSV) untuk satu tugas
   const handleSyncReleaseFromDrive = async (task: TaskItem) => {
     const cleanProj = cleanText(task.project);
     let rows: DrawingControlRow[] | undefined = drawingControlMap[cleanProj];
@@ -1108,6 +1367,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     } catch { alert('Koneksi database bermasalah.'); }
   };
 
+  // Simpan kode Jobcard dari Planner. Bila kode itu sudah ada di data Hour Planner,
+  // Plan JO (jo) otomatis terisi dari Hour Planned.
   const handleSaveKodeJcForTask = async (taskId: string) => {
     const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase();
     if (!inputVal) return;
@@ -1199,40 +1460,59 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   }, [jobcardWorkbook, manualTasks]);
 
   const dynamicTaskOptions = useMemo((): string[] => {
-    const cleanProj = cleanText(formData.kodeProyek || '');
-    const rowsForThisProj = drawingControlMap[cleanProj] || [];
     const taskMap = new Map<string, string>();
-    rowsForThisProj.forEach(r => {
-      if (r.fullDeskripsi) {
-        const norm = cleanText(r.fullDeskripsi);
-        if (!taskMap.has(norm)) taskMap.set(norm, r.fullDeskripsi);
-      }
-    });
+
     if (jobcardWorkbook) {
       try {
         jobcardWorkbook.SheetNames.forEach(sheetName => {
-          const sheet = jobcardWorkbook.Sheets[sheetName]; if (!sheet) return;
+          const sheet = jobcardWorkbook.Sheets[sheetName];
+          if (!sheet) return;
+          
           const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-          let taskCol = 3;
-          for (let r = 0; r < Math.min(5, rows.length); r++) {
+          let taskCol = -1;
+
+          for (let r = 0; r < Math.min(15, rows.length); r++) {
             const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-            const foundIdx = rowVals.findIndex(v => v.includes('task') || v.includes('deskripsi') || v.includes('uraian') || v.includes('pekerjaan'));
-            if (foundIdx !== -1) { taskCol = foundIdx; break; }
+            const foundIdx = rowVals.findIndex(v => 
+              v.includes('task') || 
+              v.includes('deskripsi') || 
+              v.includes('uraian') || 
+              v.includes('pekerjaan') ||
+              v.includes('nama gambar') ||
+              v.includes('judul')
+            );
+            if (foundIdx !== -1) { 
+              taskCol = foundIdx; 
+              break; 
+            }
           }
+
+          if (taskCol === -1) taskCol = 3; 
+
           rows.forEach((row, idx) => {
             if (idx < 1 || !row) return;
+            
             const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
-            if (!raw || raw.toLowerCase() === 'nan' || raw.toLowerCase().includes('desc pekerjaan') || raw.toLowerCase() === 'deskripsi') return;
+            
+            if (!raw || raw.toLowerCase() === 'nan' || raw.toLowerCase().includes('deskripsi') || raw.toLowerCase() === 'task' || raw.toLowerCase() === 'task name' || raw.toUpperCase().startsWith('REVISI KE - NO DOC')) return;
+            
             const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
             const normKey = cleanText(cleaned);
-            if (cleaned && normKey && !taskMap.has(normKey)) taskMap.set(normKey, cleaned);
+            
+            if (cleaned && normKey && !taskMap.has(normKey)) {
+              taskMap.set(normKey, cleaned);
+            }
           });
         });
-      } catch {}
+      } catch (err) {
+        console.error("Gagal membaca jobcardWorkbook untuk opsi deskripsi:", err);
+      }
     }
-    return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
-  }, [formData.kodeProyek, drawingControlMap, jobcardWorkbook]);
 
+    return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [jobcardWorkbook]);
+
+  // Planner gabungan: semua tugas dari SEMUA biro yang belum punya kode Jobcard, dikelompokkan per biro
   const pendingTasksByBiro = useMemo((): [string, TaskItem[]][] => {
     const groups: Record<string, TaskItem[]> = {};
     Object.values(manualTasks).forEach(tasks => {
@@ -1332,11 +1612,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <Users className="w-3.5 h-3.5 text-amber-400" /><span>Update Personel IM4</span>
+                  <Users className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Update Personel IM4</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
                 </label>
                 <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" /><span>Update Jobcard Desain</span>
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Update Jobcard Desain</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
                 </label>
                 <input type="text" placeholder="Cari..." value={subconSearch} onChange={(e) => setSubconSearch(e.target.value)}
@@ -1463,10 +1745,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                       <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo ? String(task.jo).replace(/^#+/, '') : '-'}</td>
                                       <td className="py-2 px-2.5 text-center">
                                         <div className="flex items-center justify-center gap-1.5">
-                                          <button onClick={(e) => { e.stopPropagation(); handleOpenEdit(task); }} className="p-1 rounded bg-slate-800 hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 transition cursor-pointer" title="Edit">
+                                          <button 
+                                            onClick={(e) => { e.stopPropagation(); handleOpenEdit(task); }} 
+                                            className="p-1 rounded bg-slate-800 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 transition cursor-pointer"
+                                            title="Edit Tugas"
+                                          >
                                             <Pencil className="w-3.5 h-3.5" />
                                           </button>
-                                          <button onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }} className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer" title="Hapus">
+                                          <button 
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }} 
+                                            className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                                            title="Hapus Tugas"
+                                          >
                                             <Trash2 className="w-3.5 h-3.5" />
                                           </button>
                                         </div>
@@ -1509,7 +1799,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-slate-400 mb-1">Deskripsi</label>
-                      <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={(val) => handleDeskripsiChange(val)}
+                      <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={handleDeskripsiChange}
                         placeholder="Ketik nama gambar / deskripsi tugas..." required />
                     </div>
                     <div>
@@ -1584,8 +1874,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <Clock className="w-3.5 h-3.5 text-emerald-400" /><span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                 </label>
-                <button onClick={() => setIsPlannerOpen(true)}
-                  className="relative px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer">
+                <button
+                  onClick={() => setIsPlannerOpen(true)}
+                  className="relative px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  title={pendingTasksCount > 0 ? `${pendingTasksCount} tugas menunggu kode Jobcard` : 'Tidak ada tugas yang menunggu kode Jobcard'}
+                >
                   <FileCheck className="w-3.5 h-3.5" /> Planner
                   {pendingTasksCount > 0 && (
                     <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center border-2 border-slate-950">
@@ -1593,15 +1886,24 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     </span>
                   )}
                 </button>
-                <button onClick={() => setShowKpi(true)}
-                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer">
+                <button
+                  onClick={() => setShowKpi(true)}
+                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  title="Buka Dashboard KPI Individual"
+                >
                   <TrendingUp className="w-3.5 h-3.5" /> Dashboard KPI
                 </button>
-                <button onClick={() => setShowImport(true)}
-                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer">
+                <button
+                  onClick={() => setShowImport(true)}
+                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  title="Impor Jobcard bulanan dari JOBCARD_DESAIN.xlsx"
+                >
                   <FileSpreadsheet className="w-3.5 h-3.5" /> Import Jobcard
                 </button>
-                <label className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer">
+                <label
+                  className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  title="Impor Hour Planner (Hour_Planner.xlsx): kolom Hour Planned masuk ke Plan JO sesuai kode Jobcard"
+                >
                   <Clock className="w-3.5 h-3.5" />
                   {isImportingHour ? 'Mengimpor...' : `Import Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}
                   <input type="file" accept=".xlsx, .xls" onChange={handleImportHourPlanner} disabled={isImportingHour} className="hidden" />
@@ -1643,6 +1945,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer">Anggota</button>
                     <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }}
                       className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer">Form</button>
+                    <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('absensi'); setAbsensiMonth(null); }}
+                      className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer">Rekap Absensi</button>
                   </div>
                 </div>
               ))}
@@ -1655,23 +1959,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
               <ArrowLeft className="w-3.5 h-3.5" /> Kembali
             </button>
-            
-            {/* Filter Pilihan Bulan Rekapitulasi Cuti / Kehadiran */}
-            <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 p-2.5 rounded-xl text-xs flex-wrap">
-              <span className="text-slate-400 font-medium">Rekap Cuti & Kehadiran:</span>
-              {['januari', 'februari', 'maret', 'april', 'mei', 'juni'].map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setSelectedRekapMonth(m)}
-                  className={`px-3 py-1 rounded-lg capitalize transition cursor-pointer ${
-                    selectedRekapMonth === m ? 'bg-purple-600 text-white font-bold shadow' : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
@@ -1696,6 +1983,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'form' ? 'bg-emerald-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
                     Form
                   </button>
+                  <button onClick={() => setFormPageMode('absensi')}
+                    className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'absensi' ? 'bg-purple-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
+                    Rekap Absensi
+                  </button>
                 </div>
               </div>
             </div>
@@ -1711,9 +2002,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">{person.nama.charAt(0)}</div>
                           <div>
-                            <div className="font-semibold text-white text-sm">
-                              {person.nama} <span className="text-xs font-mono text-cyan-400 font-normal">({person.status})</span>
-                            </div>
+                            <div className="font-semibold text-white text-sm">{person.nama} <span className="text-xs font-mono text-cyan-400 font-normal">({person.status})</span></div>
                             <div className="text-xs text-slate-400 font-mono">NIP: {person.nip || '-'} • <span className="text-slate-400">{person.jabatan}</span></div>
                           </div>
                         </div>
@@ -1766,19 +2055,23 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                             <div className="flex items-center gap-1">
                                               <input type="date" value={editingReleaseVal} onChange={(e) => setEditingReleaseVal(e.target.value)}
                                                 style={{ colorScheme: 'dark' }} className="px-1.5 py-0.5 bg-slate-900 border border-blue-500 rounded text-xs text-white" autoFocus />
-                                              <button onClick={() => handleQuickSaveRelease(task.id, editingReleaseVal)} className="p-1 text-emerald-400 hover:bg-emerald-500/20 rounded cursor-pointer" title="Simpan"><Check className="w-3 h-3" /></button>
-                                              <button onClick={() => setEditingReleaseId(null)} className="p-1 text-slate-400 hover:bg-rose-500/20 rounded cursor-pointer" title="Batal"><X className="w-3 h-3" /></button>
+                                              <button onClick={() => handleQuickSaveRelease(task.id, editingReleaseVal)} className="p-1 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 rounded cursor-pointer" title="Simpan">
+                                                <Check className="w-3 h-3" />
+                                              </button>
+                                              <button onClick={() => setEditingReleaseId(null)} className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer" title="Batal">
+                                                <X className="w-3 h-3" />
+                                              </button>
                                             </div>
                                           ) : (
                                             <div className="flex items-center gap-1.5 group">
                                               <span className="text-cyan-300 font-semibold">{formatDisplayDate(task.release)}</span>
                                               <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
                                                 <button onClick={(e) => { e.stopPropagation(); setEditingReleaseId(task.id); setEditingReleaseVal(parseToStandardDate(task.release) || ''); }}
-                                                  className="p-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer" title="Edit Release">
+                                                  className="p-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer" title="Edit Langsung Tanggal Release">
                                                   <Pencil className="w-3 h-3" />
                                                 </button>
                                                 <button onClick={(e) => { e.stopPropagation(); handleSyncReleaseFromDrive(task); }}
-                                                  className="p-0.5 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition cursor-pointer" title="Tarik dari Drive">
+                                                  className="p-0.5 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition cursor-pointer" title="Tarik Otomatis dari Link Google Drive">
                                                   <Sparkles className="w-3 h-3" />
                                                 </button>
                                               </div>
@@ -1787,10 +2080,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         </td>
                                         <td className="py-2 px-2.5 text-center">
                                           <div className="flex items-center justify-center gap-1.5">
-                                            <button onClick={(e) => { e.stopPropagation(); handleOpenEdit(task); }} className="p-1 rounded bg-slate-800 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 transition cursor-pointer" title="Edit">
-                                              <Pencil className="w-3.5 h-3.5" />
-                                            </button>
-                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }} className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer" title="Hapus">
+                                            <button 
+                                              onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }} 
+                                              className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                                              title="Hapus Tugas"
+                                            >
                                               <Trash2 className="w-3.5 h-3.5" />
                                             </button>
                                           </div>
@@ -1801,12 +2095,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                 </tbody>
                               </table>
                             </div>
-                          ) : <div className="text-xs text-slate-500 py-3 text-center italic">Belum ada tugas.</div>}
+                          ) : <div className="text-xs text-slate-500 py-3 text-center italic">Belum ada tugas. Buka tab <b>Form</b> di atas untuk menambahkan penugasan.</div>}
                         </div>
                       )}
                     </div>
                   );
-                }) : <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">Tidak ada personil organik di biro ini</div>}
+                }) : <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">Tidak ada personil organik di biro ini (Silakan upload Master IM4 terlebih dahulu)</div>}
               </div>
             )}
 
@@ -1838,7 +2132,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         {isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Google Drive...</span>}
                       </div>
                       <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={handleDeskripsiChange}
-                        placeholder="Ketik no dwg atau nama gambar..." required />
+                        placeholder="Ketik no dwg atau nama gambar (misal: Shaft Protection)..." required />
                     </div>
                     <div>
                       <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
@@ -1855,9 +2149,24 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                             return isNameMatch && isRevMatch;
                           });
                           if (exactMatch && exactMatch.finishDate) autoRel = parseToStandardDate(exactMatch.finishDate);
+                          else autoRel = '';
                           setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
                         }}
                         placeholder="0" className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
+                    </div>
+                    <div className="hidden">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Release (Tanggal-Bulan-Tahun)</label>
+                        <div className="flex items-center gap-1.5">
+                          {formData.release && <span className="text-[10px] text-cyan-300 font-mono font-semibold">{formatDisplayDate(formData.release)}</span>}
+                          <button type="button" onClick={() => handleDeskripsiChange(formData.taskName)}
+                            className="px-1.5 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-[10px] flex items-center gap-1 cursor-pointer" title="Tarik ulang dari Link Drive">
+                            <Sparkles className="w-2.5 h-2.5" /> Dari Drive
+                          </button>
+                        </div>
+                      </div>
+                      <input type="date" value={formData.release} onChange={(e) => setFormData(prev => ({ ...prev, release: e.target.value }))}
+                        style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
                     </div>
                     <div>
                       <label className="block text-slate-400 mb-1">Plan Start</label>
@@ -1880,63 +2189,226 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 </form>
               </div>
             )}
+
+            {formPageMode === 'absensi' && (
+              <AbsensiBiroView
+                biroName={selectedFormBiro.biroName}
+                deptName={selectedFormBiro.deptName}
+                wb={kpiWorkbook}
+                monthKey={absensiMonth}
+                onChangeMonth={setAbsensiMonth}
+                onUploadKpi={handleUploadKpiExcel}
+              />
+            )}
           </div>
         )}
       </main>
 
-      {/* Modal Edit Penugasan */}
       {editingTask && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-fadeIn">
             <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-              <span className="font-bold text-xs text-white flex items-center gap-1.5"><Pencil className="w-3.5 h-3.5 text-blue-400" /> Edit Penugasan — {editingTask.pic}</span>
-              <button onClick={() => setEditingTask(null)} className="text-slate-400 hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+              <span className="font-bold text-xs text-white flex items-center gap-1.5">
+                <Pencil className="w-3.5 h-3.5 text-blue-400" /> Edit Penugasan — {editingTask.pic}
+              </span>
+              <button onClick={() => setEditingTask(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
             </div>
+
             <form onSubmit={handleSaveEdit} className="p-4 space-y-3.5 text-xs">
               <div>
                 <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                <SearchableSelect options={projectOptions} value={editFormData.project} onChange={(val) => { setEditFormData(prev => ({ ...prev, project: val })); fetchDrawingControlForProject(val); }} placeholder="Ketik kode proyek..." required />
+                <SearchableSelect
+                  options={projectOptions}
+                  value={editFormData.project}
+                  onChange={(val) => {
+                    setEditFormData(prev => ({ ...prev, project: val }));
+                    fetchDrawingControlForProject(val);
+                  }}
+                  placeholder="Ketik kode proyek..."
+                  required
+                />
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Plan JO</label>
-                  <input type="text" inputMode="decimal" value={editFormData.jo} onChange={(e) => setEditFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
+                  <label className="block text-slate-400 mb-1">
+                    {accessMode === 'organik' ? 'Plan JO' : 'Nomor JO'}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={editFormData.jo}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
+                    required
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                  />
                 </div>
+
                 <div>
-                  <label className="block text-slate-400 mb-1">Jobcard</label>
-                  <input type="text" value={editFormData.kodeJc} onChange={(e) => setEditFormData(prev => ({ ...prev, kodeJc: e.target.value.toUpperCase() }))} placeholder="JC..." className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono uppercase" />
+                  <label className="block text-slate-400 mb-1">
+                    {accessMode === 'organik' ? 'Jobcard' : 'Kode WO'}
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.kodeJc}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, kodeJc: e.target.value.toUpperCase() }))}
+                    placeholder={accessMode === 'organik' ? 'JC...' : 'WO...'}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono uppercase"
+                  />
                 </div>
               </div>
+
               <div>
                 <label className="block text-slate-400 mb-1">Deskripsi</label>
-                <SearchableSelect options={dynamicTaskOptions} value={editFormData.taskName} onChange={(val) => setEditFormData(prev => ({ ...prev, taskName: val }))} placeholder="Ketik deskripsi gambar..." required />
+                <SearchableSelect
+                  options={dynamicTaskOptions}
+                  value={editFormData.taskName}
+                  onChange={(val) => {
+                    const cleanProj = cleanText(editFormData.project || '');
+                    const rows = drawingControlMap[cleanProj] || [];
+                    let newRelease = '';
+                    let newRev = editFormData.rev;
+
+                    const cleanTarget = cleanText(val);
+                    const currentEditRev = String(editFormData.rev || '0').trim();
+
+                    const exactMatch = rows.find(r => {
+                      const cFull = cleanText(r.fullDeskripsi);
+                      const cDwg = cleanText(r.noDwg);
+                      const cName = cleanText(r.drawingName);
+                      const rowRev = String(r.rev || '0').trim();
+
+                      const isRevMatch = rowRev === currentEditRev;
+                      const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
+
+                      return isNameMatch && isRevMatch;
+                    });
+
+                    if (exactMatch && exactMatch.finishDate) {
+                      newRelease = parseToStandardDate(exactMatch.finishDate);
+                      if (exactMatch.rev) newRev = exactMatch.rev;
+                    } else {
+                      newRelease = '';
+                    }
+
+                    setEditFormData(prev => ({ ...prev, taskName: val, release: newRelease, rev: newRev }));
+                  }}
+                  placeholder="Ketik deskripsi gambar..."
+                  required
+                />
               </div>
+
+              {accessMode === 'organik' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
+                    <input
+                      type="text"
+                      value={editFormData.rev}
+                      onChange={(e) => {
+                        const newRev = e.target.value;
+                        const cleanProj = cleanText(editFormData.project || '');
+                        const rows = drawingControlMap[cleanProj] || [];
+                        let autoRel = '';
+
+                        const exactMatch = rows.find(r => {
+                          const cFull = cleanText(r.fullDeskripsi);
+                          const cDwg = cleanText(r.noDwg);
+                          const cName = cleanText(r.drawingName);
+                          const rowRev = String(r.rev || '0').trim();
+                          const isRevMatch = rowRev === String(newRev).trim();
+                          const isNameMatch = cleanText(editFormData.taskName).includes(cDwg) || cleanText(editFormData.taskName).includes(cName) || cFull.includes(cleanText(editFormData.taskName));
+                          return isNameMatch && isRevMatch;
+                        });
+
+                        if (exactMatch && exactMatch.finishDate) {
+                          autoRel = parseToStandardDate(exactMatch.finishDate);
+                        } else {
+                          autoRel = '';
+                        }
+
+                        setEditFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
+                      }}
+                      placeholder="0"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                    />
+                  </div>
+                  <div className="hidden">
+                    <label className="block text-slate-400 mb-1">Release</label>
+                    <input
+                      type="date"
+                      value={editFormData.release}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, release: e.target.value }))}
+                      style={{ colorScheme: 'dark' }}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Plan Start</label>
-                  <input type="date" value={editFormData.startDate} onChange={(e) => setEditFormData(prev => ({ ...prev, startDate: e.target.value }))} required style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white cursor-pointer" />
+                  <label className="block text-slate-400 mb-1">
+                    {accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'}
+                  </label>
+                  <input
+                    type="date"
+                    value={editFormData.startDate}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                    required
+                    style={{ colorScheme: 'dark' }}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                  />
                 </div>
+
                 <div>
-                  <label className="block text-slate-400 mb-1">Plan Finish</label>
-                  <input type="date" value={editFormData.endDate} onChange={(e) => setEditFormData(prev => ({ ...prev, endDate: e.target.value }))} required style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white cursor-pointer" />
+                  <label className="block text-slate-400 mb-1">
+                    {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'}
+                  </label>
+                  <input
+                    type="date"
+                    value={editFormData.endDate}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                    required
+                    style={{ colorScheme: 'dark' }}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                  />
                 </div>
               </div>
+
               <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
-                <button type="button" onClick={() => setEditingTask(null)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer">Batal</button>
-                <button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer">Simpan Perubahan</button>
+                <button
+                  type="button"
+                  onClick={() => setEditingTask(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer"
+                >
+                  Simpan Perubahan
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Modal Planner */}
+      {/* PLANNER MODAL — gabungan semua biro, tanpa password */}
       {isPlannerOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
             <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-              <span className="font-bold text-xs text-white flex items-center gap-1.5"><FileCheck className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard Semua Biro ({pendingTasksCount} Menunggu)</span>
-              <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
+              <span className="font-bold text-xs text-white flex items-center gap-1.5">
+                <FileCheck className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard Semua Biro ({pendingTasksCount} Menunggu)
+              </span>
+              <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
             </div>
             <div className="p-4">
               <div className="space-y-3">
@@ -1953,14 +2425,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       {list.map((task, idx) => (
                         <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
                           <div>
-                            <div className="font-semibold text-white">{task.pic} <span className="font-mono text-slate-500">#{idx + 1}</span></div>
+                            <div className="font-semibold text-white">{task.pic} <span className="font-mono text-slate-500">#{idx + 1}</span>{task.rev && <span className="ml-2 font-mono text-[10px] text-cyan-400">Rev.{task.rev}</span>}</div>
                             <div className="text-slate-400 text-[11px]">{task.taskName}</div>
                             <div className="text-emerald-400 font-mono text-[10px]">{task.project}</div>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
                             <input type="text" value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
                               onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
-                              placeholder="Jobcard (misal: JC020926)..."
+                              placeholder="Jobcard (misal: JC020926 39833)..."
                               className="w-48 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none" />
                             <button onClick={() => handleSaveKodeJcForTask(task.id)}
                               className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer">Simpan</button>
