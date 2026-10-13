@@ -886,7 +886,6 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
     };
   }), [members, entries, week, year, sisaCuti]);
 
-  const cutiMax = Math.max(1, ...data.map(d => d.cuti));
   const totalCuti = data.reduce((s, d) => s + d.cuti, 0);
   const totalSakit = data.reduce((s, d) => s + d.sakit, 0);
   const orangMinggu = data.filter(d => d.minggu.length > 0);
@@ -977,12 +976,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
                     <td className="py-3 px-3 text-slate-500 font-mono">{i + 1}</td>
                     <td className="py-3 px-3 font-semibold text-white">{d.m.nama}</td>
                     <td className="py-3 px-3">
-                      <div className="flex items-center gap-2">
-                        <span className="w-16 font-mono font-bold text-emerald-400">{d.cuti} hari</span>
-                        <div className="flex-1 min-w-[60px] h-1.5 bg-slate-800 rounded-full">
-                          <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(d.cuti / cutiMax) * 100}%` }} />
-                        </div>
-                      </div>
+                      <span className="font-mono font-bold text-emerald-400">{d.cuti} hari</span>
                       {d.panjang.length > 0 && (
                         <div className="mt-1 text-[10px] text-violet-300">
                           + {d.panjang.map(e => `${shortType(e.type)} ${e.days} hari`).join(', ')} (tidak dihitung)
