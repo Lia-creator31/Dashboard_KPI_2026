@@ -7,9 +7,9 @@ import KpiDashboardPage from './KpiDashboardPage';
 import ImportJobcardPage from './ImportJobcardPage';
 import { projectCandidates, dedupeRows } from '../lib/projectCandidates';
 import {
-  Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
-  Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, 
-  FileSpreadsheet, Users, Search, TrendingUp
+Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
+Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
+FileSpreadsheet, Users, Search, TrendingUp
 } from 'lucide-react';
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
@@ -18,31 +18,19 @@ const excelGlobUrls = import.meta.glob('./*.xlsx', {
   eager: true
 }) as Record<string, string>;
 
-// File Excel di folder src/ (mis. data_kpi.xlsx, TIME_OFF_DIVISI_DESAIN.xlsx) - aman bila tidak ada
 const parentExcelGlobUrls = import.meta.glob('../*.xlsx', {
   query: '?url',
   import: 'default',
   eager: true
 }) as Record<string, string>;
 
-// ===== REKAP ABSENSI: bulan Januari - Juni =====
-// Diberi tipe eksplisit supaya TypeScript tidak menganggap isinya `never[]` saat semua bulan dikomentari.
-const MONTHS: { key: string; label: string; num: string }[] = [
-  // { key: 'januari', label: 'Januari', num: '01' },
-  // { key: 'februari', label: 'Februari', num: '02' },
-  // { key: 'maret', label: 'Maret', num: '03' },
-  // { key: 'april', label: 'April', num: '04' },
-  // { key: 'mei', label: 'Mei', num: '05' },
-  // { key: 'juni', label: 'Juni', num: '06' },
-];
+const MONTHS: { key: string; label: string; num: string }[] = [];
 
-// File CSV absensi: src/absensi_januari.csv dst. (path relatif dari src/pages/). Aman bila ada yang belum ada.
 const absensiCsvGlob = import.meta.glob('../absensi_*.csv', {
   query: '?raw',
   import: 'default',
   eager: true
 }) as Record<string, string>;
-
 const csvMonthMap: Record<string, string> = {};
 Object.entries(absensiCsvGlob).forEach(([path, raw]) => {
   const m = MONTHS.find(x => path.toLowerCase().includes(x.key));
@@ -186,7 +174,6 @@ function SearchableSelect({
           <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180 text-blue-400' : ''}`} />
         </div>
       </div>
-
       {isOpen && (
         <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-800 animate-fadeIn text-xs">
           {filtered.length > 0 ? (
@@ -315,10 +302,6 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
   return false;
 }
 
-// Kepala Divisi / Kepala Departemen (termasuk "Kadep" dan "Plt. Kepala Departemen") adalah pimpinan,
-// bukan anggota biro. Biro mereka diberi label "Staf <Departemen>" oleh pembaca IM4, dan isBiroMatch
-// bersifat "mengandung", jadi mis. "Staf Departemen Perlengkapan Listrik dan Elektronika"
-// ikut cocok dengan "Biro Elektronika".
 function isPimpinanDivDept(jabatan: string): boolean {
   const j = (jabatan || '').toLowerCase();
   return j.includes('kepala divisi') || j.includes('kepala departemen') || /\bkadep\b/.test(j) || /\bkadiv\b/.test(j);
@@ -355,7 +338,6 @@ function getProjectNormKey(s: string): string {
   return k.replace(/0/g, 'o');
 }
 
-// Ambil baris Drawing Control untuk SATU nama proyek (Google Apps Script dulu, lalu cadangan CSV Google Sheets).
 async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlRow[]> {
   const cleanProj = cleanText(projectCode);
   if (!cleanProj) return [];
@@ -372,7 +354,6 @@ async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlR
       }
     }
   } catch { /* lanjut ke cadangan CSV */ }
-
   const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(s.projectKey) === cleanProj || cleanProj.includes(cleanText(s.projectKey)));
   if (match) {
     try {
@@ -398,8 +379,6 @@ async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlR
   return [];
 }
 
-// Satu teks proyek (mis. "WFFBNW - W000304") dicari dengan SEMUA nama kandidatnya
-// (WFFBNW, FFBNW, W000304, dan varian WFFBNW1/WFFBNW2), hasilnya digabung tanpa duplikat.
 async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlRow[]> {
   const cands = projectCandidates(projectCode);
   if (!cands.length) cands.push(projectCode);
@@ -407,19 +386,17 @@ async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlR
   return dedupeRows(results.flat());
 }
 
-// Cari tanggal Release (FINISH DATE) untuk gambar + Rev tertentu. Hasil "YYYY-MM-DD" atau '' bila tidak ada.
 function extractDrawingNumber(desc: string): string {
   let s = (desc || '').replace(/\s+/g, ' ').trim();
-  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-–_:]\s*/i, '');            // buang awalan revisi "R2 - " / "REV - "
-  const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);    // nomor di awal deskripsi
+  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
+  const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);
   if (m) return m[0].toUpperCase();
-  const first = s.split(/\s+-\s+|\s+/)[0] || '';                        // cadangan: kata pertama bila memuat angka
+  const first = s.split(/\s+-\s+|\s+/)[0] || '';
   return /\d/.test(first) && first.length >= 4 ? first.toUpperCase() : '';
 }
 
 const drawingKey = (v: string) => cleanText(extractDrawingNumber(v) || v);
 
-// Cari Release (FINISH DATE) berdasarkan NOMOR gambar + Rev yang sama. Hasil "YYYY-MM-DD" atau ''.
 function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
   if (!rows || rows.length === 0 || !taskName) return '';
   const wanted = drawingKey(taskName);
@@ -451,17 +428,15 @@ async function loadMasterFile(key: MasterKey): Promise<XLSX.WorkBook | null> {
   } catch { return null; }
 }
 
-/* ===== HOUR PLANNER: nilai jam per Jobcard, dihubungkan ke job card lewat kode Jobcard, lalu ditulis ke kolom Plan JO (jo) ===== */
 const HOUR_PLANNER_FILE = 'hourplanner.json';
-
 interface HourPlannerEntry {
-  kode: string;      // kode Jobcard asli, mis. "JC310826 39650"
-  hour: number;      // Hour Planned
+  kode: string;
+  hour: number;
   planner: string;
-  start: string;     // YYYY-MM-DD
-  end: string;       // YYYY-MM-DD
+  start: string;
+  end: string;
 }
-type HourPlannerMap = Record<string, HourPlannerEntry>;   // kunci = cleanText(kode Jobcard)
+type HourPlannerMap = Record<string, HourPlannerEntry>;
 
 async function loadHourPlanner(): Promise<HourPlannerMap> {
   try {
@@ -480,14 +455,12 @@ async function saveHourPlanner(map: HourPlannerMap) {
   return error;
 }
 
-// Baca file Hour Planner (kolom: Name = kode Jobcard, Planner, Schedule Start/End date, Hour Planned)
 function parseHourPlannerWorkbook(wb: XLSX.WorkBook): { entries: HourPlannerMap; rowCount: number; error?: string } {
   const entries: HourPlannerMap = {};
   let rowCount = 0;
   const sheet = wb.Sheets[wb.SheetNames[0]];
   if (!sheet) return { entries, rowCount, error: 'Sheet tidak ditemukan.' };
   const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-
   let headerIdx = -1, nameCol = -1, hourCol = -1, plannerCol = -1, startCol = -1, endCol = -1;
   for (let r = 0; r < Math.min(10, rows.length); r++) {
     const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
@@ -502,7 +475,6 @@ function parseHourPlannerWorkbook(wb: XLSX.WorkBook): { entries: HourPlannerMap;
     }
   }
   if (headerIdx === -1) return { entries, rowCount, error: 'Kolom "Name" dan "Hour Planned" tidak ditemukan di baris judul.' };
-
   for (let r = headerIdx + 1; r < rows.length; r++) {
     const row = rows[r]; if (!row) continue;
     const kode = String(row[nameCol] ?? '').replace(/\s+/g, ' ').trim();
@@ -541,32 +513,24 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
   return null;
 }
 
-/* ===== REKAP ABSENSI PER BIRO =====
-   Sumber data (sama seperti program lama):
-   - NIP, Nama, Planned, Effective, Overtime, Idle -> data_kpi.xlsx (1 sheet per bulan, biro dicocokkan lewat kolom H)
-   - Terlambat, Sakit -> absensi_<bulan>.csv (dicocokkan lewat nama)
-   Saat ini komponen AbsensiBiroView TIDAK ditampilkan (pemanggilannya dikomentari di bagian bawah halaman).
-*/
 interface AbsensiRow {
   nip: string;
   nama: string;
-  planned: number;    // Jam kerja yang direncanakan (dijumlah dari semua baris pegawai tsb)
-  effective: number;  // Jam kerja efektif
-  overtime: number;   // Jam lembur
-  idle: number;       // Jam menganggur, diambil langsung dari Excel
-  terlambat: number;  // Jumlah keterlambatan, dari CSV absensi
-  sakit: number;      // Jumlah hari sakit, dari CSV absensi
+  planned: number;
+  effective: number;
+  overtime: number;
+  idle: number;
+  terlambat: number;
+  sakit: number;
 }
 
-// Ubah nilai sel apa pun jadi angka: terima number/string, buang '%', koma desimal -> titik.
-// Nilai kosong atau tidak valid dianggap 0 supaya penjumlahan tidak jadi NaN.
 const absNum = (v: any): number => {
   if (v === null || v === undefined || v === '') return 0;
   if (typeof v === 'number') return isNaN(v) ? 0 : v;
   const n = parseFloat(String(v).trim().replace('%', '').replace(',', '.'));
   return isNaN(n) ? 0 : n;
 };
-// Bulatkan 2 desimal untuk tampilan. Di-export agar tidak kena error "unused" selama kolom angka dikomentari.
+
 export const fmtNum = (n: number) => String(Math.round(n * 100) / 100);
 
 function findMonthSheet(wb: XLSX.WorkBook | null, monthKey: string): string | undefined {
@@ -580,8 +544,6 @@ function findMonthSheet(wb: XLSX.WorkBook | null, monthKey: string): string | un
 function buildRekap(wb: XLSX.WorkBook | null, biroName: string, monthKey: string, csv: string): AbsensiRow[] {
   const sheetName = findMonthSheet(wb, monthKey);
   if (!wb || !sheetName) return [];
-
-  // Terlambat & Sakit dari CSV (kunci: nama). Kolom diambil dari belakang: [length-3] Terlambat, [length-2] Sakit.
   const abs = new Map<string, { terlambat: number; sakit: number }>();
   (csv || '').split(/\r?\n/).forEach((line, i) => {
     if (i === 0 || !line.trim()) return;
@@ -590,12 +552,10 @@ function buildRekap(wb: XLSX.WorkBook | null, biroName: string, monthKey: string
     const k = cleanText(p[1] || '');
     if (k) abs.set(k, { terlambat: absNum(p[p.length - 3]), sakit: absNum(p[p.length - 2]) });
   });
-
   const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
   const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
   const planIdx = head.findIndex(h => h.includes('plan'));
-  const PLAN_COL = planIdx >= 0 ? planIdx : 9;   // <- cek: kolom Planned di data_kpi.xlsx
-
+  const PLAN_COL = planIdx >= 0 ? planIdx : 9;
   const people = new Map<string, AbsensiRow>();
   rows.forEach((row, i) => {
     if (i === 0 || !row) return;
@@ -611,14 +571,12 @@ function buildRekap(wb: XLSX.WorkBook | null, biroName: string, monthKey: string
     p.idle += absNum(row[12]);
     people.set(key, p);
   });
-
   return Array.from(people.values()).map(p => {
     const a = abs.get(cleanText(p.nama));
     return { ...p, terlambat: a ? a.terlambat : 0, sakit: a ? a.sakit : 0 };
   });
 }
 
-// Di-export supaya tidak kena peringatan "declared but never used" selama pemanggilannya dikomentari.
 export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUploadKpi }: {
   biroName: string;
   deptName: string;
@@ -629,31 +587,19 @@ export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMont
 }) {
   const [q, setQ] = useState('');
   const month = MONTHS.find(m => m.key === monthKey) || null;
-
   const allRows = useMemo(
     () => (month ? buildRekap(wb, biroName, month.key, csvMonthMap[month.key] || '') : []),
     [wb, biroName, month]
   );
-
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
     return s ? allRows.filter(r => r.nip.toLowerCase().includes(s) || r.nama.toLowerCase().includes(s)) : allRows;
   }, [allRows, q]);
 
-  // ---- Pilihan Bulan ----
   if (!month) {
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
         <div className="flex items-start justify-between gap-3 flex-wrap">
-          {/* { <div>
-            { <h4 className="text-sm font-bold text-white">Pilih Bulan Rekap Absensi</h4>}
-            <span className="text-xs text-slate-400">{biroName}</span>
-          </div> } */}
-          {/* <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-            <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
-            <span>{wb ? 'Update data_kpi.xlsx' : 'Upload data_kpi.xlsx'}</span>
-            <input type="file" accept=".xlsx, .xls" onChange={onUploadKpi} className="hidden" />
-          </label> */}
         </div>
         {!wb && (
           <div className="text-[11px] text-amber-400">
@@ -676,7 +622,6 @@ export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMont
     );
   }
 
-  // ---- Tabel (hanya No & Nama; kolom lain dikomentari) ----
   return (
     <div className="space-y-4">
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex items-start justify-between gap-4 flex-wrap">
@@ -695,40 +640,24 @@ export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMont
           <div className="text-[10px] text-slate-400 uppercase tracking-wide">Total Pegawai</div>
         </div>
       </div>
-
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Cari NIP atau Nama Pegawai..."
           className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-72" />
         <span className="text-[11px] text-slate-400">Menampilkan <b className="text-white">{rows.length}</b> data pegawai</span>
       </div>
-
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="text-slate-400 border-b border-slate-800 uppercase text-[11px]">
               <th className="py-3 px-3 w-10">No</th>
-              {/* <th className="py-3 px-3">NIP</th> */}
               <th className="py-3 px-3">Nama Pegawai</th>
-              {/* <th className="py-3 px-3 text-right">Planned</th> */}
-              {/* <th className="py-3 px-3 text-right">Effective</th> */}
-              {/* <th className="py-3 px-3 text-right">Overtime</th> */}
-              {/* <th className="py-3 px-3 text-right">Idle</th> */}
-              {/* <th className="py-3 px-3 text-center text-rose-400 bg-rose-500/5">Terlambat</th> */}
-              {/* <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th> */}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800 font-mono">
             {rows.length > 0 ? rows.map((r, i) => (
               <tr key={`${r.nip}-${i}`} className="hover:bg-slate-800/40">
                 <td className="py-3 px-3 text-slate-500">{i + 1}</td>
-                {/* <td className="py-3 px-3 text-blue-400">{r.nip}</td> */}
                 <td className="py-3 px-3 font-sans font-semibold text-white">{r.nama}</td>
-                {/* <td className="py-3 px-3 text-right font-bold text-emerald-400">{fmtNum(r.planned)}</td> */}
-                {/* <td className="py-3 px-3 text-right font-bold text-cyan-400">{fmtNum(r.effective)}</td> */}
-                {/* <td className="py-3 px-3 text-right font-bold text-amber-400">{fmtNum(r.overtime)}</td> */}
-                {/* <td className="py-3 px-3 text-right text-slate-200">{fmtNum(r.idle)}</td> */}
-                {/* <td className="py-3 px-3 text-center font-bold text-rose-400 bg-rose-500/5">{fmtNum(r.terlambat)}</td> */}
-                {/* <td className="py-3 px-3 text-center font-bold text-amber-400 bg-amber-500/5">{fmtNum(r.sakit)}</td> */}
               </tr>
             )) : (
               <tr><td colSpan={2} className="py-8 text-center font-sans text-slate-500">
@@ -749,25 +678,43 @@ interface TimeOffEntry {
   nip: string;
   nama: string;
   type: string;
-  kind: 'cuti' | 'sakit' | 'panjang';
-  start: string;   // YYYY-MM-DD
-  end: string;     // YYYY-MM-DD
-  days: number;    // kolom Duration (sudah hari kerja)
+  kind: 'cuti' | 'sakit' | 'panjang' | 'khusus';  // ← TAMBAH 'khusus'
+  start: string;
+  end: string;
+  days: number;
   status: string;
 }
 
-// NIP dinormalkan: buang non-angka & nol di depan (NIP PKWT berawalan 0 sering hilang nolnya di Excel)
 const normNip = (s: any) => String(s ?? '').replace(/\D/g, '').replace(/^0+/, '');
 const isoLocal = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const shortType = (t: string) =>
   t.replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s*\d{4}\s*$/, '').trim();
 
+// ===== MODIFIKASI: classifyTimeOff =====
 // Sakit dipisah dari cuti; cuti panjang tidak dihitung ke realisasi cuti biasa
+// Cuti khusus (umroh, menikah, keluarga sakit, istri melahirkan) juga tidak dihitung
 function classifyTimeOff(type: string): TimeOffEntry['kind'] {
   const t = type.toLowerCase().trim();
   if (t.startsWith('sakit')) return 'sakit';
   if (t.includes('kewajiban negara') || t.includes('persiapan pensiun') || t === 'cuti melahirkan') return 'panjang';
+  
+  // ===== CUTI KHUSUS - TIDAK DIHITUNG KE REALISASI CUTI TAHUNAN =====
+  // 1. Umroh / Haji
+  if (t.includes('umroh') || t.includes('umrah') || t.includes('haji')) return 'khusus';
+  // 2. Menikah / Pernikahan
+  if (t.includes('menikah') || t.includes('pernikahan') || t.includes('kawin')) return 'khusus';
+  // 3. Istri Melahirkan (suami yang cuti)
+  if (t.includes('istri melahirkan') || t.includes('suami melahirkan') || 
+      (t.includes('melahirkan') && (t.includes('istri') || t.includes('suami')))) return 'khusus';
+  // 4. Keluarga inti sakit keras / rawat inap / meninggal
+  if ((t.includes('keluarga') || t.includes('anak') || t.includes('istri') || 
+       t.includes('suami') || t.includes('orang tua') || t.includes('ayah') || 
+       t.includes('ibu') || t.includes('bapak') || t.includes('mamah') || 
+       t.includes('papa') || t.includes('saudara')) && 
+      (t.includes('sakit') || t.includes('rawat inap') || t.includes('meninggal') || 
+       t.includes('duka') || t.includes('wafat') || t.includes('meninggal dunia'))) return 'khusus';
+  
   return 'cuti';
 }
 
@@ -779,15 +726,14 @@ function parseTimeOff(wb: XLSX.WorkBook | null): TimeOffEntry[] {
   const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
   const col = (name: string) => head.findIndex(h => h === name);
   const cEmp = col('employee'), cType = col('time off type'), cStart = col('start date'),
-        cEnd = col('end date'), cDur = col('duration'), cStatus = col('status');
+    cEnd = col('end date'), cDur = col('duration'), cStatus = col('status');
   if (cEmp < 0 || cType < 0 || cStart < 0 || cEnd < 0) return [];
-
   const isoRe = /^\d{4}-\d{2}-\d{2}$/;
   const out: TimeOffEntry[] = [];
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i]; if (!r) continue;
     const emp = String(r[cEmp] || '').trim(); if (!emp) continue;
-    const dash = emp.indexOf('-');                       // "103903102-Christin Kasmiatin"
+    const dash = emp.indexOf('-');
     const start = parseToStandardDate(r[cStart]);
     if (!isoRe.test(start)) continue;
     const endRaw = parseToStandardDate(r[cEnd]);
@@ -806,8 +752,6 @@ function parseTimeOff(wb: XLSX.WorkBook | null): TimeOffEntry[] {
   return out;
 }
 
-// Senin - Jumat pada minggu berjalan.
-// (Kalau mau "hari ini + 7 hari ke depan", ganti from = hari ini, to = hari ini + 6.)
 function getWeekRange(base: Date = new Date()) {
   const d = new Date(base.getFullYear(), base.getMonth(), base.getDate());
   const mon = new Date(d); mon.setDate(d.getDate() - ((d.getDay() + 6) % 7));
@@ -815,13 +759,8 @@ function getWeekRange(base: Date = new Date()) {
   return { from: isoLocal(mon), to: isoLocal(fri) };
 }
 
-/* ===== SISA CUTI dari Google Sheet "FORM PENGISIAN ALOKASI CUTI 2026 DIVISI DESAIN (Jawaban)" =====
-   Diambil otomatis (tanpa upload). Kolom acuan: "Jumlah Sisa Cuti Tahun 2026".
-   Bila satu orang mengisi form lebih dari sekali, baris PALING BAWAH (isian terakhir) yang dipakai.
-   Pencocokan: NIP dulu (tahan beda huruf besar/kecil & nol di depan), cadangan lewat nama. */
 const SISA_CUTI_SHEET_ID = '1c6TgsfSRrLJ9QZkTQR8aIMe-fBgq89HxmoUdEcqU4b4';
 const SISA_CUTI_GID = '1997448035';
-
 interface SisaCutiData {
   byNip: Map<string, number>;
   byName: Map<string, number>;
@@ -836,18 +775,16 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
     const wb = XLSX.read(await res.text(), { type: 'string' });
     const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
     if (rows.length < 2) return null;
-
     const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
     let cName = head.findIndex(h => h.includes('nama personel'));
     let cNip = head.findIndex(h => h === 'nip');
     let cSisa = head.findIndex(h => h.includes('jumlah sisa cuti'));
-    if (cName < 0) cName = 2;   // cadangan: kolom C
-    if (cNip < 0) cNip = 3;     // cadangan: kolom D
-    if (cSisa < 0) cSisa = 5;   // cadangan: kolom F
-
+    if (cName < 0) cName = 2;
+    if (cNip < 0) cNip = 3;
+    if (cSisa < 0) cSisa = 5;
     const byNip = new Map<string, number>();
     const byName = new Map<string, number>();
-    for (let i = 1; i < rows.length; i++) {          // urut dari atas ke bawah: baris terakhir menimpa yang lama
+    for (let i = 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
       const raw = String(r[cSisa] ?? '').trim();
       if (raw === '') continue;
@@ -861,72 +798,78 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
   } catch { return null; }
 }
 
-// Tombol upload Time Off sudah dipindah ke halaman Departemen Desain (deretan tombol upload),
 function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
   biroName: string;
   members: ParsedMember[];
   wb: XLSX.WorkBook | null;
-  sisaCuti: SisaCutiData | null;   // null = belum termuat (atau gagal diambil)
+  sisaCuti: SisaCutiData | null;
 }) {
   const entries = useMemo(() => parseTimeOff(wb), [wb]);
   const week = useMemo(() => getWeekRange(), []);
   const today = useMemo(() => isoLocal(new Date()), []);
   const year = String(new Date().getFullYear());
 
-const data = useMemo(() => {
-  const currentYear = new Date().getFullYear(); // 2026 atau 2027+
+  const data = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return members.map(m => {
+      const nip = normNip(m.nip), nm = cleanText(m.nama);
+      const mine = entries.filter(e =>
+        e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm)
+      );
 
-  return members.map(m => {
-    const nip = normNip(m.nip), nm = cleanText(m.nama);
-    const mine = entries.filter(e =>
-      e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm)
-    );
+      let inYear: TimeOffEntry[] = [];
+      if (currentYear === 2026) {
+        inYear = mine.filter(e => {
+          const [y, mStr] = e.start.split('-');
+          const monthNum = parseInt(mStr, 10);
+          return y === '2026' && monthNum >= 8 && monthNum <= 12;
+        });
+      } else {
+        inYear = mine.filter(e => e.start.startsWith(String(currentYear)));
+      }
 
-    // Tentukan rentang tanggal filter berdasarkan tahun aktif
-    let inYear: TimeOffEntry[] = [];
-    if (currentYear === 2026) {
-      // Agustus (08) hingga Desember (12) 2026
-      inYear = mine.filter(e => {
-        const [y, mStr] = e.start.split('-');
-        const monthNum = parseInt(mStr, 10);
-        return y === '2026' && monthNum >= 8 && monthNum <= 12;
-      });
-    } else {
-      // Tahun 2027 dan seterusnya: mulai dari bulan pertama (Januari / bulan 01)
-      inYear = mine.filter(e => e.start.startsWith(String(currentYear)));
-    }
+      const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
+      
+      // ===== MODIFIKASI: Hanya hitung cuti biasa (bukan sakit, panjang, atau khusus) =====
+      const realisasiCuti = sum('cuti');
+      const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
 
-    const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
-    const realisasiCuti = sum('cuti');
+      const initialSisa: number | undefined = sisaCuti
+        ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
+        : undefined;
+      const sisa = initialSisa !== undefined ? initialSisa - realisasiCuti : undefined;
 
-    // Sisa cuti awal dari Google Sheet dikurangi dengan total realisasi cuti yang dihitung
-    const initialSisa: number | undefined = sisaCuti
-      ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
-      : undefined;
-
-    const sisa = initialSisa !== undefined ? initialSisa - realisasiCuti : undefined;
-
-    return {
-      m,
-      sisa,
-      cuti: realisasiCuti,
-      sakit: sum('sakit'),
-      sakitKali: inYear.filter(e => e.kind === 'sakit').length,
-      panjang: inYear.filter(e => e.kind === 'panjang'),
-      minggu: mine.filter(e => e.start <= week.to && e.end >= week.from),
-    };
-  });
-}, [members, entries, week, sisaCuti]);
+      return {
+        m,
+        sisa,
+        cuti: realisasiCuti,
+        sakit: sum('sakit'),
+        sakitKali: inYear.filter(e => e.kind === 'sakit').length,
+        panjang: inYear.filter(e => e.kind === 'panjang'),
+        khusus: cutiKhusus,  // ← TAMBAH
+        minggu: mine.filter(e => e.start <= week.to && e.end >= week.from),
+      };
+    });
+  }, [members, entries, week, sisaCuti]);
 
   const totalCuti = data.reduce((s, d) => s + d.cuti, 0);
   const totalSakit = data.reduce((s, d) => s + d.sakit, 0);
   const orangMinggu = data.filter(d => d.minggu.length > 0);
 
-  const kindLabel = (k: TimeOffEntry['kind']) => k === 'sakit' ? 'Sakit' : k === 'panjang' ? 'Cuti panjang' : 'Cuti';
-  const kindClass = (k: TimeOffEntry['kind']) =>
-    k === 'sakit' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-    : k === 'panjang' ? 'bg-violet-500/10 text-violet-300 border-violet-500/20'
-    : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20';
+  // ===== MODIFIKASI: Tambah label & class untuk 'khusus' =====
+  const kindLabel = (k: TimeOffEntry['kind']) => {
+    if (k === 'sakit') return 'Sakit';
+    if (k === 'panjang') return 'Cuti panjang';
+    if (k === 'khusus') return 'Cuti khusus';
+    return 'Cuti';
+  };
+
+  const kindClass = (k: TimeOffEntry['kind']) => {
+    if (k === 'sakit') return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    if (k === 'panjang') return 'bg-violet-500/10 text-violet-300 border-violet-500/20';
+    if (k === 'khusus') return 'bg-orange-500/10 text-orange-300 border-orange-500/20';  // ← TAMBAH
+    return 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20';
+  };
 
   return (
     <div className="space-y-4">
@@ -935,16 +878,13 @@ const data = useMemo(() => {
           <h4 className="text-sm font-bold text-white">Cuti &amp; Sakit Tahun {year}</h4>
           <span className="text-xs text-slate-400">{biroName}</span>
         </div>
-        {/* Tombol "Update Time Off" dipindah ke halaman Departemen Desain */}
       </div>
-
       {!wb ? (
         <div className="text-[11px] text-amber-400 bg-slate-900 border border-slate-800 rounded-xl p-4">
           Data Time Off belum termuat. Upload file TIME_OFF_DIVISI_DESAIN.xlsx lewat tombol "Upload Time Off" di halaman Departemen Desain.
         </div>
       ) : (
         <>
-          {/* Ringkasan */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
               { label: 'Anggota', value: data.length, color: 'text-blue-400' },
@@ -959,7 +899,6 @@ const data = useMemo(() => {
             ))}
           </div>
 
-          {/* Minggu ini */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <h5 className="text-xs font-bold text-white uppercase tracking-wide">Tidak Masuk Minggu Ini</h5>
@@ -989,7 +928,6 @@ const data = useMemo(() => {
             )}
           </div>
 
-          {/* Tabel per anggota */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
@@ -1014,13 +952,19 @@ const data = useMemo(() => {
                           + {d.panjang.map(e => `${shortType(e.type)} ${e.days} hari`).join(', ')} (tidak dihitung)
                         </div>
                       )}
+                      {/* ===== MODIFIKASI: Tampilkan cuti khusus ===== */}
+                      {d.khusus.length > 0 && (
+                        <div className="mt-1 text-[10px] text-orange-300">
+                          + {d.khusus.map(e => `${shortType(e.type)} ${e.days} hari`).join(', ')} (tidak dihitung)
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 px-3 text-center bg-sky-500/5">
                       {sisaCuti === null
                         ? <span className="text-slate-600 text-[11px]">memuat...</span>
                         : d.sisa !== undefined
-                          ? <span className="font-mono font-bold text-sky-400">{d.sisa} hari</span>
-                          : <span className="text-slate-600" title="Belum mengisi form alokasi cuti">-</span>}
+                        ? <span className="font-mono font-bold text-sky-400">{d.sisa} hari</span>
+                        : <span className="text-slate-600" title="Belum mengisi form alokasi cuti">-</span>}
                     </td>
                     <td className="py-3 px-3 text-center bg-amber-500/5">
                       <div className="font-mono font-bold text-amber-400">{d.sakit} hari</div>
@@ -1038,8 +982,12 @@ const data = useMemo(() => {
               </tbody>
             </table>
           </div>
+
           <div className="text-[10px] text-slate-500">
-            Dihitung dari status Approved. Durasi = hari kerja. Cuti panjang (melahirkan, kewajiban negara, pensiun) tidak masuk realisasi cuti.
+            Dihitung dari status Approved. Durasi = hari kerja. 
+            <b className="text-violet-300">Cuti panjang</b> (melahirkan, kewajiban negara, pensiun) dan 
+            <b className="text-orange-300"> cuti khusus</b> (umroh, menikah, istri melahirkan, keluarga inti sakit/rawat inap) 
+            tidak masuk realisasi cuti.
             Sisa Cuti diambil otomatis dari Google Sheet "Form Pengisian Alokasi Cuti 2026" (isian terakhir bila nama ganda); tanda "-" berarti belum mengisi form.
           </div>
         </>
@@ -1124,7 +1072,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         let realisasiUrl = '';
         let kpiUrl = '';
         let timeOffUrl = '';
-
         Object.entries(excelGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
           if (pLower.includes('kpi')) kpiUrl = url;
@@ -1136,22 +1083,17 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           if (p.includes('kpi')) kpiUrl = url;
           else if (p.includes('time_off') || p.includes('timeoff')) timeOffUrl = url;
         });
-
         const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
           loadMasterFile('jobcard'),
           loadMasterFile('im4').then(wb => wb || fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx'])),
           loadMasterFile('realisasi').then(wb => wb || fetchSafeWorkbook([realisasiUrl, '/Realisasi JO.xlsx', './Realisasi JO.xlsx'])),
         ]);
-
         if (wbJc) setJobcardWorkbook(wbJc);
         if (wbIm4) setIm4Workbook(wbIm4);
         if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
         setHourPlannerMap(await loadHourPlanner());
-
         const wbKpi = await fetchSafeWorkbook([kpiUrl, '/data_kpi.xlsx', './data_kpi.xlsx']);
         if (wbKpi) setKpiWorkbook(wbKpi);
-
-        // Time Off (cuti & sakit): versi yang di-upload ke server diutamakan, cadangan file di src/ atau public/
         const wbTimeOff = await loadMasterFile('timeoff')
           .then(wb => wb || fetchSafeWorkbook([timeOffUrl, '/TIME_OFF_DIVISI_DESAIN.xlsx']));
         if (wbTimeOff) setTimeOffWorkbook(wbTimeOff);
@@ -1161,25 +1103,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
-  // ===== Sisa Cuti OTOMATIS dari Google Sheet alokasi cuti: dimuat saat halaman dibuka, lalu diperbarui tiap 10 menit =====
   useEffect(() => {
     let alive = true;
     const load = async () => {
       const data = await fetchSisaCuti();
-      if (alive && data) setSisaCuti(data);   // bila gagal, data lama tetap dipakai
+      if (alive && data) setSisaCuti(data);
     };
     load();
     const timer = setInterval(load, 10 * 60 * 1000);
     return () => { alive = false; clearInterval(timer); };
   }, []);
 
-  // ===== Sinkron Release OTOMATIS dari Drawing Control (tanpa klik apa pun) =====
-  // Tugas yang Release-nya masih kosong dicocokkan ke Drive saat data dimuat, lalu disimpan sendiri.
-  // Yang tidak ketemu dicoba lagi tiap 10 menit (mis. Finish Date baru diisi di Drive).
   const autoTried = useRef<Set<string>>(new Set());
   const autoRunning = useRef(false);
   const [autoSyncMsg, setAutoSyncMsg] = useState('');
-
   const autoSyncReleases = useCallback(async (retryAll: boolean) => {
     if (autoRunning.current) return;
     const all = ([] as TaskItem[]).concat(...Object.values(manualTasks));
@@ -1251,22 +1188,21 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      try { 
+      try {
         const wb = XLSX.read(evt.target?.result, { type: 'binary' });
-        setJobcardWorkbook(wb); 
+        setJobcardWorkbook(wb);
         const err = await saveMasterFile('jobcard', file);
         if (err) {
           alert(`File "${file.name}" terbaca, tapi gagal disimpan ke server: ${err.message}`);
         } else {
           alert(`Katalog Jobcard "${file.name}" berhasil diperbarui dan tersimpan permanen di server!`);
         }
-      } 
+      }
       catch { alert('Gagal membaca file JOBCARD_DESAIN.xlsx.'); }
     };
     reader.readAsBinaryString(file);
   };
 
-  // Upload manual data_kpi.xlsx (hanya untuk sesi ini) bila file belum termuat otomatis
   const handleUploadKpiExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
     const file = input.files?.[0]; if (!file) return;
@@ -1281,9 +1217,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     reader.readAsBinaryString(file);
   };
 
-  // Upload export Time Off (TIME_OFF_DIVISI_DESAIN.xlsx): dibaca langsung dan disimpan permanen di server
-  // (master-files/timeoff.xlsx) supaya tidak perlu upload ulang tiap buka aplikasi.
-  // Tombolnya ada di halaman Departemen Desain, bersama tombol upload lainnya.
   const handleUploadTimeOffExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
     const file = input.files?.[0]; if (!file) return;
@@ -1301,10 +1234,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     reader.readAsBinaryString(file);
   };
 
-  // Import file Excel Hour Planner: kolom "Hour Planned" ditulis ke kolom Plan JO (jo) di job_cards,
-  // dicocokkan lewat kode Jobcard (kolom "Name"). Nilai juga disimpan di hourplanner.json (digabung dengan
-  // data sebelumnya, kode yang sama ditimpa nilai terbaru) supaya job card yang kodenya diisi belakangan
-  // tetap otomatis terisi Plan JO-nya (lihat handleSaveKodeJcForTask).
   const handleImportHourPlanner = async (e: ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
     const file = input.files?.[0]; if (!file) return;
@@ -1314,15 +1243,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const { entries, rowCount, error } = parseHourPlannerWorkbook(wb);
       if (error) { alert(`Gagal membaca "${file.name}": ${error}`); return; }
       if (rowCount === 0) { alert(`Tidak ada baris Hour Planner yang valid di "${file.name}".`); return; }
-
       const merged: HourPlannerMap = { ...(await loadHourPlanner()), ...entries };
       const saveErr = await saveHourPlanner(merged);
       setHourPlannerMap(merged);
-
-      // Tulis Hour Planned ke kolom jo (Plan JO) pada job card yang kode Jobcard-nya cocok
       const allTasks = ([] as TaskItem[]).concat(...Object.values(manualTasks));
       const toUpdate = allTasks.filter(t => t.kodeJc && entries[cleanText(t.kodeJc)]);
-
       let okCount = 0, failCount = 0;
       const newJo = new Map<string, string>();
       for (let i = 0; i < toUpdate.length; i += 10) {
@@ -1333,7 +1258,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           else { okCount++; newJo.set(t.id, hour); }
         }));
       }
-
       if (newJo.size > 0) {
         setManualTasks(prev => {
           const updated = { ...prev };
@@ -1343,22 +1267,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           return updated;
         });
       }
-
       const linkedKeys = new Set(toUpdate.map(t => cleanText(t.kodeJc)));
       const noJobcard = Object.keys(entries).filter(k => !linkedKeys.has(k)).length;
-
       alert(
         `Hour Planner "${file.name}" diimpor: ${rowCount} baris.\n` +
         `• Plan JO terisi pada job card yang sudah ada: ${okCount}\n` +
         `• Belum ada job card dengan kode itu: ${noJobcard} (tetap disimpan, Plan JO terisi otomatis saat kode Jobcard diisi di Planner)` +
-        (failCount ? `\n\nPERHATIAN: ${failCount} job card gagal diperbarui Plan JO-nya (cek tipe kolom jo di Supabase).` : '') +
-        (saveErr ? `\n\nPERHATIAN: gagal disimpan permanen ke server (${saveErr.message}). Data hanya ada di sesi ini.` : '')
+        (failCount ? `\nPERHATIAN: ${failCount} job card gagal diperbarui Plan JO-nya (cek tipe kolom jo di Supabase).` : '') +
+        (saveErr ? `\nPERHATIAN: gagal disimpan permanen ke server (${saveErr.message}). Data hanya ada di sesi ini.` : '')
       );
     } catch {
       alert('Gagal membaca file Excel Hour Planner.');
     } finally {
       setIsImportingHour(false);
-      input.value = '';   // agar file yang sama bisa dipilih lagi
+      input.value = '';
     }
   };
 
@@ -1366,16 +1288,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      try { 
+      try {
         const wb = XLSX.read(evt.target?.result, { type: 'binary' });
-        setRealisasiWorkbook(wb); 
+        setRealisasiWorkbook(wb);
         const err = await saveMasterFile('realisasi', file);
         if (err) {
           alert(`File "${file.name}" terbaca, tapi gagal disimpan ke server: ${err.message}`);
         } else {
           alert(`File "${file.name}" berhasil diperbarui dan tersimpan permanen! Real JO langsung terhitung otomatis.`);
         }
-      } 
+      }
       catch { alert('Gagal membaca file Realisasi JO.xlsx.'); }
     };
     reader.readAsBinaryString(file);
@@ -1446,7 +1368,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         const statusRaw = String(row[statusCol] || '').trim();
         const unit = String(row[unitCol] || '').trim();
         const jabatan = String(row[jabatanCol] || '').trim();
-        if (jabatan.toLowerCase().includes('kepala divisi')) { currentDept = 'Div. Desain'; currentBiro = 'Div. Desain'; } 
+        if (jabatan.toLowerCase().includes('kepala divisi')) { currentDept = 'Div. Desain'; currentBiro = 'Div. Desain'; }
         else if (jabatan.toLowerCase().includes('kepala departemen') || jabatan.toLowerCase().includes('kadep')) {
           if (unit && unit.toLowerCase() !== 'nan') currentDept = unit; else currentDept = jabatan; currentBiro = `Staf ${currentDept}`;
         } else if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
@@ -1479,7 +1401,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     } catch { return 0; }
   }, [getSubconMembersForBiro]);
 
-  // Pimpinan (Kepala Divisi / Kepala Departemen) tidak dihitung sebagai anggota biro.
   const getBiroMembers = useCallback((biroName: string) => {
     return allParsedFromExcel.filter(p =>
       isBiroMatch(p.biro, biroName) &&
@@ -1508,7 +1429,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTask) return;
-
     const revVal = (editFormData.rev && editFormData.rev.trim() !== '') ? editFormData.rev.trim() : '0';
     let releaseVal = editFormData.release ? editFormData.release.trim() : '';
     const keyChanged = editingTask.project !== editFormData.project
@@ -1519,7 +1439,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(editFormData.project);
       releaseVal = findReleaseInRows(rows, editFormData.taskName, revVal);
     }
-
     const updatePayload: any = {
       project: editFormData.project,
       project_code: editFormData.project,
@@ -1531,26 +1450,21 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       rev: revVal,
       release: releaseVal,
     };
-
     let { error } = await supabase
       .from('job_cards')
       .update(updatePayload)
       .eq('id', editingTask.id);
-
     if (error && (error.message?.includes('rev') || error.message?.includes('release') || (error as any).details?.includes('rev') || (error as any).details?.includes('release'))) {
       delete updatePayload.rev;
       delete updatePayload.release;
       const retry = await supabase.from('job_cards').update(updatePayload).eq('id', editingTask.id);
       error = retry.error;
     }
-
     if (error) {
       alert('Gagal mengupdate: ' + error.message);
       return;
     }
-
     saveLocalRelease(editingTask.id, releaseVal);
-
     setManualTasks(prev => {
       const updated = { ...prev };
       Object.keys(updated).forEach(k => {
@@ -1573,7 +1487,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       });
       return updated;
     });
-
     setEditingTask(null);
     alert('Penugasan berhasil diperbarui!');
     loadAllJobCards();
@@ -1586,7 +1499,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         alert('Gagal menghapus: ' + error.message);
         return;
       }
-      
       setManualTasks(prev => {
         const updated = { ...prev };
         Object.keys(updated).forEach(k => {
@@ -1594,13 +1506,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         });
         return updated;
       });
-      
       alert('Tugas berhasil dihapus!');
       loadAllJobCards();
     }
   };
 
-  // Dipakai dropdown form dan dialog edit: ambil Drawing Control dengan semua nama kandidat proyek
   const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
     const cleanProj = cleanText(projectCode); if (!cleanProj) return;
     setIsFetchingDrawing(true);
@@ -1652,7 +1562,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     setEditingReleaseId(null);
   };
 
-  // Tombol sprinkel: tarik Release dari Drive (GAS, lalu cadangan CSV) untuk satu tugas
   const handleSyncReleaseFromDrive = async (task: TaskItem) => {
     const cleanProj = cleanText(task.project);
     let rows: DrawingControlRow[] | undefined = drawingControlMap[cleanProj];
@@ -1712,9 +1621,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         if (retryError) { alert('Gagal simpan: ' + retryError.message); return; }
         insertedRow = retryData;
       } else { insertedRow = resData; }
-
       if (releaseVal) saveLocalRelease(insertedRow.id, releaseVal);
-      
       const newTask: TaskItem = {
         id: insertedRow.id, biroName: activeBiro, project: formData.kodeProyek, taskName: formData.taskName,
         startDate: formData.startDate, endDate: formData.endDate, pic: formData.nama, jo: formData.jo,
@@ -1732,16 +1639,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     } catch { alert('Koneksi database bermasalah.'); }
   };
 
-  // Simpan kode Jobcard dari Planner. Bila kode itu sudah ada di data Hour Planner,
-  // Plan JO (jo) otomatis terisi dari Hour Planned.
   const handleSaveKodeJcForTask = async (taskId: string) => {
     const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase();
     if (!inputVal) return;
-
     const hp = hourPlannerMap[cleanText(inputVal)];
     const payload: any = { kode_jc: inputVal, status: 'approved' };
     if (hp) payload.jo = String(hp.hour);
-
     const { error } = await supabase.from('job_cards').update(payload).eq('id', taskId);
     if (error) { alert('Gagal simpan Jobcard: ' + error.message); return; }
     setManualTasks(prev => {
@@ -1759,7 +1662,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   const filteredDepartments = (departmentsData || []).filter(dept => dept.name.toLowerCase().includes(searchQuery.toLowerCase()));
   const filteredSubconDepartments = (departmentsData || []).filter(dept => dept.name.toLowerCase().includes(subconSearch.toLowerCase()));
-  
+
   const currentActiveBiroName = useMemo(() => {
     if (accessMode === 'subkon') return subconSelectedBiro || '';
     return selectedFormBiro?.biroName || '';
@@ -1767,8 +1670,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   const currentActiveBiroKey = useMemo(() => cleanText(currentActiveBiroName), [currentActiveBiroName]);
   const currentActiveBiroTasks = useMemo(() => manualTasks[currentActiveBiroKey] || [], [manualTasks, currentActiveBiroKey]);
-  
   const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
+
   const activeSubconMembers = useMemo(() => {
     if (!subconSelectedBiro) return [];
     return getSubconMembersForBiro(subconSelectedBiro);
@@ -1826,44 +1729,35 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   const dynamicTaskOptions = useMemo((): string[] => {
     const taskMap = new Map<string, string>();
-
     if (jobcardWorkbook) {
       try {
         jobcardWorkbook.SheetNames.forEach(sheetName => {
           const sheet = jobcardWorkbook.Sheets[sheetName];
           if (!sheet) return;
-          
           const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
           let taskCol = -1;
-
           for (let r = 0; r < Math.min(15, rows.length); r++) {
             const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-            const foundIdx = rowVals.findIndex(v => 
-              v.includes('task') || 
-              v.includes('deskripsi') || 
-              v.includes('uraian') || 
+            const foundIdx = rowVals.findIndex(v =>
+              v.includes('task') ||
+              v.includes('deskripsi') ||
+              v.includes('uraian') ||
               v.includes('pekerjaan') ||
               v.includes('nama gambar') ||
               v.includes('judul')
             );
-            if (foundIdx !== -1) { 
-              taskCol = foundIdx; 
-              break; 
+            if (foundIdx !== -1) {
+              taskCol = foundIdx;
+              break;
             }
           }
-
-          if (taskCol === -1) taskCol = 3; 
-
+          if (taskCol === -1) taskCol = 3;
           rows.forEach((row, idx) => {
             if (idx < 1 || !row) return;
-            
             const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
-            
             if (!raw || raw.toLowerCase() === 'nan' || raw.toLowerCase().includes('deskripsi') || raw.toLowerCase() === 'task' || raw.toLowerCase() === 'task name' || raw.toUpperCase().startsWith('REVISI KE - NO DOC')) return;
-            
             const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
             const normKey = cleanText(cleaned);
-            
             if (cleaned && normKey && !taskMap.has(normKey)) {
               taskMap.set(normKey, cleaned);
             }
@@ -1873,11 +1767,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         console.error("Gagal membaca jobcardWorkbook untuk opsi deskripsi:", err);
       }
     }
-
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook]);
 
-  // Planner gabungan: semua tugas dari SEMUA biro yang belum punya kode Jobcard, dikelompokkan per biro
   const pendingTasksByBiro = useMemo((): [string, TaskItem[]][] => {
     const groups: Record<string, TaskItem[]> = {};
     Object.values(manualTasks).forEach(tasks => {
@@ -1899,7 +1791,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   if (showKpi) {
     return <KpiDashboardPage user={user} onLogout={onLogout} onBack={() => setShowKpi(false)} />;
   }
-
   if (showImport) {
     return <ImportJobcardPage user={user} onLogout={onLogout} onBack={() => setShowImport(false)} />;
   }
@@ -1939,7 +1830,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         </div>
       </header>
-
       <main className="max-w-6xl mx-auto px-4 py-8">
         {accessMode === 'landing' && (
           <div className="max-w-2xl mx-auto text-center space-y-8 pt-8">
@@ -2062,7 +1952,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 </button>
               </div>
             </div>
-            
+
             {subconPageMode === 'members' && (
               <div className="space-y-2.5">
                 {activeSubconMembers.length > 0 ? activeSubconMembers.map((person) => {
@@ -2110,15 +2000,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                       <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo ? String(task.jo).replace(/^#+/, '') : '-'}</td>
                                       <td className="py-2 px-2.5 text-center">
                                         <div className="flex items-center justify-center gap-1.5">
-                                          <button 
-                                            onClick={(e) => { e.stopPropagation(); handleOpenEdit(task); }} 
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); handleOpenEdit(task); }}
                                             className="p-1 rounded bg-slate-800 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 transition cursor-pointer"
                                             title="Edit Tugas"
                                           >
                                             <Pencil className="w-3.5 h-3.5" />
                                           </button>
-                                          <button 
-                                            onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }} 
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
                                             className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
                                             title="Hapus Tugas"
                                           >
@@ -2239,7 +2129,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <Clock className="w-3.5 h-3.5 text-emerald-400" /><span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                 </label>
-                {/* Upload Time Off (cuti & sakit) - dipindah dari panel Cuti & Sakit ke deretan tombol upload ini */}
                 <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                   <FileSpreadsheet className="w-3.5 h-3.5 text-violet-400" />
                   <span>{timeOffWorkbook ? 'Update Time Off' : 'Upload Time Off'}</span>
@@ -2451,8 +2340,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         </td>
                                         <td className="py-2 px-2.5 text-center">
                                           <div className="flex items-center justify-center gap-1.5">
-                                            <button 
-                                              onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }} 
+                                            <button
+                                              onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
                                               className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
                                               title="Hapus Tugas"
                                             >
@@ -2563,23 +2452,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
             {formPageMode === 'absensi' && (
               <>
-                {/* Cuti & sakit per anggota + yang tidak masuk minggu ini (dari TIME_OFF_DIVISI_DESAIN.xlsx) */}
                 <CutiSakitPanel
                   biroName={selectedFormBiro.biroName}
                   members={currentBiroMembers}
                   wb={timeOffWorkbook}
                   sisaCuti={sisaCuti}
                 />
-                {/* Rekap jam kerja per bulan (data_kpi.xlsx) - disembunyikan: kotak kosong di bawah panel Cuti & Sakit
-                <AbsensiBiroView
-                  biroName={selectedFormBiro.biroName}
-                  deptName={selectedFormBiro.deptName}
-                  wb={kpiWorkbook}
-                  monthKey={absensiMonth}
-                  onChangeMonth={setAbsensiMonth}
-                  onUploadKpi={handleUploadKpiExcel}
-                />
-                */}
               </>
             )}
           </div>
@@ -2597,7 +2475,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 <X className="w-4 h-4" />
               </button>
             </div>
-
             <form onSubmit={handleSaveEdit} className="p-4 space-y-3.5 text-xs">
               <div>
                 <label className="block text-slate-400 mb-1">Kode Proyek</label>
@@ -2612,7 +2489,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   required
                 />
               </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">
@@ -2627,7 +2503,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                   />
                 </div>
-
                 <div>
                   <label className="block text-slate-400 mb-1">
                     {accessMode === 'organik' ? 'Jobcard' : 'Kode WO'}
@@ -2641,7 +2516,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   />
                 </div>
               </div>
-
               <div>
                 <label className="block text-slate-400 mb-1">Deskripsi</label>
                 <SearchableSelect
@@ -2652,36 +2526,29 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     const rows = drawingControlMap[cleanProj] || [];
                     let newRelease = '';
                     let newRev = editFormData.rev;
-
                     const cleanTarget = cleanText(val);
                     const currentEditRev = String(editFormData.rev || '0').trim();
-
                     const exactMatch = rows.find(r => {
                       const cFull = cleanText(r.fullDeskripsi);
                       const cDwg = cleanText(r.noDwg);
                       const cName = cleanText(r.drawingName);
                       const rowRev = String(r.rev || '0').trim();
-
                       const isRevMatch = rowRev === currentEditRev;
                       const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
-
                       return isNameMatch && isRevMatch;
                     });
-
                     if (exactMatch && exactMatch.finishDate) {
                       newRelease = parseToStandardDate(exactMatch.finishDate);
                       if (exactMatch.rev) newRev = exactMatch.rev;
                     } else {
                       newRelease = '';
                     }
-
                     setEditFormData(prev => ({ ...prev, taskName: val, release: newRelease, rev: newRev }));
                   }}
                   placeholder="Ketik deskripsi gambar..."
                   required
                 />
               </div>
-
               {accessMode === 'organik' && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -2694,7 +2561,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         const cleanProj = cleanText(editFormData.project || '');
                         const rows = drawingControlMap[cleanProj] || [];
                         let autoRel = '';
-
                         const exactMatch = rows.find(r => {
                           const cFull = cleanText(r.fullDeskripsi);
                           const cDwg = cleanText(r.noDwg);
@@ -2704,13 +2570,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                           const isNameMatch = cleanText(editFormData.taskName).includes(cDwg) || cleanText(editFormData.taskName).includes(cName) || cFull.includes(cleanText(editFormData.taskName));
                           return isNameMatch && isRevMatch;
                         });
-
                         if (exactMatch && exactMatch.finishDate) {
                           autoRel = parseToStandardDate(exactMatch.finishDate);
                         } else {
                           autoRel = '';
                         }
-
                         setEditFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
                       }}
                       placeholder="0"
@@ -2729,7 +2593,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   </div>
                 </div>
               )}
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">
@@ -2744,7 +2607,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
                   />
                 </div>
-
                 <div>
                   <label className="block text-slate-400 mb-1">
                     {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'}
@@ -2759,7 +2621,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   />
                 </div>
               </div>
-
               <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
                 <button
                   type="button"
@@ -2780,7 +2641,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         </div>
       )}
 
-      {/* PLANNER MODAL — gabungan semua biro, tanpa password */}
       {isPlannerOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
