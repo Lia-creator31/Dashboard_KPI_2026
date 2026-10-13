@@ -27,12 +27,12 @@ const parentExcelGlobUrls = import.meta.glob('../*.xlsx', {
 
 // ===== REKAP ABSENSI: bulan Januari - Juni =====
 const MONTHS = [
-  { key: 'januari', label: 'Januari', num: '01' },
-  { key: 'februari', label: 'Februari', num: '02' },
-  { key: 'maret', label: 'Maret', num: '03' },
-  { key: 'april', label: 'April', num: '04' },
-  { key: 'mei', label: 'Mei', num: '05' },
-  { key: 'juni', label: 'Juni', num: '06' },
+  // { key: 'januari', label: 'Januari', num: '01' },
+  // { key: 'februari', label: 'Februari', num: '02' },
+  // { key: 'maret', label: 'Maret', num: '03' },
+  // { key: 'april', label: 'April', num: '04' },
+  // { key: 'mei', label: 'Mei', num: '05' },
+  // { key: 'juni', label: 'Juni', num: '06' },
 ];
 
 // File CSV absensi: src/absensi_januari.csv dst. (path relatif dari src/pages/). Aman bila ada yang belum ada.
