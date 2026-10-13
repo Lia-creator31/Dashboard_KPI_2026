@@ -2461,14 +2461,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   wb={timeOffWorkbook}
                   onUpload={handleUploadTimeOffExcel}
                 />
-                <AbsensiBiroView
+                {/* <AbsensiBiroView
                   biroName={selectedFormBiro.biroName}
                   deptName={selectedFormBiro.deptName}
                   wb={kpiWorkbook}
                   monthKey={absensiMonth}
                   onChangeMonth={setAbsensiMonth}
                   onUploadKpi={handleUploadKpiExcel}
-                />
+                /> */}
               </>
             )}
           </div>
