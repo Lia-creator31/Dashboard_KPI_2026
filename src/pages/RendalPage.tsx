@@ -634,10 +634,10 @@ function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUp
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
         <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
+          {/* <div>
             {/* <h4 className="text-sm font-bold text-white">Pilih Bulan Rekap Absensi</h4> */}
             <span className="text-xs text-slate-400">{biroName}</span>
-          </div>
+          </div> */}
           <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
             <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
             <span>{wb ? 'Update data_kpi.xlsx' : 'Upload data_kpi.xlsx'}</span>
