@@ -25,14 +25,14 @@ const parentExcelGlobUrls = import.meta.glob('../*.xlsx', {
   eager: true
 }) as Record<string, string>;
 
-// ===== REKAP ABSENSI: saat ini hanya bulan Mei - Juni (Januari - April dikomentari) =====
+// ===== REKAP ABSENSI: bulan Januari - Juni =====
 const MONTHS = [
   // { key: 'januari', label: 'Januari', num: '01' },
   // { key: 'februari', label: 'Februari', num: '02' },
   // { key: 'maret', label: 'Maret', num: '03' },
   // { key: 'april', label: 'April', num: '04' },
-  { key: 'mei', label: 'Mei', num: '05' },
-  { key: 'juni', label: 'Juni', num: '06' },
+  // { key: 'mei', label: 'Mei', num: '05' },
+  // { key: 'juni', label: 'Juni', num: '06' },
 ];
 
 // File CSV absensi: src/absensi_januari.csv dst. (path relatif dari src/pages/). Aman bila ada yang belum ada.
@@ -535,7 +535,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
    Sumber data (sama seperti program lama):
    - NIP, Nama, Planned, Effective, Overtime, Idle -> data_kpi.xlsx (1 sheet per bulan, biro dicocokkan lewat kolom H)
    - Terlambat, Sakit -> absensi_<bulan>.csv (dicocokkan lewat nama)
-   Saat ini tabel HANYA menampilkan No dan Nama; kolom lain dikomentari (tetap dihitung di buildRekap).
+   Saat ini komponen AbsensiBiroView TIDAK ditampilkan (pemanggilannya dikomentari di bagian bawah halaman).
 */
 interface AbsensiRow {
   nip: string;
@@ -608,7 +608,8 @@ function buildRekap(wb: XLSX.WorkBook | null, biroName: string, monthKey: string
   });
 }
 
-function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUploadKpi }: {
+// Di-export supaya tidak kena peringatan "declared but never used" selama pemanggilannya dikomentari.
+export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUploadKpi }: {
   biroName: string;
   deptName: string;
   wb: XLSX.WorkBook | null;
@@ -634,15 +635,15 @@ function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUp
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
         <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <h4 className="text-sm font-bold text-white">Pilih Bulan Rekap Absensi</h4>
+          {/* { <div>
+            { <h4 className="text-sm font-bold text-white">Pilih Bulan Rekap Absensi</h4>}
             <span className="text-xs text-slate-400">{biroName}</span>
-          </div>
-          <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+          </div> } */}
+          {/* <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
             <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
             <span>{wb ? 'Update data_kpi.xlsx' : 'Upload data_kpi.xlsx'}</span>
             <input type="file" accept=".xlsx, .xls" onChange={onUploadKpi} className="hidden" />
-          </label>
+          </label> */}
         </div>
         {!wb && (
           <div className="text-[11px] text-amber-400">
@@ -804,12 +805,296 @@ function getWeekRange(base: Date = new Date()) {
   return { from: isoLocal(mon), to: isoLocal(fri) };
 }
 
-function CutiSakitPanel({ biroName, members, wb, onUpload }: {
+/* ===== SISA CUTI dari Google Sheet "FORM PENGISIAN ALOKASI CUTI 2026 DIVISI DESAIN (Jawaban)" =====
+   Diambil otomatis (tanpa upload). Kolom acuan: "Jumlah Sisa Cuti Tahun 2026".
+   Bila satu orang mengisi form lebih dari sekali, baris PALING BAWAH (isian terakhir) yang dipakai.
+   Pencocokan: NIP dulu (tahan beda huruf besar/kecil & nol di depan), cadangan lewat nama. */
+const SISA_CUTI_SHEET_ID = '1c6TgsfSRrLJ9QZkTQR8aIMe-fBgq89HxmoUdEcqU4b4';
+const SISA_CUTI_GID = '1997448035';
+
+interface SisaCutiData {
+  byNip: Map<string, number>;
+  byName: Map<string, number>;
+}
+
+async function fetchSisaCuti(): Promise<SisaCutiData | null> {
+  try {
+    const res = await fetch(
+      `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}`
+    );
+    if (!res.ok) return null;
+    const wb = XLSX.read(await res.text(), { type: 'string' });
+    const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+    if (rows.length < 2) return null;
+
+    const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
+    let cName = head.findIndex(h => h.includes('nama personel'));
+    let cNip = head.findIndex(h => h === 'nip');
+    let cSisa = head.findIndex(h => h.includes('jumlah sisa cuti'));
+    if (cName < 0) cName = 2;   // cadangan: kolom C
+    if (cNip < 0) cNip = 3;     // cadangan: kolom D
+    if (cSisa < 0) cSisa = 5;   // cadangan: kolom F
+
+    const byNip = new Map<string, number>();
+    const byName = new Map<string, number>();
+    for (let i = 1; i < rows.length; i++) {          // urut dari atas ke bawah: baris terakhir menimpa yang lama
+      const r = rows[i]; if (!r) continue;
+      const raw = String(r[cSisa] ?? '').trim();
+      if (raw === '') continue;
+      const sisa = absNum(raw);
+      const nip = normNip(r[cNip]);
+      const nm = cleanText(String(r[cName] ?? ''));
+      if (nip) byNip.set(nip, sisa);
+      if (nm) byName.set(nm, sisa);
+    }
+    return { byNip, byName };
+  } catch { return null; }
+}
+
+// Tombol upload Time Off sudah dipindah ke halaman Departemen Desain (deretan tombol upload),
+// jadi komponen ini hanya menampilkan data.
+function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
   biroName: string;
   members: ParsedMember[];
   wb: XLSX.WorkBook | null;
-  onUpload: (e: ChangeEvent<HTMLInputElement>) => void;
+  sisaCuti: SisaCutiData | null;
 }) {
+  const entries = useMemo(() => parseTimeOff(wb), [wb]);
+  const week = useMemo(() => getWeekRange(), []);
+  const today = useMemo(() => isoLocal(new Date()), []);
+  const year = String(new Date().getFullYear());
+
+  // ── Bulan awal tampilan: 2026 → Agustus, tahun lain → Januari ──
+  // Sisa cuti tetap dihitung dari Januari (seluruh tahun berjalan).
+  const DISPLAY_START_MONTH = year === '2026' ? '08' : '01';
+  const displayStartDate = `${year}-${DISPLAY_START_MONTH}-01`;
+  const displayLabel = DISPLAY_START_MONTH === '08'
+    ? `Agu–Des ${year}`
+    : `Jan–Des ${year}`;
+  // ───────────────────────────────────────────────────────────────
+
+  const data = useMemo(() => members.map(m => {
+    const nip = normNip(m.nip), nm = cleanText(m.nama);
+    const mine = entries.filter(e =>
+      e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm));
+
+    // inYear  = semua entry tahun ini dari Januari → untuk hitung sisa cuti
+    const inYear    = mine.filter(e => e.start.startsWith(year));
+
+    // inDisplay = entry mulai bulan DISPLAY_START_MONTH → untuk kolom Realisasi & Sakit
+    const inDisplay = mine.filter(e => e.start >= displayStartDate && e.start.startsWith(year));
+
+    // Realisasi TAMPILAN (Agu-Des 2026, atau Jan-Des di tahun lain)
+    const sumDisplay = (k: TimeOffEntry['kind']) =>
+      inDisplay.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
+
+    // Realisasi cuti DARI JANUARI → untuk mengurangi sisa cuti
+    const realisasiDariJanuari =
+      inYear.filter(e => e.kind === 'cuti').reduce((s, e) => s + e.days, 0);
+
+    const sisa: number | undefined = sisaCuti
+      ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
+      : undefined;
+
+    // Sisa cuti = nilai dari form dikurangi realisasi seluruh tahun (dari Januari)
+    const sisaHitung: number | undefined =
+      sisa !== undefined ? Math.max(0, sisa - realisasiDariJanuari) : undefined;
+
+    return {
+      m,
+      sisa,
+      sisaHitung,
+      cuti: sumDisplay('cuti'),
+      cutiDariJanuari: realisasiDariJanuari,
+      sakit: sumDisplay('sakit'),                                        // ← Agu-Des 2026 / Jan-Des tahun lain
+      sakitKali: inDisplay.filter(e => e.kind === 'sakit').length,       // ← idem
+      panjang: inDisplay.filter(e => e.kind === 'panjang'),
+      minggu: mine.filter(e => e.start <= week.to && e.end >= week.from),
+    };
+  }), [members, entries, week, year, displayStartDate, sisaCuti]);
+
+  const totalCuti  = data.reduce((s, d) => s + d.cuti, 0);
+  const totalSakit = data.reduce((s, d) => s + d.sakit, 0);
+  const orangMinggu = data.filter(d => d.minggu.length > 0);
+
+  const kindLabel = (k: TimeOffEntry['kind']) =>
+    k === 'sakit' ? 'Sakit' : k === 'panjang' ? 'Cuti panjang' : 'Cuti';
+  const kindClass = (k: TimeOffEntry['kind']) =>
+    k === 'sakit'
+      ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+      : k === 'panjang'
+        ? 'bg-violet-500/10 text-violet-300 border-violet-500/20'
+        : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h4 className="text-sm font-bold text-white">
+            Cuti &amp; Sakit&nbsp;
+            <span className="text-blue-400">{displayLabel}</span>
+          </h4>
+          <span className="text-xs text-slate-400">{biroName}</span>
+        </div>
+      </div>
+
+      {!wb ? (
+        <div className="text-[11px] text-amber-400 bg-slate-900 border border-slate-800 rounded-xl p-4">
+          Data Time Off belum termuat. Upload file TIME_OFF_DIVISI_DESAIN.xlsx lewat tombol "Upload Time Off" di halaman Departemen Desain.
+        </div>
+      ) : (
+        <>
+          {/* Ringkasan */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: 'Anggota',                value: data.length,         color: 'text-blue-400'    },
+              { label: 'Tidak Hadir Minggu Ini', value: orangMinggu.length,  color: 'text-cyan-400'    },
+              { label: `Total Hari Cuti (${displayLabel})`,  value: totalCuti,  color: 'text-emerald-400' },
+              { label: `Total Hari Sakit (${displayLabel})`, value: totalSakit, color: 'text-amber-400'   },
+            ].map(c => (
+              <div key={c.label} className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3">
+                <div className={`text-2xl font-bold ${c.color}`}>{c.value}</div>
+                <div className="text-[10px] text-slate-400 uppercase tracking-wide">{c.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Minggu ini */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h5 className="text-xs font-bold text-white uppercase tracking-wide">Tidak Masuk Minggu Ini</h5>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {formatDisplayDate(week.from)} s/d {formatDisplayDate(week.to)}
+              </span>
+            </div>
+            {orangMinggu.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {orangMinggu.flatMap(d => d.minggu.map((e, i) => (
+                  <div key={`${d.m.nip}-${i}`} className="flex items-center justify-between gap-3 p-3 bg-slate-950 border border-slate-800 rounded-lg">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-white truncate">{d.m.nama}</div>
+                      <div className="text-[11px] text-slate-400 truncate">
+                        {shortType(e.type)} • {formatDisplayDate(e.start)} s/d {formatDisplayDate(e.end)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {e.start <= today && e.end >= today && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold rounded border bg-rose-500/10 text-rose-400 border-rose-500/20">
+                          Hari ini
+                        </span>
+                      )}
+                      <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${kindClass(e.kind)}`}>
+                        {kindLabel(e.kind)}
+                      </span>
+                    </div>
+                  </div>
+                )))}
+              </div>
+            ) : (
+              <div className="text-xs text-slate-500 italic text-center py-3">
+                Tidak ada anggota yang cuti minggu ini.
+              </div>
+            )}
+          </div>
+
+          {/* Tabel per anggota */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="text-slate-400 border-b border-slate-800 uppercase text-[11px]">
+                  <th className="py-3 px-3 w-10">No</th>
+                  <th className="py-3 px-3">Nama Pegawai</th>
+                  <th className="py-3 px-3">
+                    Realisasi Cuti
+                    <div className="text-[9px] font-normal normal-case text-slate-500">{displayLabel}</div>
+                  </th>
+                  <th className="py-3 px-3 text-center text-sky-400 bg-sky-500/5">
+                    Sisa Cuti
+                    <div className="text-[9px] font-normal normal-case text-slate-500">
+                      (form − realisasi Jan–Des)
+                    </div>
+                  </th>
+                  <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">
+                    Sakit
+                    <div className="text-[9px] font-normal normal-case text-slate-500">{displayLabel}</div>
+                  </th>
+                  <th className="py-3 px-3">Minggu Ini</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {data.length > 0 ? data.map((d, i) => (
+                  <tr key={`${d.m.nip}-${i}`} className="hover:bg-slate-800/40">
+                    <td className="py-3 px-3 text-slate-500 font-mono">{i + 1}</td>
+
+                    <td className="py-3 px-3 font-semibold text-white">{d.m.nama}</td>
+
+                    {/* Realisasi Cuti (Agu-Des / Jan-Des) */}
+                    <td className="py-3 px-3">
+                      <span className="font-mono font-bold text-emerald-400">{d.cuti} hari</span>
+                      {d.panjang.length > 0 && (
+                        <div className="mt-1 text-[10px] text-violet-300">
+                          + {d.panjang.map(e => `${shortType(e.type)} ${e.days} hari`).join(', ')} (tidak dihitung)
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Sisa Cuti = form − realisasi Januari s/d sekarang */}
+                    <td className="py-3 px-3 text-center bg-sky-500/5">
+                      {sisaCuti === null ? (
+                        <span className="text-slate-600 text-[11px]">memuat...</span>
+                      ) : d.sisaHitung !== undefined ? (
+                        <div>
+                          <span className="font-mono font-bold text-sky-400">{d.sisaHitung} hari</span>
+                          {d.cutiDariJanuari > 0 && (
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              {d.sisa} − {d.cutiDariJanuari} = {d.sisaHitung}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-600" title="Belum mengisi form alokasi cuti">-</span>
+                      )}
+                    </td>
+
+                    {/* Sakit (Agu-Des / Jan-Des) */}
+                    <td className="py-3 px-3 text-center bg-amber-500/5">
+                      <div className="font-mono font-bold text-amber-400">{d.sakit} hari</div>
+                      <div className="text-[10px] text-slate-500">{d.sakitKali}x</div>
+                    </td>
+
+                    {/* Minggu ini */}
+                    <td className="py-3 px-3">
+                      {d.minggu.length > 0 ? (
+                        <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${kindClass(d.minggu[0].kind)}`}>
+                          {kindLabel(d.minggu[0].kind)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-600">-</span>
+                      )}
+                    </td>
+                  </tr>
+                )) : (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-slate-500">
+                      Tidak ada anggota organik di biro ini.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="text-[10px] text-slate-500">
+            Realisasi cuti &amp; sakit dihitung dari <b className="text-slate-400">{displayLabel}</b>, status Approved, durasi = hari kerja.
+            Cuti panjang (melahirkan, kewajiban negara, pensiun) tidak masuk realisasi cuti.
+            Sisa Cuti = nilai form alokasi dikurangi realisasi cuti <b className="text-slate-400">seluruh tahun {year}</b> (Jan–Des).
+            Tanda "-" pada Sisa Cuti = belum mengisi form alokasi cuti.
+          </div>
+        </>
+      )}
+    </div>
+  );
+} {
   const entries = useMemo(() => parseTimeOff(wb), [wb]);
   const week = useMemo(() => getWeekRange(), []);
   const today = useMemo(() => isoLocal(new Date()), []);
@@ -822,17 +1107,21 @@ function CutiSakitPanel({ biroName, members, wb, onUpload }: {
       e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm));
     const inYear = mine.filter(e => e.start.startsWith(year));
     const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
+    // Sisa cuti dari Google Sheet: cocokkan NIP dulu, cadangan nama. undefined = tidak ada di sheet.
+    const sisa: number | undefined = sisaCuti
+      ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
+      : undefined;
     return {
       m,
+      sisa,
       cuti: sum('cuti'),                                         // realisasi cuti tahun ini (tanpa cuti panjang)
       sakit: sum('sakit'),                                       // hari sakit
       sakitKali: inYear.filter(e => e.kind === 'sakit').length,  // berapa kali sakit
       panjang: inYear.filter(e => e.kind === 'panjang'),         // melahirkan / kewajiban negara / pensiun
       minggu: mine.filter(e => e.start <= week.to && e.end >= week.from), // irisan dengan minggu ini
     };
-  }), [members, entries, week, year]);
+  }), [members, entries, week, year, sisaCuti]);
 
-  const cutiMax = Math.max(1, ...data.map(d => d.cuti));
   const totalCuti = data.reduce((s, d) => s + d.cuti, 0);
   const totalSakit = data.reduce((s, d) => s + d.sakit, 0);
   const orangMinggu = data.filter(d => d.minggu.length > 0);
@@ -850,16 +1139,12 @@ function CutiSakitPanel({ biroName, members, wb, onUpload }: {
           <h4 className="text-sm font-bold text-white">Cuti &amp; Sakit Tahun {year}</h4>
           <span className="text-xs text-slate-400">{biroName}</span>
         </div>
-        <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-          <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
-          <span>{wb ? 'Update Time Off' : 'Upload Time Off'}</span>
-          <input type="file" accept=".xlsx, .xls" onChange={onUpload} className="hidden" />
-        </label>
+        {/* Tombol "Update Time Off" dipindah ke halaman Departemen Desain */}
       </div>
 
       {!wb ? (
         <div className="text-[11px] text-amber-400 bg-slate-900 border border-slate-800 rounded-xl p-4">
-          Data Time Off belum termuat. Upload file TIME_OFF_DIVISI_DESAIN.xlsx dengan tombol di atas.
+          Data Time Off belum termuat. Upload file TIME_OFF_DIVISI_DESAIN.xlsx lewat tombol "Upload Time Off" di halaman Departemen Desain.
         </div>
       ) : (
         <>
@@ -916,6 +1201,7 @@ function CutiSakitPanel({ biroName, members, wb, onUpload }: {
                   <th className="py-3 px-3 w-10">No</th>
                   <th className="py-3 px-3">Nama Pegawai</th>
                   <th className="py-3 px-3">Realisasi Cuti {year}</th>
+                  <th className="py-3 px-3 text-center text-sky-400 bg-sky-500/5">Sisa Cuti</th>
                   <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th>
                   <th className="py-3 px-3">Minggu Ini</th>
                 </tr>
@@ -926,17 +1212,19 @@ function CutiSakitPanel({ biroName, members, wb, onUpload }: {
                     <td className="py-3 px-3 text-slate-500 font-mono">{i + 1}</td>
                     <td className="py-3 px-3 font-semibold text-white">{d.m.nama}</td>
                     <td className="py-3 px-3">
-                      <div className="flex items-center gap-2">
-                        <span className="w-16 font-mono font-bold text-emerald-400">{d.cuti} hari</span>
-                        <div className="flex-1 min-w-[60px] h-1.5 bg-slate-800 rounded-full">
-                          <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(d.cuti / cutiMax) * 100}%` }} />
-                        </div>
-                      </div>
+                      <span className="font-mono font-bold text-emerald-400">{d.cuti} hari</span>
                       {d.panjang.length > 0 && (
                         <div className="mt-1 text-[10px] text-violet-300">
                           + {d.panjang.map(e => `${shortType(e.type)} ${e.days} hari`).join(', ')} (tidak dihitung)
                         </div>
                       )}
+                    </td>
+                    <td className="py-3 px-3 text-center bg-sky-500/5">
+                      {sisaCuti === null
+                        ? <span className="text-slate-600 text-[11px]">memuat...</span>
+                        : d.sisa !== undefined
+                          ? <span className="font-mono font-bold text-sky-400">{d.sisa} hari</span>
+                          : <span className="text-slate-600" title="Belum mengisi form alokasi cuti">-</span>}
                     </td>
                     <td className="py-3 px-3 text-center bg-amber-500/5">
                       <div className="font-mono font-bold text-amber-400">{d.sakit} hari</div>
@@ -949,13 +1237,14 @@ function CutiSakitPanel({ biroName, members, wb, onUpload }: {
                     </td>
                   </tr>
                 )) : (
-                  <tr><td colSpan={5} className="py-8 text-center text-slate-500">Tidak ada anggota organik di biro ini.</td></tr>
+                  <tr><td colSpan={6} className="py-8 text-center text-slate-500">Tidak ada anggota organik di biro ini.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
           <div className="text-[10px] text-slate-500">
             Dihitung dari status Approved. Durasi = hari kerja. Cuti panjang (melahirkan, kewajiban negara, pensiun) tidak masuk realisasi cuti.
+            Sisa Cuti diambil otomatis dari Google Sheet "Form Pengisian Alokasi Cuti 2026" (isian terakhir bila nama ganda); tanda "-" berarti belum mengisi form.
           </div>
         </>
       )}
@@ -1007,6 +1296,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [isFetchingDrawing, setIsFetchingDrawing] = useState<boolean>(false);
   const [hourPlannerMap, setHourPlannerMap] = useState<HourPlannerMap>({});
   const [isImportingHour, setIsImportingHour] = useState(false);
+  const [sisaCuti, setSisaCuti] = useState<SisaCutiData | null>(null);
 
   const loadAllJobCards = useCallback(async () => {
     try {
@@ -1074,6 +1364,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     initMasterFiles();
     loadAllJobCards();
   }, [loadAllJobCards]);
+
+  // ===== Sisa Cuti OTOMATIS dari Google Sheet alokasi cuti: dimuat saat halaman dibuka, lalu diperbarui tiap 10 menit =====
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const data = await fetchSisaCuti();
+      if (alive && data) setSisaCuti(data);   // bila gagal, data lama tetap dipakai
+    };
+    load();
+    const timer = setInterval(load, 10 * 60 * 1000);
+    return () => { alive = false; clearInterval(timer); };
+  }, []);
 
   // ===== Sinkron Release OTOMATIS dari Drawing Control (tanpa klik apa pun) =====
   // Tugas yang Release-nya masih kosong dicocokkan ke Drive saat data dimuat, lalu disimpan sendiri.
@@ -1185,6 +1487,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   // Upload export Time Off (TIME_OFF_DIVISI_DESAIN.xlsx): dibaca langsung dan disimpan permanen di server
   // (master-files/timeoff.xlsx) supaya tidak perlu upload ulang tiap buka aplikasi.
+  // Tombolnya ada di halaman Departemen Desain, bersama tombol upload lainnya.
   const handleUploadTimeOffExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
     const file = input.files?.[0]; if (!file) return;
@@ -2136,6 +2439,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <Clock className="w-3.5 h-3.5 text-emerald-400" /><span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                 </label>
+                {/* Upload Time Off (cuti & sakit) - dipindah dari panel Cuti & Sakit ke deretan tombol upload ini */}
+                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-violet-400" />
+                  <span>{timeOffWorkbook ? 'Update Time Off' : 'Upload Time Off'}</span>
+                  <input type="file" accept=".xlsx, .xls" onChange={handleUploadTimeOffExcel} className="hidden" />
+                </label>
                 <button
                   onClick={() => setIsPlannerOpen(true)}
                   className="relative px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
@@ -2459,8 +2768,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   biroName={selectedFormBiro.biroName}
                   members={currentBiroMembers}
                   wb={timeOffWorkbook}
-                  onUpload={handleUploadTimeOffExcel}
+                  sisaCuti={sisaCuti}
                 />
+                {/* Rekap jam kerja per bulan (data_kpi.xlsx) - disembunyikan: kotak kosong di bawah panel Cuti & Sakit
                 <AbsensiBiroView
                   biroName={selectedFormBiro.biroName}
                   deptName={selectedFormBiro.deptName}
@@ -2469,6 +2779,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   onChangeMonth={setAbsensiMonth}
                   onUploadKpi={handleUploadKpiExcel}
                 />
+                */}
               </>
             )}
           </div>
