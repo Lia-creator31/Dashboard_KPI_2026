@@ -708,12 +708,12 @@ function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUp
                 <td className="py-3 px-3 text-slate-500">{i + 1}</td>
                 <td className="py-3 px-3 text-blue-400">{r.nip}</td>
                 <td className="py-3 px-3 font-sans font-semibold text-white">{r.nama}</td>
-                <td className="py-3 px-3 text-right font-bold text-emerald-400">{fmtNum(r.planned)}</td>
+                {/* <td className="py-3 px-3 text-right font-bold text-emerald-400">{fmtNum(r.planned)}</td>
                 <td className="py-3 px-3 text-right font-bold text-cyan-400">{fmtNum(r.effective)}</td>
                 <td className="py-3 px-3 text-right font-bold text-amber-400">{fmtNum(r.overtime)}</td>
                 <td className="py-3 px-3 text-right text-slate-200">{fmtNum(r.idle)}</td>
                 <td className="py-3 px-3 text-center font-bold text-rose-400 bg-rose-500/5">{fmtNum(r.terlambat)}</td>
-                <td className="py-3 px-3 text-center font-bold text-amber-400 bg-amber-500/5">{fmtNum(r.sakit)}</td>
+                <td className="py-3 px-3 text-center font-bold text-amber-400 bg-amber-500/5">{fmtNum(r.sakit)}</td> */}
               </tr>
             )) : (
               <tr><td colSpan={9} className="py-8 text-center font-sans text-slate-500">
