@@ -633,7 +633,7 @@ function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUp
   if (!month) {
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-        {/* <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
           {/* { <div>
             { <h4 className="text-sm font-bold text-white">Pilih Bulan Rekap Absensi</h4>}
             <span className="text-xs text-slate-400">{biroName}</span>
@@ -643,7 +643,7 @@ function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUp
             <span>{wb ? 'Update data_kpi.xlsx' : 'Upload data_kpi.xlsx'}</span>
             <input type="file" accept=".xlsx, .xls" onChange={onUploadKpi} className="hidden" />
           </label> */}
-        </div> */}
+        </div>
         {!wb && (
           <div className="text-[11px] text-amber-400">
             File data_kpi.xlsx belum termuat. Letakkan di folder src/ atau public/, atau upload manual dengan tombol di atas.
