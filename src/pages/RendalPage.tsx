@@ -535,7 +535,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
    Sumber data (sama seperti program lama):
    - NIP, Nama, Planned, Effective, Overtime, Idle -> data_kpi.xlsx (1 sheet per bulan, biro dicocokkan lewat kolom H)
    - Terlambat, Sakit -> absensi_<bulan>.csv (dicocokkan lewat nama)
-   Saat ini tabel HANYA menampilkan No dan Nama; kolom lain dikomentari (tetap dihitung di buildRekap).
+   Saat ini komponen AbsensiBiroView TIDAK ditampilkan (pemanggilannya dikomentari di bagian bawah halaman).
 */
 interface AbsensiRow {
   nip: string;
@@ -608,7 +608,8 @@ function buildRekap(wb: XLSX.WorkBook | null, biroName: string, monthKey: string
   });
 }
 
-function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUploadKpi }: {
+// Di-export supaya tidak kena peringatan "declared but never used" selama pemanggilannya dikomentari.
+export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUploadKpi }: {
   biroName: string;
   deptName: string;
   wb: XLSX.WorkBook | null;
@@ -804,11 +805,59 @@ function getWeekRange(base: Date = new Date()) {
   return { from: isoLocal(mon), to: isoLocal(fri) };
 }
 
-function CutiSakitPanel({ biroName, members, wb, onUpload }: {
+/* ===== SISA CUTI dari Google Sheet "FORM PENGISIAN ALOKASI CUTI 2026 DIVISI DESAIN (Jawaban)" =====
+   Diambil otomatis (tanpa upload). Kolom acuan: "Jumlah Sisa Cuti Tahun 2026".
+   Bila satu orang mengisi form lebih dari sekali, baris PALING BAWAH (isian terakhir) yang dipakai.
+   Pencocokan: NIP dulu (tahan beda huruf besar/kecil & nol di depan), cadangan lewat nama. */
+const SISA_CUTI_SHEET_ID = '1c6TgsfSRrLJ9QZkTQR8aIMe-fBgq89HxmoUdEcqU4b4';
+const SISA_CUTI_GID = '1997448035';
+
+interface SisaCutiData {
+  byNip: Map<string, number>;
+  byName: Map<string, number>;
+}
+
+async function fetchSisaCuti(): Promise<SisaCutiData | null> {
+  try {
+    const res = await fetch(
+      `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}`
+    );
+    if (!res.ok) return null;
+    const wb = XLSX.read(await res.text(), { type: 'string' });
+    const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+    if (rows.length < 2) return null;
+
+    const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
+    let cName = head.findIndex(h => h.includes('nama personel'));
+    let cNip = head.findIndex(h => h === 'nip');
+    let cSisa = head.findIndex(h => h.includes('jumlah sisa cuti'));
+    if (cName < 0) cName = 2;   // cadangan: kolom C
+    if (cNip < 0) cNip = 3;     // cadangan: kolom D
+    if (cSisa < 0) cSisa = 5;   // cadangan: kolom F
+
+    const byNip = new Map<string, number>();
+    const byName = new Map<string, number>();
+    for (let i = 1; i < rows.length; i++) {          // urut dari atas ke bawah: baris terakhir menimpa yang lama
+      const r = rows[i]; if (!r) continue;
+      const raw = String(r[cSisa] ?? '').trim();
+      if (raw === '') continue;
+      const sisa = absNum(raw);
+      const nip = normNip(r[cNip]);
+      const nm = cleanText(String(r[cName] ?? ''));
+      if (nip) byNip.set(nip, sisa);
+      if (nm) byName.set(nm, sisa);
+    }
+    return { byNip, byName };
+  } catch { return null; }
+}
+
+// Tombol upload Time Off sudah dipindah ke halaman Departemen Desain (deretan tombol upload),
+// jadi komponen ini hanya menampilkan data.
+function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
   biroName: string;
   members: ParsedMember[];
   wb: XLSX.WorkBook | null;
-  onUpload: (e: ChangeEvent<HTMLInputElement>) => void;
+  sisaCuti: SisaCutiData | null;   // null = belum termuat (atau gagal diambil)
 }) {
   const entries = useMemo(() => parseTimeOff(wb), [wb]);
   const week = useMemo(() => getWeekRange(), []);
@@ -822,15 +871,20 @@ function CutiSakitPanel({ biroName, members, wb, onUpload }: {
       e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm));
     const inYear = mine.filter(e => e.start.startsWith(year));
     const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
+    // Sisa cuti dari Google Sheet: cocokkan NIP dulu, cadangan nama. undefined = tidak ada di sheet.
+    const sisa: number | undefined = sisaCuti
+      ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
+      : undefined;
     return {
       m,
+      sisa,
       cuti: sum('cuti'),                                         // realisasi cuti tahun ini (tanpa cuti panjang)
       sakit: sum('sakit'),                                       // hari sakit
       sakitKali: inYear.filter(e => e.kind === 'sakit').length,  // berapa kali sakit
       panjang: inYear.filter(e => e.kind === 'panjang'),         // melahirkan / kewajiban negara / pensiun
       minggu: mine.filter(e => e.start <= week.to && e.end >= week.from), // irisan dengan minggu ini
     };
-  }), [members, entries, week, year]);
+  }), [members, entries, week, year, sisaCuti]);
 
   const cutiMax = Math.max(1, ...data.map(d => d.cuti));
   const totalCuti = data.reduce((s, d) => s + d.cuti, 0);
@@ -850,16 +904,12 @@ function CutiSakitPanel({ biroName, members, wb, onUpload }: {
           <h4 className="text-sm font-bold text-white">Cuti &amp; Sakit Tahun {year}</h4>
           <span className="text-xs text-slate-400">{biroName}</span>
         </div>
-        <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-          <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
-          <span>{wb ? 'Update Time Off' : 'Upload Time Off'}</span>
-          <input type="file" accept=".xlsx, .xls" onChange={onUpload} className="hidden" />
-        </label>
+        {/* Tombol "Update Time Off" dipindah ke halaman Departemen Desain */}
       </div>
 
       {!wb ? (
         <div className="text-[11px] text-amber-400 bg-slate-900 border border-slate-800 rounded-xl p-4">
-          Data Time Off belum termuat. Upload file TIME_OFF_DIVISI_DESAIN.xlsx dengan tombol di atas.
+          Data Time Off belum termuat. Upload file TIME_OFF_DIVISI_DESAIN.xlsx lewat tombol "Upload Time Off" di halaman Departemen Desain.
         </div>
       ) : (
         <>
@@ -916,6 +966,7 @@ function CutiSakitPanel({ biroName, members, wb, onUpload }: {
                   <th className="py-3 px-3 w-10">No</th>
                   <th className="py-3 px-3">Nama Pegawai</th>
                   <th className="py-3 px-3">Realisasi Cuti {year}</th>
+                  <th className="py-3 px-3 text-center text-sky-400 bg-sky-500/5">Sisa Cuti</th>
                   <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th>
                   <th className="py-3 px-3">Minggu Ini</th>
                 </tr>
@@ -938,6 +989,13 @@ function CutiSakitPanel({ biroName, members, wb, onUpload }: {
                         </div>
                       )}
                     </td>
+                    <td className="py-3 px-3 text-center bg-sky-500/5">
+                      {sisaCuti === null
+                        ? <span className="text-slate-600 text-[11px]">memuat...</span>
+                        : d.sisa !== undefined
+                          ? <span className="font-mono font-bold text-sky-400">{d.sisa} hari</span>
+                          : <span className="text-slate-600" title="Belum mengisi form alokasi cuti">-</span>}
+                    </td>
                     <td className="py-3 px-3 text-center bg-amber-500/5">
                       <div className="font-mono font-bold text-amber-400">{d.sakit} hari</div>
                       <div className="text-[10px] text-slate-500">{d.sakitKali}x</div>
@@ -949,13 +1007,14 @@ function CutiSakitPanel({ biroName, members, wb, onUpload }: {
                     </td>
                   </tr>
                 )) : (
-                  <tr><td colSpan={5} className="py-8 text-center text-slate-500">Tidak ada anggota organik di biro ini.</td></tr>
+                  <tr><td colSpan={6} className="py-8 text-center text-slate-500">Tidak ada anggota organik di biro ini.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
           <div className="text-[10px] text-slate-500">
             Dihitung dari status Approved. Durasi = hari kerja. Cuti panjang (melahirkan, kewajiban negara, pensiun) tidak masuk realisasi cuti.
+            Sisa Cuti diambil otomatis dari Google Sheet "Form Pengisian Alokasi Cuti 2026" (isian terakhir bila nama ganda); tanda "-" berarti belum mengisi form.
           </div>
         </>
       )}
@@ -1007,6 +1066,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [isFetchingDrawing, setIsFetchingDrawing] = useState<boolean>(false);
   const [hourPlannerMap, setHourPlannerMap] = useState<HourPlannerMap>({});
   const [isImportingHour, setIsImportingHour] = useState(false);
+  const [sisaCuti, setSisaCuti] = useState<SisaCutiData | null>(null);
 
   const loadAllJobCards = useCallback(async () => {
     try {
@@ -1074,6 +1134,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     initMasterFiles();
     loadAllJobCards();
   }, [loadAllJobCards]);
+
+  // ===== Sisa Cuti OTOMATIS dari Google Sheet alokasi cuti: dimuat saat halaman dibuka, lalu diperbarui tiap 10 menit =====
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const data = await fetchSisaCuti();
+      if (alive && data) setSisaCuti(data);   // bila gagal, data lama tetap dipakai
+    };
+    load();
+    const timer = setInterval(load, 10 * 60 * 1000);
+    return () => { alive = false; clearInterval(timer); };
+  }, []);
 
   // ===== Sinkron Release OTOMATIS dari Drawing Control (tanpa klik apa pun) =====
   // Tugas yang Release-nya masih kosong dicocokkan ke Drive saat data dimuat, lalu disimpan sendiri.
@@ -1185,6 +1257,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   // Upload export Time Off (TIME_OFF_DIVISI_DESAIN.xlsx): dibaca langsung dan disimpan permanen di server
   // (master-files/timeoff.xlsx) supaya tidak perlu upload ulang tiap buka aplikasi.
+  // Tombolnya ada di halaman Departemen Desain, bersama tombol upload lainnya.
   const handleUploadTimeOffExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
     const file = input.files?.[0]; if (!file) return;
@@ -2136,7 +2209,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <Clock className="w-3.5 h-3.5 text-emerald-400" /><span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                 </label>
-                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-      center gap-1 cursor-pointer">
+                {/* Upload Time Off (cuti & sakit) - dipindah dari panel Cuti & Sakit ke deretan tombol upload ini */}
+                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                   <FileSpreadsheet className="w-3.5 h-3.5 text-violet-400" />
                   <span>{timeOffWorkbook ? 'Update Time Off' : 'Upload Time Off'}</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleUploadTimeOffExcel} className="hidden" />
@@ -2464,16 +2538,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   biroName={selectedFormBiro.biroName}
                   members={currentBiroMembers}
                   wb={timeOffWorkbook}
-                  onUpload={handleUploadTimeOffExcel}
+                  sisaCuti={sisaCuti}
                 />
-                {/* <AbsensiBiroView
+                {/* Rekap jam kerja per bulan (data_kpi.xlsx) - disembunyikan: kotak kosong di bawah panel Cuti & Sakit
+                <AbsensiBiroView
                   biroName={selectedFormBiro.biroName}
                   deptName={selectedFormBiro.deptName}
                   wb={kpiWorkbook}
                   monthKey={absensiMonth}
                   onChangeMonth={setAbsensiMonth}
                   onUploadKpi={handleUploadKpiExcel}
-                /> */}
+                />
+                */}
               </>
             )}
           </div>
