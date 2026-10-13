@@ -26,7 +26,8 @@ const parentExcelGlobUrls = import.meta.glob('../*.xlsx', {
 }) as Record<string, string>;
 
 // ===== REKAP ABSENSI: bulan Januari - Juni =====
-const MONTHS = [
+// Diberi tipe eksplisit supaya TypeScript tidak menganggap isinya `never[]` saat semua bulan dikomentari.
+const MONTHS: { key: string; label: string; num: string }[] = [
   // { key: 'januari', label: 'Januari', num: '01' },
   // { key: 'februari', label: 'Februari', num: '02' },
   // { key: 'maret', label: 'Maret', num: '03' },
@@ -312,6 +313,15 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
   const c2 = cleanText(b2.replace(/biro|departemen|dept|divisi|dan/gi, ''));
   if (c1 && c2) return c1 === c2 || c1.includes(c2) || c2.includes(c1);
   return false;
+}
+
+// Kepala Divisi / Kepala Departemen (termasuk "Kadep" dan "Plt. Kepala Departemen") adalah pimpinan,
+// bukan anggota biro. Biro mereka diberi label "Staf <Departemen>" oleh pembaca IM4, dan isBiroMatch
+// bersifat "mengandung", jadi mis. "Staf Departemen Perlengkapan Listrik dan Elektronika"
+// ikut cocok dengan "Biro Elektronika".
+function isPimpinanDivDept(jabatan: string): boolean {
+  const j = (jabatan || '').toLowerCase();
+  return j.includes('kepala divisi') || j.includes('kepala departemen') || /\bkadep\b/.test(j) || /\bkadiv\b/.test(j);
 }
 
 function getBiroPrefix(biroName: string): string {
@@ -1469,8 +1479,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     } catch { return 0; }
   }, [getSubconMembersForBiro]);
 
+  // Pimpinan (Kepala Divisi / Kepala Departemen) tidak dihitung sebagai anggota biro.
   const getBiroMembers = useCallback((biroName: string) => {
-    return allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName) && !p.status.toLowerCase().includes('outsourcing'));
+    return allParsedFromExcel.filter(p =>
+      isBiroMatch(p.biro, biroName) &&
+      !p.status.toLowerCase().includes('outsourcing') &&
+      !isPimpinanDivDept(p.jabatan));
   }, [allParsedFromExcel]);
 
   const toggleAccordion = (cardKey: string) => {
