@@ -863,27 +863,50 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
   const today = useMemo(() => isoLocal(new Date()), []);
   const year = String(new Date().getFullYear());
 
-  const data = useMemo(() => members.map(m => {
+const data = useMemo(() => {
+  const currentYear = new Date().getFullYear(); // 2026 atau 2027+
+
+  return members.map(m => {
     const nip = normNip(m.nip), nm = cleanText(m.nama);
-    // Hanya Approved; cocokkan lewat NIP, cadangan lewat nama
     const mine = entries.filter(e =>
-      e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm));
-    const inYear = mine.filter(e => e.start.startsWith(year));
+      e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm)
+    );
+
+    // Tentukan rentang tanggal filter berdasarkan tahun aktif
+    let inYear: TimeOffEntry[] = [];
+    if (currentYear === 2026) {
+      // Agustus (08) hingga Desember (12) 2026
+      inYear = mine.filter(e => {
+        const [y, mStr] = e.start.split('-');
+        const monthNum = parseInt(mStr, 10);
+        return y === '2026' && monthNum >= 8 && monthNum <= 12;
+      });
+    } else {
+      // Tahun 2027 dan seterusnya: mulai dari bulan pertama (Januari / bulan 01)
+      inYear = mine.filter(e => e.start.startsWith(String(currentYear)));
+    }
+
     const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
-    // Sisa cuti dari Google Sheet: cocokkan NIP dulu, cadangan nama. undefined = tidak ada di sheet.
-    const sisa: number | undefined = sisaCuti
+    const realisasiCuti = sum('cuti');
+
+    // Sisa cuti awal dari Google Sheet dikurangi dengan total realisasi cuti yang dihitung
+    const initialSisa: number | undefined = sisaCuti
       ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
       : undefined;
+
+    const sisa = initialSisa !== undefined ? initialSisa - realisasiCuti : undefined;
+
     return {
       m,
       sisa,
-      cuti: sum('cuti'),                                         // realisasi cuti tahun ini (tanpa cuti panjang)
-      sakit: sum('sakit'),                                       // hari sakit
-      sakitKali: inYear.filter(e => e.kind === 'sakit').length,  // berapa kali sakit
-      panjang: inYear.filter(e => e.kind === 'panjang'),         // melahirkan / kewajiban negara / pensiun
-      minggu: mine.filter(e => e.start <= week.to && e.end >= week.from), // irisan dengan minggu ini
+      cuti: realisasiCuti,
+      sakit: sum('sakit'),
+      sakitKali: inYear.filter(e => e.kind === 'sakit').length,
+      panjang: inYear.filter(e => e.kind === 'panjang'),
+      minggu: mine.filter(e => e.start <= week.to && e.end >= week.from),
     };
-  }), [members, entries, week, year, sisaCuti]);
+  });
+}, [members, entries, week, sisaCuti]);
 
   const totalCuti = data.reduce((s, d) => s + d.cuti, 0);
   const totalSakit = data.reduce((s, d) => s + d.sakit, 0);
