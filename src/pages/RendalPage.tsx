@@ -638,11 +638,11 @@ function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUp
             { <h4 className="text-sm font-bold text-white">Pilih Bulan Rekap Absensi</h4>}
             <span className="text-xs text-slate-400">{biroName}</span>
           </div> } */}
-          <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+          {/* <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
             <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
             <span>{wb ? 'Update data_kpi.xlsx' : 'Upload data_kpi.xlsx'}</span>
             <input type="file" accept=".xlsx, .xls" onChange={onUploadKpi} className="hidden" />
-          </label>
+          </label> */}
         </div>
         {!wb && (
           <div className="text-[11px] text-amber-400">
