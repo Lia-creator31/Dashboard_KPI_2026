@@ -694,12 +694,12 @@ function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUp
               <th className="py-3 px-3 w-10">No</th>
               <th className="py-3 px-3">NIP</th>
               <th className="py-3 px-3">Nama Pegawai</th>
-              <th className="py-3 px-3 text-right">Planned</th>
+              {/* <th className="py-3 px-3 text-right">Planned</th>
               <th className="py-3 px-3 text-right">Effective</th>
               <th className="py-3 px-3 text-right">Overtime</th>
               <th className="py-3 px-3 text-right">Idle</th>
               <th className="py-3 px-3 text-center text-rose-400 bg-rose-500/5">Terlambat</th>
-              <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th>
+              <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th> */}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800 font-mono">
