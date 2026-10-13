@@ -852,7 +852,6 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
 }
 
 // Tombol upload Time Off sudah dipindah ke halaman Departemen Desain (deretan tombol upload),
-// jadi komponen ini hanya menampilkan data.
 function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
   biroName: string;
   members: ParsedMember[];
