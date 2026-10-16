@@ -848,15 +848,21 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
         inYear = mine.filter(e => e.start.startsWith(String(currentYear)));
       }
 
-      const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
-      
-      // ===== MODIFIKASI: Hanya hitung cuti biasa (bukan sakit, panjang, atau khusus) =====
-      const realisasiCuti = sum('cuti');
-      const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
-
-      const initialSisa: number | undefined = sisaCuti
+      // Ambil data sisa cuti & timestamp pengisian form dari Google Sheet
+      const cutiEntry: SisaCutiEntry | undefined = sisaCuti
         ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
         : undefined;
+
+      const initialSisa = cutiEntry?.sisa;
+      const formTimestamp = cutiEntry?.timestamp || '1970-01-01';
+
+      // ===== MODIFIKASI: Hanya hitung cuti yang tanggal mulainya > tanggal isi form =====
+      const validCutiInYear = inYear.filter(e => e.kind === 'cuti' && e.start > formTimestamp);
+      const realisasiCuti = validCutiInYear.reduce((s, e) => s + e.days, 0);
+
+      const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
+      const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
+
       const sisa = initialSisa !== undefined ? initialSisa - realisasiCuti : undefined;
 
       return {
@@ -866,7 +872,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
         sakit: sum('sakit'),
         sakitKali: inYear.filter(e => e.kind === 'sakit').length,
         panjang: inYear.filter(e => e.kind === 'panjang'),
-        khusus: cutiKhusus,  // ← TAMBAH
+        khusus: cutiKhusus,
         minggu: mine.filter(e => e.start <= week.to && e.end >= week.from),
       };
     });
