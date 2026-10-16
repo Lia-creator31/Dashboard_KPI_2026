@@ -766,6 +766,16 @@ interface SisaCutiData {
   byName: Map<string, number>;
 }
 
+interface SisaCutiEntry {
+  sisa: number;
+  timestamp: string; // Tanggal pengisian form (YYYY-MM-DD)
+}
+
+interface SisaCutiData {
+  byNip: Map<string, SisaCutiEntry>;
+  byName: Map<string, SisaCutiEntry>;
+}
+
 async function fetchSisaCuti(): Promise<SisaCutiData | null> {
   try {
     const res = await fetch(
@@ -775,24 +785,34 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
     const wb = XLSX.read(await res.text(), { type: 'string' });
     const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
     if (rows.length < 2) return null;
+    
     const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
+    let cTime = head.findIndex(h => h.includes('timestamp') || h.includes('waktu') || h.includes('tanggal'));
     let cName = head.findIndex(h => h.includes('nama personel'));
     let cNip = head.findIndex(h => h === 'nip');
     let cSisa = head.findIndex(h => h.includes('jumlah sisa cuti'));
+    
+    if (cTime < 0) cTime = 0; // Asumsi kolom pertama adalah Timestamp jika tidak ditemukan
     if (cName < 0) cName = 2;
     if (cNip < 0) cNip = 3;
     if (cSisa < 0) cSisa = 5;
-    const byNip = new Map<string, number>();
-    const byName = new Map<string, number>();
+
+    const byNip = new Map<string, SisaCutiEntry>();
+    const byName = new Map<string, SisaCutiEntry>();
+
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
-      const raw = String(r[cSisa] ?? '').trim();
-      if (raw === '') continue;
-      const sisa = absNum(raw);
+      const rawSisa = String(r[cSisa] ?? '').trim();
+      if (rawSisa === '') continue;
+      
+      const sisa = absNum(rawSisa);
       const nip = normNip(r[cNip]);
       const nm = cleanText(String(r[cName] ?? ''));
-      if (nip) byNip.set(nip, sisa);
-      if (nm) byName.set(nm, sisa);
+      const timestamp = parseToStandardDate(r[cTime]) || '1970-01-01';
+
+      const entry: SisaCutiEntry = { sisa, timestamp };
+      if (nip) byNip.set(nip, entry);
+      if (nm) byName.set(nm, entry);
     }
     return { byNip, byName };
   } catch { return null; }
