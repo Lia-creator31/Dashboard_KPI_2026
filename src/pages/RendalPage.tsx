@@ -766,16 +766,6 @@ interface SisaCutiData {
   byName: Map<string, number>;
 }
 
-interface SisaCutiEntry {
-  sisa: number;
-  timestamp: string; // Tanggal pengisian form (YYYY-MM-DD)
-}
-
-interface SisaCutiData {
-  byNip: Map<string, SisaCutiEntry>;
-  byName: Map<string, SisaCutiEntry>;
-}
-
 async function fetchSisaCuti(): Promise<SisaCutiData | null> {
   try {
     const res = await fetch(
@@ -785,34 +775,24 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
     const wb = XLSX.read(await res.text(), { type: 'string' });
     const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
     if (rows.length < 2) return null;
-    
     const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
-    let cTime = head.findIndex(h => h.includes('timestamp') || h.includes('waktu') || h.includes('tanggal'));
     let cName = head.findIndex(h => h.includes('nama personel'));
     let cNip = head.findIndex(h => h === 'nip');
     let cSisa = head.findIndex(h => h.includes('jumlah sisa cuti'));
-    
-    if (cTime < 0) cTime = 0; // Asumsi kolom pertama adalah Timestamp jika tidak ditemukan
     if (cName < 0) cName = 2;
     if (cNip < 0) cNip = 3;
     if (cSisa < 0) cSisa = 5;
-
-    const byNip = new Map<string, SisaCutiEntry>();
-    const byName = new Map<string, SisaCutiEntry>();
-
+    const byNip = new Map<string, number>();
+    const byName = new Map<string, number>();
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
-      const rawSisa = String(r[cSisa] ?? '').trim();
-      if (rawSisa === '') continue;
-      
-      const sisa = absNum(rawSisa);
+      const raw = String(r[cSisa] ?? '').trim();
+      if (raw === '') continue;
+      const sisa = absNum(raw);
       const nip = normNip(r[cNip]);
       const nm = cleanText(String(r[cName] ?? ''));
-      const timestamp = parseToStandardDate(r[cTime]) || '1970-01-01';
-
-      const entry: SisaCutiEntry = { sisa, timestamp };
-      if (nip) byNip.set(nip, entry);
-      if (nm) byName.set(nm, entry);
+      if (nip) byNip.set(nip, sisa);
+      if (nm) byName.set(nm, sisa);
     }
     return { byNip, byName };
   } catch { return null; }
@@ -848,21 +828,15 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
         inYear = mine.filter(e => e.start.startsWith(String(currentYear)));
       }
 
-      // Ambil data sisa cuti & timestamp pengisian form dari Google Sheet
-      const cutiEntry: SisaCutiEntry | undefined = sisaCuti
-        ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
-        : undefined;
-
-      const initialSisa = cutiEntry?.sisa;
-      const formTimestamp = cutiEntry?.timestamp || '1970-01-01';
-
-      // ===== MODIFIKASI: Hanya hitung cuti yang tanggal mulainya > tanggal isi form =====
-      const validCutiInYear = inYear.filter(e => e.kind === 'cuti' && e.start > formTimestamp);
-      const realisasiCuti = validCutiInYear.reduce((s, e) => s + e.days, 0);
-
       const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
+      
+      // ===== MODIFIKASI: Hanya hitung cuti biasa (bukan sakit, panjang, atau khusus) =====
+      const realisasiCuti = sum('cuti');
       const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
 
+      const initialSisa: number | undefined = sisaCuti
+        ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
+        : undefined;
       const sisa = initialSisa !== undefined ? initialSisa - realisasiCuti : undefined;
 
       return {
@@ -872,7 +846,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
         sakit: sum('sakit'),
         sakitKali: inYear.filter(e => e.kind === 'sakit').length,
         panjang: inYear.filter(e => e.kind === 'panjang'),
-        khusus: cutiKhusus,
+        khusus: cutiKhusus,  // ← TAMBAH
         minggu: mine.filter(e => e.start <= week.to && e.end >= week.from),
       };
     });
