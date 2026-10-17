@@ -868,8 +868,13 @@ function sameNameFuzzy(a: string, b: string): boolean {
   const ta = nameTokens(a), tb = nameTokens(b);
   if (!ta.length || !tb.length) return false;
   const [short, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
-  // nama satu kata hanya cocok dengan nama satu kata (hindari "Zakiyah" = "Nur Zakiyyah")
-  if (short.length === 1 && long.length > 1) return false;
+
+  // Nama satu kata: cocok bila kata itu sama PERSIS dengan salah satu kata di nama yang lebih panjang
+  // ("Kasmiatin" = "Christiain Kasmiatin"). Tanpa pencocokan awalan, agar tidak salah orang.
+  if (short.length === 1 && long.length > 1) {
+    return short[0].length >= 3 && long.includes(short[0]);
+  }
+
   const used = new Set<number>();
   for (const x of short) {
     let idx = -1;
