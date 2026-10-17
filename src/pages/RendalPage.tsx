@@ -758,6 +758,7 @@ const SISA_CUTI_SHEET_ID = '1c6TgsfSRrLJ9QZkTQR8aIMe-fBgq89HxmoUdEcqU4b4';
 const SISA_CUTI_GID = '1997448035';
 
 interface SisaCutiInfo {
+  nama: string;     // nama asli di sheet (untuk pencocokan nama fleksibel)
   sisa: number;
   filledAt: string; // YYYY-MM-DD, tanggal pengisian form
 }
@@ -844,13 +845,56 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
       if (sisaNum === null) continue;
       const nm = cleanText(String(r[cName] ?? ''));
       if (!nm) continue;
-      const info: SisaCutiInfo = { sisa: sisaNum, filledAt: parseSheetTimestamp(r[cTs], src.order) };
+      const info: SisaCutiInfo = { nama: String(r[cName] ?? '').trim(), sisa: sisaNum, filledAt: parseSheetTimestamp(r[cTs], src.order) };
       const old = byName.get(nm);
       // bila nama mengisi lebih dari sekali, pakai isian dengan tanggal terbaru
       if (!old || info.filledAt >= old.filledAt) byName.set(nm, info);
     }
     return { byName };
   } catch { return null; }
+}
+
+// ===== Pencocokan nama fleksibel =====
+// "Dyan Asih P" = "Dyan Asih Purwanti", "Moh. Hamzah" = "Mohammad Hamzah", "Moch" = "Mochammad".
+// Nama dipecah per kata; semua kata pada nama yang lebih pendek harus punya pasangan di nama
+// yang lebih panjang (kata sama persis, atau singkatan/awalan dari kata itu).
+const normNameToken = (t: string) =>
+  t.replace(/ch/g, 'h').replace(/(.)\1+/g, '$1').replace(/^mu/, 'mo');
+
+const nameTokens = (name: string): string[] =>
+  String(name || '').toLowerCase().split(/[^a-z]+/).filter(Boolean).map(normNameToken);
+
+function sameNameFuzzy(a: string, b: string): boolean {
+  const ta = nameTokens(a), tb = nameTokens(b);
+  if (!ta.length || !tb.length) return false;
+  const [short, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  // nama satu kata hanya cocok dengan nama satu kata (hindari "Zakiyah" = "Nur Zakiyyah")
+  if (short.length === 1 && long.length > 1) return false;
+  const used = new Set<number>();
+  for (const x of short) {
+    let idx = -1;
+    for (let i = 0; i < long.length; i++) {
+      if (!used.has(i) && long[i] === x) { idx = i; break; }
+    }
+    if (idx < 0 && !(x.length === 1 && short.length === 1)) {
+      for (let i = 0; i < long.length; i++) {
+        if (!used.has(i) && (long[i].startsWith(x) || x.startsWith(long[i]))) { idx = i; break; }
+      }
+    }
+    if (idx < 0) return false;
+    used.add(idx);
+  }
+  return true;
+}
+
+// Cari isian form milik seorang pegawai; bila ada beberapa isian yang cocok, pakai yang terbaru
+function findSisaCuti(data: SisaCutiData | null, nama: string): SisaCutiInfo | undefined {
+  if (!data) return undefined;
+  let best: SisaCutiInfo | undefined;
+  data.byName.forEach(info => {
+    if (sameNameFuzzy(info.nama, nama) && (!best || info.filledAt > best.filledAt)) best = info;
+  });
+  return best;
 }
 
 function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
@@ -890,7 +934,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
       const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
 
       // Data form alokasi cuti: sisa + tanggal pengisian
-      const info: SisaCutiInfo | undefined = sisaCuti ? sisaCuti.byName.get(nm) : undefined;
+      const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama);
 
       // Hanya cuti biasa yang jatuh SETELAH tanggal isi form yang mengurangi sisa
       const cutiSetelahIsi = info
