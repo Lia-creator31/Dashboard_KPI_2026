@@ -521,7 +521,6 @@ interface AbsensiRow {
   idle: number;
   terlambat: number;
   sakit: number;
-  [key: `rencana${number}`]: any;
 }
 
 const absNum = (v: any): number => {
@@ -544,34 +543,19 @@ function findMonthSheet(wb: XLSX.WorkBook | null, monthKey: string): string | un
 function buildRekap(wb: XLSX.WorkBook | null, biroName: string, monthKey: string, csv: string): AbsensiRow[] {
   const sheetName = findMonthSheet(wb, monthKey);
   if (!wb || !sheetName) return [];
-  const abs = new Map<string, { terlambat: number; sakit: number; rencanaList: string[] }>();
-  
+  const abs = new Map<string, { terlambat: number; sakit: number }>();
   (csv || '').split(/\r?\n/).forEach((line, i) => {
     if (i === 0 || !line.trim()) return;
     const p = line.split(',');
     if (p.length < 6) return;
     const k = cleanText(p[1] || '');
-    if (k) {
-      // Ambil data setelah kolom sakit (misal dari indeks setelah sakit hingga akhir baris)
-      // Asumsi kolom sakit berada di posisi tertentu atau kita ambil dinamis
-      const sakitVal = absNum(p[p.length - 2]);
-      const terlambatVal = absNum(p[p.length - 3]);
-      
-      // Mengambil kolom-kolom rencana setelah kolom sakit
-      // Contoh: kolom-kolom setelah sakit
-      const sakitIdx = p.length - 2;
-      const rencanaList = p.slice(sakitIdx + 1).map(val => val.trim());
-
-      abs.set(k, { terlambat: terlambatVal, sakit: sakitVal, rencanaList });
-    }
+    if (k) abs.set(k, { terlambat: absNum(p[p.length - 3]), sakit: absNum(p[p.length - 2]) });
   });
-
   const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
   const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
   const planIdx = head.findIndex(h => h.includes('plan'));
   const PLAN_COL = planIdx >= 0 ? planIdx : 9;
   const people = new Map<string, AbsensiRow>();
-
   rows.forEach((row, i) => {
     if (i === 0 || !row) return;
     const nip = String(row[0] || '').trim();
@@ -579,38 +563,16 @@ function buildRekap(wb: XLSX.WorkBook | null, biroName: string, monthKey: string
     if (!(nama || nip)) return;
     if (!isBiroMatch(String(row[7] || ''), biroName)) return;
     const key = cleanText(nama || nip);
-    const p = people.get(key) || { 
-      nip: nip || '-', 
-      nama: nama || '-', 
-      planned: 0, 
-      effective: 0, 
-      overtime: 0, 
-      idle: 0, 
-      terlambat: 0, 
-      sakit: 0 
-    };
+    const p = people.get(key) || { nip: nip || '-', nama: nama || '-', planned: 0, effective: 0, overtime: 0, idle: 0, terlambat: 0, sakit: 0 };
     p.planned += absNum(row[PLAN_COL]);
     p.effective += absNum(row[10]);
     p.overtime += absNum(row[11]);
     p.idle += absNum(row[12]);
     people.set(key, p);
   });
-
   return Array.from(people.values()).map(p => {
     const a = abs.get(cleanText(p.nama));
-    const baseRow: AbsensiRow = { 
-      ...p, 
-      terlambat: a ? a.terlambat : 0, 
-      sakit: a ? a.sakit : 0 
-    };
-    
-    // Memasukkan dinamis kolom Rencana 1, Rencana 2, dst. tepat setelah sakit
-    if (a && a.rencanaList) {
-      a.rencanaList.forEach((val, idx) => {
-        baseRow[`rencana${idx + 1}`] = val;
-      });
-    }
-    return baseRow;
+    return { ...p, terlambat: a ? a.terlambat : 0, sakit: a ? a.sakit : 0 };
   });
 }
 
@@ -628,40 +590,66 @@ export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMont
     () => (month ? buildRekap(wb, biroName, month.key, csvMonthMap[month.key] || '') : []),
     [wb, biroName, month]
   );
-  
-  // Mendeteksi jumlah maksimal kolom rencana yang tersedia dari data baris
-  const maxRencanaCount = useMemo(() => {
-    let max = 0;
-    allRows.forEach(r => {
-      const keys = Object.keys(r).filter(k => k.startsWith('rencana'));
-      if (keys.length > max) max = keys.length;
-    });
-    return max;
-  }, [allRows]);
-
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
     return s ? allRows.filter(r => r.nip.toLowerCase().includes(s) || r.nama.toLowerCase().includes(s)) : allRows;
   }, [allRows, q]);
 
-  // ... (bagian return awal komponen dibiarkan sesuai)
+  if (!month) {
+    return (
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+        </div>
+        {!wb && (
+          <div className="text-[11px] text-amber-400">
+            File data_kpi.xlsx belum termuat. Letakkan di folder src/ atau public/, atau upload manual dengan tombol di atas.
+          </div>
+        )}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {MONTHS.map(m => {
+            const ada = !!findMonthSheet(wb, m.key);
+            return (
+              <button key={m.key} disabled={!ada} onClick={() => onChangeMonth(m.key)}
+                className={`p-4 rounded-xl border text-left transition ${ada ? 'bg-slate-950 border-slate-700 hover:border-blue-500 cursor-pointer' : 'bg-slate-950/40 border-slate-800 opacity-40 cursor-not-allowed'}`}>
+                <div className="font-semibold text-white text-sm">{m.label}</div>
+                <div className="text-[11px] text-slate-500 font-mono">{ada ? 'Data tersedia' : 'Sheet belum ada'}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
-      {/* Header & Filter bagian atas tetap sama */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex items-start justify-between gap-4 flex-wrap">
+        <div className="space-y-1">
+          <button onClick={() => { onChangeMonth(null); setQ(''); }} className="text-xs text-blue-400 hover:underline flex items-center gap-1 cursor-pointer">
+            <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Pilihan Bulan
+          </button>
+          <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wide">{deptName}</div>
+          <h3 className="text-xl font-bold text-white">{biroName}</h3>
+          <div className="text-xs text-slate-400">
+            Rekapitulasi Jam Kerja &amp; Absensi Pegawai — <span className="text-blue-400 font-semibold">Bulan {month.label}</span>
+          </div>
+        </div>
+        <div className="px-5 py-3 bg-slate-950 border border-slate-800 rounded-xl text-right">
+          <div className="text-2xl font-bold text-blue-400">{allRows.length}</div>
+          <div className="text-[10px] text-slate-400 uppercase tracking-wide">Total Pegawai</div>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Cari NIP atau Nama Pegawai..."
+          className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-72" />
+        <span className="text-[11px] text-slate-400">Menampilkan <b className="text-white">{rows.length}</b> data pegawai</span>
+      </div>
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="text-slate-400 border-b border-slate-800 uppercase text-[11px]">
               <th className="py-3 px-3 w-10">No</th>
               <th className="py-3 px-3">Nama Pegawai</th>
-              <th className="py-3 px-3 text-center">Sakit</th>
-              {/* Kolom Rencana ditambahkan dinamis tepat setelah kolom Sakit */}
-              {Array.from({ length: maxRencanaCount }).map((_, idx) => (
-                <th key={`hdr-rencana-${idx + 1}`} className="py-3 px-3 text-center text-blue-400 bg-blue-500/5">
-                  Rencana {idx + 1}
-                </th>
-              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800 font-mono">
@@ -669,25 +657,13 @@ export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMont
               <tr key={`${r.nip}-${i}`} className="hover:bg-slate-800/40">
                 <td className="py-3 px-3 text-slate-500">{i + 1}</td>
                 <td className="py-3 px-3 font-sans font-semibold text-white">{r.nama}</td>
-                <td className="py-3 px-3 text-center text-amber-400">{r.sakit}</td>
-                {/* Render isi data Rencana 1, Rencana 2, dst. untuk masing-masing nama */}
-                {Array.from({ length: maxRencanaCount }).map((_, idx) => {
-                  const key = `rencana${idx + 1}` as keyof AbsensiRow;
-                  return (
-                    <td key={`val-rencana-${idx + 1}-${i}`} className="py-3 px-3 text-center text-slate-300">
-                      {r[key] !== undefined && r[key] !== '' ? String(r[key]) : '-'}
-                    </td>
-                  );
-                })}
               </tr>
             )) : (
-              <tr>
-                <td colSpan={3 + maxRencanaCount} className="py-8 text-center font-sans text-slate-500">
-                  {allRows.length === 0
-                    ? `Tidak ada data biro ini di sheet ${month.label} pada data_kpi.xlsx.`
-                    : 'Tidak ada data yang cocok dengan pencarian.'}
-                </td>
-              </tr>
+              <tr><td colSpan={2} className="py-8 text-center font-sans text-slate-500">
+                {allRows.length === 0
+                  ? `Tidak ada data biro ini di sheet ${month.label} pada data_kpi.xlsx (cek kolom H = nama biro).`
+                  : 'Tidak ada data yang cocok dengan pencarian.'}
+              </td></tr>
             )}
           </tbody>
         </table>
@@ -780,6 +756,7 @@ interface SisaCutiInfo {
   nama: string;
   sisa: number;
   filledAt: string;
+  rencana: Record<string, string>; // <--- TAMBAHAN: Untuk menampung Rencana 1, Rencana 2, dst.
 }
 
 interface SisaCutiData {
@@ -846,13 +823,24 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
     const wb = XLSX.read(src.text, { type: 'string' });
     const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
     if (rows.length < 2) return null;
+    
     const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
     let cTs = head.findIndex(h => h.includes('timestamp') || h.includes('cap waktu'));
     let cName = head.findIndex(h => h.includes('nama personel'));
     let cSisa = head.findIndex(h => h.includes('jumlah sisa cuti'));
+    
+    // Cari semua kolom yang mengandung kata "rencana" (case-insensitive)
+    const rencanaCols: { index: number; name: string }[] = [];
+    head.forEach((h, idx) => {
+      if (h.includes('rencana')) {
+        rencanaCols.push({ index: idx, name: String(rows[0][idx]).trim() });
+      }
+    });
+
     if (cTs < 0) cTs = 0;
     if (cName < 0) cName = 2;
     if (cSisa < 0) cSisa = 5;
+    
     const byName = new Map<string, SisaCutiInfo>();
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
@@ -860,7 +848,19 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
       if (sisaNum === null) continue;
       const nm = cleanText(String(r[cName] ?? ''));
       if (!nm) continue;
-      const info: SisaCutiInfo = { nama: String(r[cName] ?? '').trim(), sisa: sisaNum, filledAt: parseSheetTimestamp(r[cTs], src.order) };
+      
+      const rencanaData: Record<string, string> = {};
+      rencanaCols.forEach(col => {
+        rencanaData[col.name] = String(r[col.index] ?? '').trim() || '-';
+      });
+
+      const info: SisaCutiInfo = { 
+        nama: String(r[cName] ?? '').trim(), 
+        sisa: sisaNum, 
+        filledAt: parseSheetTimestamp(r[cTs], src.order),
+        rencana: rencanaData
+      };
+      
       const old = byName.get(nm);
       if (!old || info.filledAt >= old.filledAt) byName.set(nm, info);
     }
@@ -947,6 +947,19 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
   const week = useMemo(() => getWeekRange(), []);
   const today = useMemo(() => isoLocal(new Date()), []);
   const year = String(new Date().getFullYear());
+  
+  // Ambil semua key "Rencana" yang unik dari data sisa cuti untuk header tabel
+  const rencanaKeys = useMemo(() => {
+    if (!sisaCuti) return [];
+    const keys = new Set<string>();
+    sisaCuti.byName.forEach(info => {
+      if (info.rencana) {
+        Object.keys(info.rencana).forEach(k => keys.add(k));
+      }
+    });
+    return Array.from(keys).sort();
+  }, [sisaCuti]);
+
   const data = useMemo(() => {
     const currentYear = new Date().getFullYear();
     return members.map(m => {
@@ -984,6 +997,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
         panjang: inYear.filter(e => e.kind === 'panjang'),
         khusus: cutiKhusus,
         minggu: mine.filter(e => e.start <= week.to && e.end >= week.from),
+        rencana: info?.rencana || {}, // <--- TAMBAHAN: Data rencana per orang
       };
     });
   }, [members, entries, week, sisaCuti]);
@@ -1070,6 +1084,12 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
                   <th className="py-3 px-3">Realisasi Cuti {year}</th>
                   <th className="py-3 px-3 text-center text-sky-400 bg-sky-500/5">Sisa Cuti</th>
                   <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th>
+                  {/* <--- TAMBAHAN: Kolom-kolom Rencana dinamis setelah Sakit ---> */}
+                  {rencanaKeys.map(key => (
+                    <th key={key} className="py-3 px-3 text-center text-blue-400 bg-blue-500/5 whitespace-nowrap">
+                      {key}
+                    </th>
+                  ))}
                   <th className="py-3 px-3">Minggu Ini</th>
                 </tr>
               </thead>
@@ -1109,6 +1129,12 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
                       <div className="font-mono font-bold text-amber-400">{d.sakit} hari</div>
                       <div className="text-[10px] text-slate-500">{d.sakitKali}x</div>
                     </td>
+                    {/* <--- TAMBAHAN: Isi data Rencana per orang ---> */}
+                    {rencanaKeys.map(key => (
+                      <td key={key} className="py-3 px-3 text-center bg-blue-500/5 font-mono text-xs text-blue-300 whitespace-nowrap">
+                        {d.rencana[key] || '-'}
+                      </td>
+                    ))}
                     <td className="py-3 px-3">
                       {d.minggu.length > 0
                         ? <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${kindClass(d.minggu[0].kind)}`}>{kindLabel(d.minggu[0].kind)}</span>
@@ -1116,7 +1142,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
                     </td>
                   </tr>
                 )) : (
-                  <tr><td colSpan={6} className="py-8 text-center text-slate-500">Tidak ada anggota organik di biro ini.</td></tr>
+                  <tr><td colSpan={6 + rencanaKeys.length} className="py-8 text-center text-slate-500">Tidak ada anggota organik di biro ini.</td></tr>
                 )}
               </tbody>
             </table>
@@ -1138,7 +1164,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
 // ===== KOMPONEN BARU: Panel Plan Cuti Mingguan Departemen =====
 function DeptWeeklyTimeOffPanel({ deptName, members, wb }: {
   deptName: string;
-  members: PadaftParsedMember[];
+  members: ParsedMember[];
   wb: XLSX.WorkBook | null;
 }) {
   const entries = useMemo(() => parseTimeOff(wb), [wb]);
