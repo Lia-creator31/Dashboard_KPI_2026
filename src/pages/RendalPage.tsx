@@ -947,7 +947,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
       const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
 
       // Data form alokasi cuti: sisa + tanggal pengisian
-      const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama);
+     const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama, members.map(x => x.nama));
 
       // Hanya cuti biasa yang jatuh SETELAH tanggal isi form yang mengurangi sisa
       const cutiSetelahIsi = info
