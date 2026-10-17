@@ -1955,6 +1955,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return getBiroMembers(selectedFormBiro.biroName);
   }, [selectedFormBiro, allParsedFromExcel]);
 
+    // ===== TAMBAHKAN INI =====
+  const allDeptMembers = useMemo(() => {
+    if (!selectedDept) return [];
+    const kadeps = getKadepForDept(allParsedFromExcel, selectedDept.name);
+    const biroMembers = selectedDept.biros.flatMap(biro => getBiroMembers(biro.name));
+    const seen = new Set<string>();
+    return [...kadeps, ...biroMembers].filter(p => {
+      const id = p.nip || p.nama;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [selectedDept, allParsedFromExcel]);
+
   const activeSubconMembers = useMemo(() => {
     if (!subconSelectedBiro) return [];
     return getSubconMembersForBiro(subconSelectedBiro);
