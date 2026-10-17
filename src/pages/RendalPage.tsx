@@ -762,20 +762,20 @@ interface SisaCutiInfo {
   filledAt: string; // YYYY-MM-DD, tanggal pengisian form
 }
 interface SisaCutiData {
-  byNip: Map<string, SisaCutiInfo>;
-  byName: Map<string, SisaCutiInfo>;
+  byName: Map<string, SisaCutiInfo>; // dicocokkan HANYA berdasarkan nama
 }
 
-// Timestamp Google Form -> YYYY-MM-DD (default dd/mm/yyyy; jika angka kedua > 12 dibaca mm/dd/yyyy)
-function parseSheetTimestamp(val: any): string {
+// Timestamp Google Form -> YYYY-MM-DD.
+// order 'dmy' = dd/mm/yyyy (tampilan sheet, endpoint pub/export), 'mdy' = mm/dd/yyyy (endpoint gviz)
+function parseSheetTimestamp(val: any, order: 'dmy' | 'mdy'): string {
   const s = String(val ?? '').trim();
   const m = s.match(/^(\d{1,4})[\/\-](\d{1,2})[\/\-](\d{1,4})/);
   if (!m) return parseToStandardDate(s.split(' ')[0]);
   const a = parseInt(m[1], 10), b = parseInt(m[2], 10), c = parseInt(m[3], 10);
   const pad = (n: number) => String(n).padStart(2, '0');
   if (a > 31) return `${a}-${pad(b)}-${pad(c)}`;   // yyyy/mm/dd
-  let day = a, mon = b;                             // dd/mm/yyyy
-  if (b > 12) { day = b; mon = a; }                 // ternyata mm/dd/yyyy
+  const day = order === 'dmy' ? a : b;
+  const mon = order === 'dmy' ? b : a;
   return `${c}-${pad(mon)}-${pad(day)}`;
 }
 
@@ -796,37 +796,60 @@ function countDaysAfter(e: TimeOffEntry, filledAt: string): number {
   return Math.min(n, e.days);
 }
 
+// Ambil CSV dari beberapa sumber (pub -> export -> gviz sebagai cadangan)
+async function fetchSisaCutiCsv(): Promise<{ text: string; order: 'dmy' | 'mdy' } | null> {
+  const sources: { url: string; order: 'dmy' | 'mdy' }[] = [
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/pub?gid=${SISA_CUTI_GID}&single=true&output=csv`, order: 'dmy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/export?format=csv&gid=${SISA_CUTI_GID}`, order: 'dmy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}`, order: 'mdy' },
+  ];
+  for (const s of sources) {
+    try {
+      const res = await fetch(s.url);
+      if (res.ok) {
+        console.log('Sisa cuti diambil dari:', s.url);
+        return { text: await res.text(), order: s.order };
+      }
+    } catch (err) {
+      console.warn('Gagal fetch:', s.url, err);
+    }
+  }
+  return null;
+}
+
+// Ambil angka pertama dari teks, mis. "8 (PKWT s/d Mei 2027)" -> 8
+function parseSisaNumber(raw: string): number | null {
+  const m = String(raw ?? '').replace(',', '.').match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+}
+
 async function fetchSisaCuti(): Promise<SisaCutiData | null> {
   try {
-    const res = await fetch(
-      `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}`
-    );
-    if (!res.ok) return null;
-    const wb = XLSX.read(await res.text(), { type: 'string' });
+    const src = await fetchSisaCutiCsv();
+    if (!src) return null;
+    const wb = XLSX.read(src.text, { type: 'string' });
     const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
     if (rows.length < 2) return null;
     const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
     let cTs = head.findIndex(h => h.includes('timestamp') || h.includes('cap waktu'));
     let cName = head.findIndex(h => h.includes('nama personel'));
-    let cNip = head.findIndex(h => h === 'nip');
     let cSisa = head.findIndex(h => h.includes('jumlah sisa cuti'));
     if (cTs < 0) cTs = 0;
     if (cName < 0) cName = 2;
-    if (cNip < 0) cNip = 3;
     if (cSisa < 0) cSisa = 5;
-    const byNip = new Map<string, SisaCutiInfo>();
     const byName = new Map<string, SisaCutiInfo>();
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
-      const raw = String(r[cSisa] ?? '').trim();
-      if (raw === '') continue;
-      const info: SisaCutiInfo = { sisa: absNum(raw), filledAt: parseSheetTimestamp(r[cTs]) };
-      const nip = normNip(r[cNip]);
+      const sisaNum = parseSisaNumber(String(r[cSisa] ?? ''));
+      if (sisaNum === null) continue;
       const nm = cleanText(String(r[cName] ?? ''));
-      if (nip) byNip.set(nip, info);   // baris terakhir menimpa -> isian terbaru dipakai
-      if (nm) byName.set(nm, info);
+      if (!nm) continue;
+      const info: SisaCutiInfo = { sisa: sisaNum, filledAt: parseSheetTimestamp(r[cTs], src.order) };
+      const old = byName.get(nm);
+      // bila nama mengisi lebih dari sekali, pakai isian dengan tanggal terbaru
+      if (!old || info.filledAt >= old.filledAt) byName.set(nm, info);
     }
-    return { byNip, byName };
+    return { byName };
   } catch { return null; }
 }
 
@@ -867,9 +890,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
       const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
 
       // Data form alokasi cuti: sisa + tanggal pengisian
-      const info: SisaCutiInfo | undefined = sisaCuti
-        ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
-        : undefined;
+      const info: SisaCutiInfo | undefined = sisaCuti ? sisaCuti.byName.get(nm) : undefined;
 
       // Hanya cuti biasa yang jatuh SETELAH tanggal isi form yang mengurangi sisa
       const cutiSetelahIsi = info
