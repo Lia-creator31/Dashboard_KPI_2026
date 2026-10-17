@@ -131,17 +131,17 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
             Data Time Off belum termuat. Upload file TIME_OFF_DIVISI_DESAIN.xlsx lewat tombol di kanan atas.
           </div>
         ) : (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-auto max-h-[calc(100vh-9rem)]">
+            <table className="w-full min-w-max text-left text-xs">
               <thead>
-                <tr className="text-slate-400 border-b border-slate-800 uppercase text-[11px]">
-                  <th className="py-3 px-3 w-10">No</th>
-                  <th className="py-3 px-3">Nama Pegawai</th>
-                  <th className="py-3 px-3">Realisasi Cuti {year}</th>
-                  <th className="py-3 px-8 text-center text-sky-400 bg-sky-500/5">Sisa Cuti</th>
-                  <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th>
+                <tr className="text-slate-400 uppercase text-[11px]">
+                  <th className="sticky top-0 left-0 z-30 bg-slate-900 border-b border-slate-800 py-3 px-3 w-10 min-w-[40px] max-w-[40px]">No</th>
+                  <th className="sticky top-0 left-10 z-30 bg-slate-900 border-b border-slate-800 py-3 px-3 min-w-[220px]">Nama Pegawai</th>
+                  <th className="sticky top-0 z-20 bg-slate-900 border-b border-slate-800 py-3 px-3">Realisasi Cuti {year}</th>
+                  <th className="sticky top-0 z-20 bg-sky-950 border-b border-slate-800 py-3 px-8 text-center text-sky-400">Sisa Cuti</th>
+                  <th className="sticky top-0 z-20 bg-amber-950 border-b border-slate-800 py-3 px-3 text-center text-amber-400">Sakit</th>
                   {rencanaKeys.map(key => (
-                    <th key={key} className="py-3 px-3 text-center text-blue-400 bg-blue-500/5 whitespace-nowrap">{key}</th>
+                    <th key={key} className="sticky top-0 z-20 bg-blue-950 border-b border-slate-800 py-3 px-3 text-center text-blue-400 whitespace-nowrap">{key}</th>
                   ))}
                 </tr>
               </thead>
@@ -152,17 +152,19 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
                 {sections.map(sec => (
                   <React.Fragment key={sec.deptName}>
                     <tr className="bg-purple-500/10 border-y border-purple-500/30">
-                      <td colSpan={colSpan} className="py-2.5 px-3">
-                        <span className="text-xs font-bold text-purple-300 uppercase tracking-wide">{sec.deptName}</span>
-                        <span className="ml-2 text-[11px] text-slate-400 font-mono">({sec.rows.length} orang)</span>
+                      <td colSpan={colSpan} className="p-0">
+                        <div className="sticky left-0 w-fit py-2.5 px-3">
+                          <span className="text-xs font-bold text-purple-300 uppercase tracking-wide">{sec.deptName}</span>
+                          <span className="ml-2 text-[11px] text-slate-400 font-mono">({sec.rows.length} orang)</span>
+                        </div>
                       </td>
                     </tr>
                     {sec.rows.map((d, i) => {
                       no += 1;
                       return (
-                        <tr key={`${d.m.nip}-${i}`} className="hover:bg-slate-800/40 border-b border-slate-800">
-                          <td className="py-3 px-3 text-slate-500 font-mono">{no}</td>
-                          <td className="py-3 px-3 font-semibold text-white">
+                        <tr key={`${d.m.nip}-${i}`} className="group hover:bg-slate-800/40 border-b border-slate-800">
+                          <td className="sticky left-0 z-10 bg-slate-900 group-hover:bg-slate-800 py-3 px-3 w-10 min-w-[40px] max-w-[40px] text-slate-500 font-mono">{no}</td>
+                          <td className="sticky left-10 z-10 bg-slate-900 group-hover:bg-slate-800 py-3 px-3 min-w-[220px] font-semibold text-white">
                             {d.m.nama}
                             {d.isKadep && (
                               <span className="ml-2 px-1.5 py-0.5 text-[10px] font-bold rounded border bg-purple-500/10 text-purple-300 border-purple-500/20">Kadep</span>
