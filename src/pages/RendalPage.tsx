@@ -756,7 +756,6 @@ interface SisaCutiInfo {
   nama: string;
   sisa: number;
   filledAt: string;
-  rencanaList: string[]; // <-- TAMBAHAN: Menyimpan daftar tanggal rencana cuti (rencana 1, rencana 2, dst.)
 }
 
 interface SisaCutiData {
@@ -801,9 +800,12 @@ async function fetchSisaCutiCsv(): Promise<{ text: string; order: 'dmy' | 'mdy' 
     try {
       const res = await fetch(s.url);
       if (res.ok) {
+        console.log('Sisa cuti diambil dari:', s.url);
         return { text: await res.text(), order: s.order };
       }
-    } catch {}
+    } catch (err) {
+      console.warn('Gagal fetch:', s.url, err);
+    }
   }
   return null;
 }
@@ -827,7 +829,6 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
     if (cTs < 0) cTs = 0;
     if (cName < 0) cName = 2;
     if (cSisa < 0) cSisa = 5;
-    
     const byName = new Map<string, SisaCutiInfo>();
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
@@ -835,24 +836,7 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
       if (sisaNum === null) continue;
       const nm = cleanText(String(r[cName] ?? ''));
       if (!nm) continue;
-      
-      // Ambil kolom-kolom setelah kolom sisa (cSisa + 1 dan seterusnya) yang berisi tanggal rencana cuti
-      const rencanaList: string[] = [];
-      for (let colIdx = cSisa + 1; colIdx < r.length; colIdx++) {
-        const val = String(r[colIdx] ?? '').trim();
-        if (val) {
-          // Format atau simpan nilai tanggal rencana cuti (bisa berupa tanggal atau teks)
-          const stdDate = parseToStandardDate(val);
-          rencanaList.push(stdDate ? formatDisplayDate(stdDate) : val);
-        }
-      }
-
-      const info: SisaCutiInfo = { 
-        nama: String(r[cName] ?? '').trim(), 
-        sisa: sisaNum, 
-        filledAt: parseSheetTimestamp(r[cTs], src.order),
-        rencanaList
-      };
+      const info: SisaCutiInfo = { nama: String(r[cName] ?? '').trim(), sisa: sisaNum, filledAt: parseSheetTimestamp(r[cTs], src.order) };
       const old = byName.get(nm);
       if (!old || info.filledAt >= old.filledAt) byName.set(nm, info);
     }
@@ -970,7 +954,6 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
         sisa,
         filledAt: info?.filledAt,
         cutiSetelahIsi,
-        rencanaList: info?.rencanaList || [], // <-- TAMBAHAN: Daftar rencana cuti
         cuti: realisasiCuti,
         sakit: sum('sakit'),
         sakitKali: inYear.filter(e => e.kind === 'sakit').length,
@@ -1063,8 +1046,6 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
                   <th className="py-3 px-3">Realisasi Cuti {year}</th>
                   <th className="py-3 px-3 text-center text-sky-400 bg-sky-500/5">Sisa Cuti</th>
                   <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th>
-                  {/* Kolom Rencana Cuti (Rencana 1, Rencana 2, dst. tepat setelah kolom Sakit) */}
-                  <th className="py-3 px-3 text-center text-purple-400 bg-purple-500/5">Rencana Cuti</th>
                   <th className="py-3 px-3">Minggu Ini</th>
                 </tr>
               </thead>
@@ -1104,18 +1085,6 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
                       <div className="font-mono font-bold text-amber-400">{d.sakit} hari</div>
                       <div className="text-[10px] text-slate-500">{d.sakitKali}x</div>
                     </td>
-                    {/* Data Rencana Cuti (Rencana 1, Rencana 2, dst.) */}
-                    <td className="py-3 px-3 text-center bg-purple-500/5 font-mono text-purple-300">
-                      {d.rencanaList.length > 0 ? (
-                        <div className="space-y-0.5">
-                          {d.rencanaList.map((rencana, rIdx) => (
-                            <div key={rIdx} className="text-[11px]">{rencana}</div>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-slate-600">-</span>
-                      )}
-                    </td>
                     <td className="py-3 px-3">
                       {d.minggu.length > 0
                         ? <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${kindClass(d.minggu[0].kind)}`}>{kindLabel(d.minggu[0].kind)}</span>
@@ -1123,7 +1092,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
                     </td>
                   </tr>
                 )) : (
-                  <tr><td colSpan={7} className="py-8 text-center text-slate-500">Tidak ada anggota organik di biro ini.</td></tr>
+                  <tr><td colSpan={6} className="py-8 text-center text-slate-500">Tidak ada anggota organik di biro ini.</td></tr>
                 )}
               </tbody>
             </table>
@@ -1142,9 +1111,10 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
   );
 }
 
+// ===== KOMPONEN BARU: Panel Plan Cuti Mingguan Departemen =====
 function DeptWeeklyTimeOffPanel({ deptName, members, wb }: {
   deptName: string;
-  members: ParsedMember[];
+  members: PadaftParsedMember[];
   wb: XLSX.WorkBook | null;
 }) {
   const entries = useMemo(() => parseTimeOff(wb), [wb]);
@@ -1334,6 +1304,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const autoTried = useRef<Set<string>>(new Set());
   const autoRunning = useRef(false);
   const [autoSyncMsg, setAutoSyncMsg] = useState('');
+
   const autoSyncReleases = useCallback(async (retryAll: boolean) => {
     if (autoRunning.current) return;
     const all = ([] as TaskItem[]).concat(...Object.values(manualTasks));
@@ -1420,6 +1391,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     reader.readAsBinaryString(file);
   };
 
+  const handleUploadKpiExcel = (e: ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        setKpiWorkbook(XLSX.read(evt.target?.result, { type: 'binary' }));
+        alert(`File "${file.name}" berhasil dibaca untuk Rekap Absensi.`);
+      } catch { alert('Gagal membaca file data_kpi.xlsx.'); }
+      input.value = '';
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const handleUploadTimeOffExcel = (e: ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
     const file = input.files?.[0]; if (!file) return;
@@ -1435,6 +1420,56 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       input.value = '';
     };
     reader.readAsBinaryString(file);
+  };
+
+  const handleImportHourPlanner = async (e: ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0]; if (!file) return;
+    setIsImportingHour(true);
+    try {
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const { entries, rowCount, error } = parseHourPlannerWorkbook(wb);
+      if (error) { alert(`Gagal membaca "${file.name}": ${error}`); return; }
+      if (rowCount === 0) { alert(`Tidak ada baris Hour Planner yang valid di "${file.name}".`); return; }
+      const merged: HourPlannerMap = { ...(await loadHourPlanner()), ...entries };
+      const saveErr = await saveHourPlanner(merged);
+      setHourPlannerMap(merged);
+      const allTasks = ([] as TaskItem[]).concat(...Object.values(manualTasks));
+      const toUpdate = allTasks.filter(t => t.kodeJc && entries[cleanText(t.kodeJc)]);
+      let okCount = 0, failCount = 0;
+      const newJo = new Map<string, string>();
+      for (let i = 0; i < toUpdate.length; i += 10) {
+        await Promise.all(toUpdate.slice(i, i + 10).map(async t => {
+          const hour = String(entries[cleanText(t.kodeJc)].hour);
+          const { error: upErr } = await supabase.from('job_cards').update({ jo: hour }).eq('id', t.id);
+          if (upErr) failCount++;
+          else { okCount++; newJo.set(t.id, hour); }
+        }));
+      }
+      if (newJo.size > 0) {
+        setManualTasks(prev => {
+          const updated = { ...prev };
+          Object.keys(updated).forEach(k => {
+            updated[k] = updated[k].map(t => newJo.has(t.id) ? { ...t, jo: newJo.get(t.id)! } : t);
+          });
+          return updated;
+        });
+      }
+      const linkedKeys = new Set(toUpdate.map(t => cleanText(t.kodeJc)));
+      const noJobcard = Object.keys(entries).filter(k => !linkedKeys.has(k)).length;
+      alert(
+        `Hour Planner "${file.name}" diimpor: ${rowCount} baris.\n` +
+        `• Plan JO terisi pada job card yang sudah ada: ${okCount}\n` +
+        `• Belum ada job card dengan kode itu: ${noJobcard} (tetap disimpan, Plan JO terisi otomatis saat kode Jobcard diisi di Planner)` +
+        (failCount ? `\nPERHATIAN: ${failCount} job card gagal diperbarui Plan JO-nya (cek tipe kolom jo di Supabase).` : '') +
+        (saveErr ? `\nPERHATIAN: gagal disimpan permanen ke server (${saveErr.message}). Data hanya ada di sesi ini.` : '')
+      );
+    } catch {
+      alert('Gagal membaca file Excel Hour Planner.');
+    } finally {
+      setIsImportingHour(false);
+      input.value = '';
+    }
   };
 
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
@@ -1824,13 +1859,28 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const currentActiveBiroKey = useMemo(() => cleanText(currentActiveBiroName), [currentActiveBiroName]);
   const currentActiveBiroTasks = useMemo(() => manualTasks[currentActiveBiroKey] || [], [manualTasks, currentActiveBiroKey]);
 
+  // ===== PERBAIKAN UTAMA: Logika ini memastikan data Kadep muncul saat diklik =====
   const currentBiroMembers = useMemo(() => {
     if (!selectedFormBiro) return [];
     if (selectedFormBiro.biroName.startsWith('Kepala ')) {
       return getKadepForDept(allParsedFromExcel, selectedFormBiro.deptName);
     }
     return getBiroMembers(selectedFormBiro.biroName);
-  }, [selectedFormBiro, allParsedFromExcel, getBiroMembers]);
+  }, [selectedFormBiro, allParsedFromExcel]);
+
+  // ===== Gabungan semua anggota departemen untuk Panel Mingguan =====
+  const allDeptMembers = useMemo(() => {
+    if (!selectedDept) return [];
+    const kadeps = getKadepForDept(allParsedFromExcel, selectedDept.name);
+    const biroMembers = selectedDept.biros.flatMap(biro => getBiroMembers(biro.name));
+    const seen = new Set<string>();
+    return [...kadeps, ...biroMembers].filter(p => {
+      const id = p.nip || p.nama;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [selectedDept, allParsedFromExcel]);
 
   const activeSubconMembers = useMemo(() => {
     if (!subconSelectedBiro) return [];
@@ -2112,7 +2162,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 </button>
               </div>
             </div>
-
             {subconPageMode === 'members' && (
               <div className="space-y-2.5">
                 {activeSubconMembers.length > 0 ? activeSubconMembers.map((person) => {
@@ -2189,7 +2238,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 }) : <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">Tidak ada personel outsourcing di biro ini</div>}
               </div>
             )}
-
             {subconPageMode === 'form' && (
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                 <form onSubmit={handleSubmitForm} className="space-y-4">
@@ -2238,7 +2286,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 </form>
               </div>
             )}
-
             {subconPageMode === 'release' && (
               <div className="space-y-3">
                 {subconWorkOrders.length > 0 ? (
@@ -2347,6 +2394,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         )}
 
+        {/* ===== TAMPILAN DETAIL DEPARTEMEN (Dengan Panel Mingguan & Tombol Kadep) ===== */}
         {accessMode === 'organik' && selectedDept && !selectedFormBiro && (
           <div className="space-y-4">
             <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
@@ -2357,17 +2405,19 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
             </div>
 
-            <DeptWeeklyTimeOffPanel
-              deptName={selectedDept.name}
-              members={allDeptMembers}
-              wb={timeOffWorkbook}
+            {/* 1. Panel Plan Cuti Minggu Ini (Di Atas) */}
+            <DeptWeeklyTimeOffPanel 
+              deptName={selectedDept.name} 
+              members={allDeptMembers} 
+              wb={timeOffWorkbook} 
             />
 
+            {/* 2. Baris Kadep (Hanya Tombol Rekap Absensi) */}
             {(() => {
               const kadepList = getKadepForDept(allParsedFromExcel, selectedDept.name);
               if (kadepList.length > 0) {
                 return (
-                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">K</div>
                       <div>
@@ -2392,6 +2442,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               return null;
             })()}
 
+            {/* 3. Daftar Biro */}
             <div className="space-y-2">
               {selectedDept.biros.map((biro) => (
                 <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2410,6 +2461,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         )}
 
+        {/* ===== TAMPILAN DETAIL BIRO / KADEP ===== */}
         {accessMode === 'organik' && selectedFormBiro && (
           <div className="space-y-4">
             <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
@@ -2419,7 +2471,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               <div>
                 <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
                 <div className="text-xs text-slate-400 font-mono flex items-center gap-2 mt-0.5">
-                  <span>{selectedFormBiro.biroName.startsWith('Kepala ') ? getKadepForDept(allParsedFromExcel, selectedFormBiro.deptName).length : currentBiroMembers.length} Pegawai Organik</span>
+                  <span>{currentBiroMembers.length} Pegawai Organik</span>
                   {activeDrawingSheetTitle && (
                     <span className="text-emerald-400 flex items-center gap-1">• <Sparkles className="w-3 h-3 text-amber-400" /> {activeDrawingSheetTitle}</span>
                   )}
@@ -2431,6 +2483,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
                 </label>
                 <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                  {/* Sembunyikan tab Anggota & Form khusus untuk Kadep */}
                   {!selectedFormBiro.biroName.startsWith('Kepala ') && (
                     <>
                       <button onClick={() => setFormPageMode('members')}
@@ -2451,7 +2504,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </div>
             </div>
 
-            {formPageMode === 'members' && !selectedFormBiro.biroName.startsWith('Kepala ') && (
+            {formPageMode === 'members' && (
               <div className="space-y-2.5">
                 {currentBiroMembers.length > 0 ? currentBiroMembers.map((person) => {
                   const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
@@ -2564,7 +2617,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </div>
             )}
 
-            {formPageMode === 'form' && !selectedFormBiro.biroName.startsWith('Kepala ') && (
+            {formPageMode === 'form' && (
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                 <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2651,12 +2704,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             )}
 
             {formPageMode === 'absensi' && (
-              <CutiSakitPanel
-                biroName={selectedFormBiro.biroName}
-                members={selectedFormBiro.biroName.startsWith('Kepala ') ? getKadepForDept(allParsedFromExcel, selectedFormBiro.deptName) : currentBiroMembers}
-                wb={timeOffWorkbook}
-                sisaCuti={sisaCuti}
-              />
+              <>
+                <CutiSakitPanel
+                  biroName={selectedFormBiro.biroName}
+                  members={currentBiroMembers}
+                  wb={timeOffWorkbook}
+                  sisaCuti={sisaCuti}
+                />
+              </>
             )}
           </div>
         )}
