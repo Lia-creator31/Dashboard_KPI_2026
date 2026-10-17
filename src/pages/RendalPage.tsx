@@ -2401,45 +2401,55 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
     </div>
 
-    {/* ===== SISIPKAN KOMPONEN BARU DI SINI (DI ATAS KADEP) ===== */}
-    <DeptWeeklyTimeOffPanel 
-      deptName={selectedDept.name} 
-      members={allDeptMembers} 
-      wb={timeOffWorkbook} 
-    />
-
-    {/* Bagian Kadep yang sudah ada sebelumnya */}
+    {/* ===== BARIS KHUSUS KADEP: Hanya tombol Rekap Absensi ===== */}
     {(() => {
       const kadepList = getKadepForDept(allParsedFromExcel, selectedDept.name);
-      return kadepList.length > 0 ? (
-        <CutiSakitPanel
-          key={selectedDept.id}
-          title="Rekap Absensi Kadep"
-          biroName={`Kepala ${selectedDept.name}`}
-          members={kadepList}
-          wb={timeOffWorkbook}
-          sisaCuti={sisaCuti}
-        />
-      ) : null;
-    })()}
-
-            <div className="space-y-2">
-              {selectedDept.biros.map((biro) => (
-                <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <span className="font-semibold text-white text-sm">{biro.name}</span>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('members'); }}
-                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer">Anggota</button>
-                    <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }}
-                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer">Form</button>
-                    <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('absensi'); setAbsensiMonth(null); }}
-                      className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer">Rekap Absensi</button>
-                  </div>
-                </div>
-              ))}
+      if (kadepList.length > 0) {
+        return (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">
+                K
+              </div>
+              <div>
+                <span className="font-semibold text-white text-sm">Kepala {selectedDept.name}</span>
+                <div className="text-[11px] text-slate-400">{kadepList.length} Pegawai</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                onClick={() => {
+                  setSelectedFormBiro({ biroName: `Kepala ${selectedDept.name}`, deptName: selectedDept.name });
+                  setFormPageMode('absensi');
+                }}
+                className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer flex items-center gap-1"
+              >
+                <Clock className="w-3 h-3" /> Rekap Absensi
+              </button>
             </div>
           </div>
-        )}
+        );
+      }
+      return null;
+    })()}
+
+    <div className="space-y-2">
+      {selectedDept.biros.map((biro) => (
+        <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <span className="font-semibold text-white text-sm">{biro.name}</span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('members'); }}
+              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer">Anggota</button>
+            <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }}
+              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer">Form</button>
+            <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('absensi'); setAbsensiMonth(null); }}
+              className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer">Rekap Absensi</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
         {accessMode === 'organik' && selectedFormBiro && (
           <div className="space-y-4">
             <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
