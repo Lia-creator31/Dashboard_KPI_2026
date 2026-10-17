@@ -761,9 +761,14 @@ function getWeekRange(base: Date = new Date()) {
 
 const SISA_CUTI_SHEET_ID = '1c6TgsfSRrLJ9QZkTQR8aIMe-fBgq89HxmoUdEcqU4b4';
 const SISA_CUTI_GID = '1997448035';
+interface SisaCutiEntry {
+  sisa: number;
+  timestamp: string; // Tanggal pengisian form (YYYY-MM-DD)
+}
+
 interface SisaCutiData {
-  byNip: Map<string, number>;
-  byName: Map<string, number>;
+  byNip: Map<string, SisaCutiEntry>;
+  byName: Map<string, SisaCutiEntry>;
 }
 
 async function fetchSisaCuti(): Promise<SisaCutiData | null> {
@@ -775,24 +780,34 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
     const wb = XLSX.read(await res.text(), { type: 'string' });
     const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
     if (rows.length < 2) return null;
+    
     const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
+    let cTime = head.findIndex(h => h.includes('timestamp') || h.includes('waktu') || h.includes('tanggal'));
     let cName = head.findIndex(h => h.includes('nama personel'));
     let cNip = head.findIndex(h => h === 'nip');
     let cSisa = head.findIndex(h => h.includes('jumlah sisa cuti'));
+    
+    if (cTime < 0) cTime = 0; // Kolom pertama (Timestamp)
     if (cName < 0) cName = 2;
     if (cNip < 0) cNip = 3;
     if (cSisa < 0) cSisa = 5;
-    const byNip = new Map<string, number>();
-    const byName = new Map<string, number>();
+
+    const byNip = new Map<string, SisaCutiEntry>();
+    const byName = new Map<string, SisaCutiEntry>();
+
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
       const raw = String(r[cSisa] ?? '').trim();
       if (raw === '') continue;
+      
       const sisa = absNum(raw);
       const nip = normNip(r[cNip]);
       const nm = cleanText(String(r[cName] ?? ''));
-      if (nip) byNip.set(nip, sisa);
-      if (nm) byName.set(nm, sisa);
+      const timestamp = parseToStandardDate(r[cTime]) || '1970-01-01';
+
+      const entry: SisaCutiEntry = { sisa, timestamp };
+      if (nip) byNip.set(nip, entry);
+      if (nm) byName.set(nm, entry);
     }
     return { byNip, byName };
   } catch { return null; }
@@ -830,23 +845,32 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
 
       const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
       
-      // ===== MODIFIKASI: Hanya hitung cuti biasa (bukan sakit, panjang, atau khusus) =====
+      // Realisasi Cuti TETAP SEPERTI SEMULA (tidak diubah)
       const realisasiCuti = sum('cuti');
       const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
 
-      const initialSisa: number | undefined = sisaCuti
+      // Ambil data sisa cuti awal & timestamp pengisian form
+      const cutiEntry: SisaCutiEntry | undefined = sisaCuti
         ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
         : undefined;
-      const sisa = initialSisa !== undefined ? initialSisa - realisasiCuti : undefined;
+
+      const initialSisa = cutiEntry?.sisa;
+      const formTimestamp = cutiEntry?.timestamp || '1970-01-01';
+
+      // SISA CUTI BERKURANG HANYA JIKA TANGGAL REALISASI CUTI > TANGGAL PENGISIAN FORM
+      const cutiAfterForm = inYear.filter(e => e.kind === 'cuti' && e.start > formTimestamp);
+      const totalCutiAfterForm = cutiAfterForm.reduce((s, e) => s + e.days, 0);
+
+      const sisa = initialSisa !== undefined ? initialSisa - totalCutiAfterForm : undefined;
 
       return {
         m,
         sisa,
-        cuti: realisasiCuti,
+        cuti: realisasiCuti, // Realisasi cuti di tabel tetap menampilkan total keseluruhan sesuai program asli
         sakit: sum('sakit'),
         sakitKali: inYear.filter(e => e.kind === 'sakit').length,
         panjang: inYear.filter(e => e.kind === 'panjang'),
-        khusus: cutiKhusus,  // ← TAMBAH
+        khusus: cutiKhusus,
         minggu: mine.filter(e => e.start <= week.to && e.end >= week.from),
       };
     });
