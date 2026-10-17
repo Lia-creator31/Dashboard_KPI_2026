@@ -2486,16 +2486,21 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
     </div>
 
-    {/* ===== BARIS KHUSUS KADEP: Hanya tombol Rekap Absensi ===== */}
+    {/* ===== 1. PANEL PLAN CUTI MINGGU INI (DI ATAS) ===== */}
+    <DeptWeeklyTimeOffPanel 
+      deptName={selectedDept.name} 
+      members={allDeptMembers} 
+      wb={timeOffWorkbook} 
+    />
+
+    {/* ===== 2. BARIS KADEP (TOMBOL REKAP ABSENSI SAJA) ===== */}
     {(() => {
       const kadepList = getKadepForDept(allParsedFromExcel, selectedDept.name);
       if (kadepList.length > 0) {
         return (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">
-                K
-              </div>
+              <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">K</div>
               <div>
                 <span className="font-semibold text-white text-sm">Kepala {selectedDept.name}</span>
                 <div className="text-[11px] text-slate-400">{kadepList.length} Pegawai</div>
@@ -2518,6 +2523,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       return null;
     })()}
 
+    {/* ===== 3. DAFTAR BIRO ===== */}
     <div className="space-y-2">
       {selectedDept.biros.map((biro) => (
         <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
