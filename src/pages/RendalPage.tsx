@@ -628,6 +628,79 @@ export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMont
     () => (month ? buildRekap(wb, biroName, month.key, csvMonthMap[month.key] || '') : []),
     [wb, biroName, month]
   );
+  
+  // Mendeteksi jumlah maksimal kolom rencana yang tersedia dari data baris
+  const maxRencanaCount = useMemo(() => {
+    let max = 0;
+    allRows.forEach(r => {
+      const keys = Object.keys(r).filter(k => k.startsWith('rencana'));
+      if (keys.length > max) max = keys.length;
+    });
+    return max;
+  }, [allRows]);
+
+  const rows = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return s ? allRows.filter(r => r.nip.toLowerCase().includes(s) || r.nama.toLowerCase().includes(s)) : allRows;
+  }, [allRows, q]);
+
+  // ... (bagian return awal komponen dibiarkan sesuai)
+
+  return (
+    <div className="space-y-4">
+      {/* Header & Filter bagian atas tetap sama */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead>
+            <tr className="text-slate-400 border-b border-slate-800 uppercase text-[11px]">
+              <th className="py-3 px-3 w-10">No</th>
+              <th className="py-3 px-3">Nama Pegawai</th>
+              <th className="py-3 px-3 text-center">Sakit</th>
+              {/* Kolom Rencana ditambahkan dinamis tepat setelah kolom Sakit */}
+              {Array.from({ length: maxRencanaCount }).map((_, idx) => (
+                <th key={`hdr-rencana-${idx + 1}`} className="py-3 px-3 text-center text-blue-400 bg-blue-500/5">
+                  Rencana {idx + 1}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800 font-mono">
+            {rows.length > 0 ? rows.map((r, i) => (
+              <tr key={`${r.nip}-${i}`} className="hover:bg-slate-800/40">
+                <td className="py-3 px-3 text-slate-500">{i + 1}</td>
+                <td className="py-3 px-3 font-sans font-semibold text-white">{r.nama}</td>
+                <td className="py-3 px-3 text-center text-amber-400">{r.sakit}</td>
+                {/* Render isi data Rencana 1, Rencana 2, dst. untuk masing-masing nama */}
+                {Array.from({ length: maxRencanaCount }).map((_, idx) => {
+                  const key = `rencana${idx + 1}` as keyof AbsensiRow;
+                  return (
+                    <td key={`val-rencana-${idx + 1}-${i}`} className="py-3 px-3 text-center text-slate-300">
+                      {r[key] !== undefined && r[key] !== '' ? String(r[key]) : '-'}
+                    </td>
+                  );
+                })}
+              </tr>
+            )) : (
+              <tr>
+                <td colSpan={3 + maxRencanaCount} className="py-8 text-center font-sans text-slate-500">
+                  {allRows.length === 0
+                    ? `Tidak ada data biro ini di sheet ${month.label} pada data_kpi.xlsx.`
+                    : 'Tidak ada data yang cocok dengan pencarian.'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+} {
+  const [q, setQ] = useState('');
+  const month = MONTHS.find(m => m.key === monthKey) || null;
+  const allRows = useMemo(
+    () => (month ? buildRekap(wb, biroName, month.key, csvMonthMap[month.key] || '') : []),
+    [wb, biroName, month]
+  );
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
     return s ? allRows.filter(r => r.nip.toLowerCase().includes(s) || r.nama.toLowerCase().includes(s)) : allRows;
