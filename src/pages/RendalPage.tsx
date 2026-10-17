@@ -760,7 +760,7 @@ interface SisaCutiInfo {
   rencana: Record<string, string>; // <--- TAMBAHAN: Untuk menampung Rencana 1, Rencana 2, dst.
 }
 
-interface SisaCutiData {
+export interface SisaCutiData {
   byName: Map<string, SisaCutiInfo>;
 }
 
@@ -937,12 +937,13 @@ function getKadepForDept(all: ParsedMember[], deptName: string): ParsedMember[] 
   });
 }
 
-function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
+export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepIds }: {
   biroName: string;
   members: ParsedMember[];
   wb: XLSX.WorkBook | null;
   sisaCuti: SisaCutiData | null;
   title?: string;
+  kadepIds?: Set<string>;
 }) {
   const entries = useMemo(() => parseTimeOff(wb), [wb]);
   const week = useMemo(() => getWeekRange(), []);
@@ -1098,7 +1099,12 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
                 {data.length > 0 ? data.map((d, i) => (
                   <tr key={`${d.m.nip}-${i}`} className="hover:bg-slate-800/40">
                     <td className="py-3 px-3 text-slate-500 font-mono">{i + 1}</td>
-                    <td className="py-3 px-3 font-semibold text-white">{d.m.nama}</td>
+                    <td className="py-3 px-3 font-semibold text-white">
+                      {d.m.nama}
+                      {kadepIds?.has(d.m.nip || d.m.nama) && (
+                        <span className="ml-2 px-1.5 py-0.5 text-[10px] font-bold rounded border bg-purple-500/10 text-purple-300 border-purple-500/20">Kadep</span>
+                      )}
+                    </td>
                     <td className="py-3 px-3">
                       <span className="font-mono font-bold text-emerald-400">{d.cuti} hari</span>
                       {d.panjang.length > 0 && (
@@ -2075,11 +2081,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return (
       <RekapAbsensiDivisiPage
         groups={divisiGroups}
-        wb={kpiWorkbook}
-        months={MONTHS}
-        getCsv={(k) => csvMonthMap[k] || ''}
+        wb={timeOffWorkbook}
+        sisaCuti={sisaCuti}
         onBack={() => setShowRekapDivisi(false)}
-        onUploadKpi={handleUploadKpiExcel}
+        onUploadTimeOff={handleUploadTimeOffExcel}
       />
     );
   }
@@ -2468,7 +2473,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 <div className="p-2.5 bg-purple-600 rounded-lg text-white"><Clock className="w-5 h-5" /></div>
                 <div>
                   <div className="font-bold text-white text-sm">Rekap Absensi Divisi Desain</div>
-                  <div className="text-xs text-slate-400">Seluruh departemen: Kadep dan staf dalam satu halaman</div>
+                  <div className="text-xs text-slate-400">Cuti, sakit, dan rencana cuti seluruh departemen: Kadep dan staf</div>
                 </div>
               </div>
               <ChevronRight className="w-5 h-5 text-purple-300 group-hover:translate-x-1 transition" />
