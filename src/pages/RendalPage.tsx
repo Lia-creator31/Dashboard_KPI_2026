@@ -1111,6 +1111,78 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
   );
 }
 
+// ===== TAMBAHKAN KOMPONEN INI DI ATAS `export default function RendalPage` =====
+function DeptWeeklyTimeOffPanel({ deptName, members, wb }: {
+  deptName: string;
+  members: ParsedMember[];
+  wb: XLSX.WorkBook | null;
+}) {
+  const entries = useMemo(() => parseTimeOff(wb), [wb]);
+  const week = useMemo(() => getWeekRange(), []);
+  const today = useMemo(() => isoLocal(new Date()), []);
+
+  const orangMinggu = useMemo(() => {
+    return members.map(m => {
+      const nip = normNip(m.nip), nm = cleanText(m.nama);
+      const mine = entries.filter(e =>
+        e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm)
+      );
+      const minggu = mine.filter(e => e.start <= week.to && e.end >= week.from);
+      return { m, minggu };
+    }).filter(d => d.minggu.length > 0);
+  }, [members, entries, week]);
+
+  const kindLabel = (k: TimeOffEntry['kind']) => {
+    if (k === 'sakit') return 'Sakit';
+    if (k === 'panjang') return 'Cuti panjang';
+    if (k === 'khusus') return 'Cuti khusus';
+    return 'Cuti';
+  };
+
+  const kindClass = (k: TimeOffEntry['kind']) => {
+    if (k === 'sakit') return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+    if (k === 'panjang') return 'bg-violet-500/10 text-violet-300 border-violet-500/20';
+    if (k === 'khusus') return 'bg-orange-500/10 text-orange-300 border-orange-500/20';
+    return 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20';
+  };
+
+  if (!wb) return null;
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 mb-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h5 className="text-xs font-bold text-white uppercase tracking-wide flex items-center gap-2">
+          <Clock className="w-3.5 h-3.5 text-cyan-400" />
+          Tidak Masuk Minggu Ini ({deptName})
+        </h5>
+        <span className="text-[11px] text-slate-400 font-mono">{formatDisplayDate(week.from)} s/d {formatDisplayDate(week.to)}</span>
+      </div>
+      {orangMinggu.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+          {orangMinggu.flatMap(d => d.minggu.map((e, i) => (
+            <div key={`${d.m.nip}-${i}`} className="flex items-center justify-between gap-3 p-3 bg-slate-950 border border-slate-800 rounded-lg">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-white truncate">{d.m.nama}</div>
+                <div className="text-[11px] text-slate-400 truncate">
+                  {shortType(e.type)} • {formatDisplayDate(e.start)} s/d {formatDisplayDate(e.end)}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {e.start <= today && e.end >= today && (
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded border bg-rose-500/10 text-rose-400 border-rose-500/20">Hari ini</span>
+                )}
+                <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${kindClass(e.kind)}`}>{kindLabel(e.kind)}</span>
+              </div>
+            </div>
+          )))}
+        </div>
+      ) : (
+        <div className="text-xs text-slate-500 italic text-center py-3">Tidak ada anggota departemen ini yang cuti minggu ini.</div>
+      )}
+    </div>
+  );
+}
+
 export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
