@@ -1876,9 +1876,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   // --- PERUBAHAN 1: currentBiroMembers sekarang mendukung Kadep ---
   const currentBiroMembers = useMemo(() => {
     if (!selectedFormBiro) return [];
+    // Jika yang dibuka adalah halaman Kadep, ambil data Kadep
     if (selectedFormBiro.biroName.startsWith('Kepala ')) {
       return getKadepForDept(allParsedFromExcel, selectedFormBiro.deptName);
     }
+    // Jika bukan Kadep, ambil anggota biro biasa
     return getBiroMembers(selectedFormBiro.biroName);
   }, [selectedFormBiro, allParsedFromExcel]);
 
