@@ -1082,7 +1082,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
                   <th className="py-3 px-3 w-10">No</th>
                   <th className="py-3 px-3">Nama Pegawai</th>
                   <th className="py-3 px-3">Realisasi Cuti {year}</th>
-                  <th className="py-3 px-4 text-center text-sky-400 bg-sky-500/5">Sisa Cuti</th>
+                  <th className="py-3 px-8 text-center text-sky-400 bg-sky-500/5">Sisa Cuti</th>
                   <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th>
                   {/* <--- TAMBAHAN: Kolom-kolom Rencana dinamis setelah Sakit ---> */}
                   {rencanaKeys.map(key => (
