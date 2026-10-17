@@ -521,6 +521,7 @@ interface AbsensiRow {
   idle: number;
   terlambat: number;
   sakit: number;
+  [key: `rencana${number}`]: any;
 }
 
 const absNum = (v: any): number => {
