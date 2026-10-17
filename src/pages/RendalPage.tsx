@@ -2389,38 +2389,37 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             </div>
           </div>
         )}
-        {accessMode === 'organik' && selectedDept && !selectedFormBiro && (
-          <div className="space-y-4">
-            <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-              <ArrowLeft className="w-3.5 h-3.5" /> Kembali
-            </button>
-            <div className="border-b border-slate-800 pb-2">
-              <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
-              <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
-            </div>
-            
-            {/* --- PERUBAHAN 2: Kadep sekarang hanya memiliki tombol Rekap Absensi --- */}
-            {(() => {
-              const kadepList = getKadepForDept(allParsedFromExcel, selectedDept.name);
-              if (kadepList.length > 0) {
-                return (
-                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
-                    <span className="font-semibold text-white text-sm">Kepala {selectedDept.name}</span>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <button 
-                        onClick={() => { 
-                          setSelectedFormBiro({ biroName: `Kepala ${selectedDept.name}`, deptName: selectedDept.name }); 
-                          setFormPageMode('absensi'); 
-                        }}
-                        className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer">
-                        Rekap Absensi
-                      </button>
-                    </div>
-                  </div>
-                );
-              }
-              return null;
-            })()}
+{accessMode === 'organik' && selectedDept && !selectedFormBiro && (
+  <div className="space-y-4">
+    <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
+      <ArrowLeft className="w-3.5 h-3.5" /> Kembali
+    </button>
+    <div className="border-b border-slate-800 pb-2">
+      <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
+      <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
+    </div>
+
+    {/* ===== SISIPKAN KOMPONEN BARU DI SINI (DI ATAS KADEP) ===== */}
+    <DeptWeeklyTimeOffPanel 
+      deptName={selectedDept.name} 
+      members={allDeptMembers} 
+      wb={timeOffWorkbook} 
+    />
+
+    {/* Bagian Kadep yang sudah ada sebelumnya */}
+    {(() => {
+      const kadepList = getKadepForDept(allParsedFromExcel, selectedDept.name);
+      return kadepList.length > 0 ? (
+        <CutiSakitPanel
+          key={selectedDept.id}
+          title="Rekap Absensi Kadep"
+          biroName={`Kepala ${selectedDept.name}`}
+          members={kadepList}
+          wb={timeOffWorkbook}
+          sisaCuti={sisaCuti}
+        />
+      ) : null;
+    })()}
 
             <div className="space-y-2">
               {selectedDept.biros.map((biro) => (
