@@ -8,7 +8,7 @@ import ImportJobcardPage from './ImportJobcardPage';
 import { projectCandidates, dedupeRows } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
-  Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
+  Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, 
   FileSpreadsheet, Users, Search, TrendingUp
 } from 'lucide-react';
 
@@ -24,7 +24,8 @@ const parentExcelGlobUrls = import.meta.glob('../*.xlsx', {
   eager: true
 }) as Record<string, string>;
 
-const MONTHS: { key: string; label: string; num: string }[] = [];
+const MONTHS = [];
+
 const absensiCsvGlob = import.meta.glob('../absensi_*.csv', {
   query: '?raw',
   import: 'default',
@@ -33,11 +34,12 @@ const absensiCsvGlob = import.meta.glob('../absensi_*.csv', {
 
 const csvMonthMap: Record<string, string> = {};
 Object.entries(absensiCsvGlob).forEach(([path, raw]) => {
-  const m = MONTHS.find(x => path.toLowerCase().includes(x.key));
-  if (m) csvMonthMap[m.key] = raw;
+  const m = MONTHS.find((x: any) => path.toLowerCase().includes(x.key));
+  if (m) csvMonthMap[(m as any).key] = raw;
 });
 
 const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
+
 const GOOGLE_DRIVE_SHEETS = [
   { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)' },
   { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000304', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
@@ -101,11 +103,7 @@ interface RendalPageProps {
 }
 
 function SearchableSelect({
-  options,
-  value,
-  onChange,
-  placeholder = 'Ketik untuk mencari...',
-  required = false,
+  options, value, onChange, placeholder = 'Ketik untuk mencari...', required = false,
 }: {
   options: (string | SelectOption)[];
   value: string;
@@ -122,22 +120,16 @@ function SearchableSelect({
     return options.map(opt => typeof opt === 'string' ? { value: opt, label: opt } : opt);
   }, [options]);
 
-  const selectedOption = useMemo(() => {
-    return normalizedOptions.find(opt => opt.value === value);
-  }, [normalizedOptions, value]);
+  const selectedOption = useMemo(() => normalizedOptions.find(opt => opt.value === value), [normalizedOptions, value]);
 
   useEffect(() => {
-    if (!isOpen) {
-      setSearch(selectedOption ? selectedOption.label : '');
-    }
+    if (!isOpen) setSearch(selectedOption ? selectedOption.label : '');
   }, [selectedOption, isOpen]);
 
   const filtered = useMemo(() => {
     if (!search || !isOpen) return normalizedOptions;
     const s = search.toLowerCase();
-    return normalizedOptions.filter(opt =>
-      opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s)
-    );
+    return normalizedOptions.filter(opt => opt.label.toLowerCase().includes(s) || opt.value.toLowerCase().includes(s));
   }, [normalizedOptions, search, isOpen]);
 
   useEffect(() => {
@@ -157,14 +149,8 @@ function SearchableSelect({
         <input
           type="text"
           value={isOpen ? search : (selectedOption ? selectedOption.label : '')}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            if (!isOpen) setIsOpen(true);
-          }}
-          onFocus={() => {
-            setIsOpen(true);
-            setSearch('');
-          }}
+          onChange={(e) => { setSearch(e.target.value); if (!isOpen) setIsOpen(true); }}
+          onFocus={() => { setIsOpen(true); setSearch(''); }}
           placeholder={placeholder}
           required={required && !value}
           className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500 pr-8 text-xs cursor-text"
@@ -175,25 +161,14 @@ function SearchableSelect({
       </div>
       {isOpen && (
         <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-800 animate-fadeIn text-xs">
-          {filtered.length > 0 ? (
-            filtered.map((opt, i) => (
-              <div
-                key={i}
-                onClick={() => {
-                  onChange(opt.value);
-                  setSearch(opt.label);
-                  setIsOpen(false);
-                }}
-                className={`px-3 py-2 cursor-pointer hover:bg-blue-600 hover:text-white transition flex items-center justify-between ${opt.value === value ? 'bg-slate-800 text-blue-400 font-semibold' : 'text-slate-200'}`}
-              >
-                <span className="truncate">{opt.label}</span>
-                {opt.value === value && <Check className="w-3.5 h-3.5 shrink-0 ml-2 text-blue-400" />}
-              </div>
-            ))
-          ) : (
-            <div className="px-3 py-3 text-center text-slate-500 italic">
-              Tidak ditemukan "{search}"
+          {filtered.length > 0 ? filtered.map((opt, i) => (
+            <div key={i} onClick={() => { onChange(opt.value); setSearch(opt.label); setIsOpen(false); }}
+              className={`px-3 py-2 cursor-pointer hover:bg-blue-600 hover:text-white transition flex items-center justify-between ${opt.value === value ? 'bg-slate-800 text-blue-400 font-semibold' : 'text-slate-200'}`}>
+              <span className="truncate">{opt.label}</span>
+              {opt.value === value && <Check className="w-3.5 h-3.5 shrink-0 ml-2 text-blue-400" />}
             </div>
+          )) : (
+            <div className="px-3 py-3 text-center text-slate-500 italic">Tidak ditemukan "{search}"</div>
           )}
         </div>
       )}
@@ -301,11 +276,6 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
   return false;
 }
 
-function isPimpinanDivDept(jabatan: string): boolean {
-  const j = (jabatan || '').toLowerCase();
-  return j.includes('kepala divisi') || j.includes('kepala departemen') || /\bkadep\b/.test(j) || /\bkadiv\b/.test(j);
-}
-
 function getBiroPrefix(biroName: string): string {
   const b = (biroName || '').toLowerCase().replace('&', ' dan ').trim();
   if (b.includes('dokumen') || (b.includes('perencanaan') && b.includes('biro'))) return 'DP';
@@ -352,7 +322,7 @@ async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlR
         }));
       }
     }
-  } catch { /* lanjut ke cadangan CSV */ }
+  } catch {}
   const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(s.projectKey) === cleanProj || cleanProj.includes(cleanText(s.projectKey)));
   if (match) {
     try {
@@ -365,15 +335,11 @@ async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlR
           const row = rawRows[r]; if (!row) continue;
           const noDwg = String(row[0] || '').trim(); const dwgName = String(row[1] || '').trim();
           if (!noDwg && !dwgName) continue;
-          rows.push({
-            noDwg, drawingName: dwgName,
-            fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg),
-            rev: String(row[14] || '0').trim(), finishDate: String(row[15] || '').trim(),
-          });
+          rows.push({ noDwg, drawingName: dwgName, fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg), rev: String(row[14] || '0').trim(), finishDate: String(row[15] || '').trim() });
         }
         if (rows.length > 0) return rows;
       }
-    } catch { /* tidak ada data */ }
+    } catch {}
   }
   return [];
 }
@@ -387,7 +353,7 @@ async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlR
 
 function extractDrawingNumber(desc: string): string {
   let s = (desc || '').replace(/\s+/g, ' ').trim();
-  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
+  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-–_:]\s*/i, '');
   const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);
   if (m) return m[0].toUpperCase();
   const first = s.split(/\s+-\s+|\s+/)[0] || '';
@@ -402,10 +368,7 @@ function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: str
   if (!wanted) return '';
   const toNum = (v: any) => { const n = parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10); return isNaN(n) ? 0 : n; };
   const wantRev = toNum(rev);
-  const hit = rows.find(r =>
-    toNum(r.rev) === wantRev &&
-    drawingKey(r.noDwg) === wanted &&
-    /^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(r.finishDate)));
+  const hit = rows.find(r => toNum(r.rev) === wantRev && drawingKey(r.noDwg) === wanted && /^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(r.finishDate)));
   return hit ? parseToStandardDate(hit.finishDate) : '';
 }
 
@@ -413,9 +376,7 @@ const MASTER_BUCKET = 'master-files';
 type MasterKey = 'jobcard' | 'im4' | 'realisasi' | 'timeoff';
 
 async function saveMasterFile(key: MasterKey, file: File) {
-  const { error } = await supabase.storage
-    .from(MASTER_BUCKET)
-    .upload(`${key}.xlsx`, file, { upsert: true, contentType: file.type || 'application/octet-stream' });
+  const { error } = await supabase.storage.from(MASTER_BUCKET).upload(`${key}.xlsx`, file, { upsert: true, contentType: file.type || 'application/octet-stream' });
   return error;
 }
 
@@ -428,6 +389,7 @@ async function loadMasterFile(key: MasterKey): Promise<XLSX.WorkBook | null> {
 }
 
 const HOUR_PLANNER_FILE = 'hourplanner.json';
+
 interface HourPlannerEntry {
   kode: string;
   hour: number;
@@ -448,9 +410,7 @@ async function loadHourPlanner(): Promise<HourPlannerMap> {
 
 async function saveHourPlanner(map: HourPlannerMap) {
   const blob = new Blob([JSON.stringify(map)], { type: 'application/octet-stream' });
-  const { error } = await supabase.storage
-    .from(MASTER_BUCKET)
-    .upload(HOUR_PLANNER_FILE, blob, { upsert: true, contentType: 'application/octet-stream' });
+  const { error } = await supabase.storage.from(MASTER_BUCKET).upload(HOUR_PLANNER_FILE, blob, { upsert: true, contentType: 'application/octet-stream' });
   return error;
 }
 
@@ -462,14 +422,14 @@ function parseHourPlannerWorkbook(wb: XLSX.WorkBook): { entries: HourPlannerMap;
   const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
   let headerIdx = -1, nameCol = -1, hourCol = -1, plannerCol = -1, startCol = -1, endCol = -1;
   for (let r = 0; r < Math.min(10, rows.length); r++) {
-    const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-    const n = h.findIndex(c => c === 'name' || c === 'jobcard' || c === 'kode jobcard');
-    const hr = h.findIndex(c => c.includes('hour') && c.includes('plan'));
+    const h = (rows[r] || []).map((v: any) => String(v).trim().toLowerCase());
+    const n = h.findIndex((c: string) => c === 'name' || c === 'jobcard' || c === 'kode jobcard');
+    const hr = h.findIndex((c: string) => c.includes('hour') && c.includes('plan'));
     if (n !== -1 && hr !== -1) {
       headerIdx = r; nameCol = n; hourCol = hr;
-      plannerCol = h.findIndex(c => c === 'planner');
-      startCol = h.findIndex(c => c.includes('start'));
-      endCol = h.findIndex(c => c.includes('end'));
+      plannerCol = h.findIndex((c: string) => c === 'planner');
+      startCol = h.findIndex((c: string) => c.includes('start'));
+      endCol = h.findIndex((c: string) => c.includes('end'));
       break;
     }
   }
@@ -481,16 +441,9 @@ function parseHourPlannerWorkbook(wb: XLSX.WorkBook): { entries: HourPlannerMap;
     const hourRaw = String(row[hourCol] ?? '').trim().replace(',', '.');
     const hour = parseFloat(hourRaw);
     if (isNaN(hour)) continue;
-    const key = cleanText(kode);
-    if (!key) continue;
+    const key = cleanText(kode); if (!key) continue;
     rowCount++;
-    entries[key] = {
-      kode,
-      hour,
-      planner: plannerCol !== -1 ? String(row[plannerCol] ?? '').trim() : '',
-      start: startCol !== -1 ? parseToStandardDate(row[startCol]) : '',
-      end: endCol !== -1 ? parseToStandardDate(row[endCol]) : '',
-    };
+    entries[key] = { kode, hour, planner: plannerCol !== -1 ? String(row[plannerCol] ?? '').trim() : '', start: startCol !== -1 ? parseToStandardDate(row[startCol]) : '', end: endCol !== -1 ? parseToStandardDate(row[endCol]) : '' };
   }
   return { entries, rowCount };
 }
@@ -503,9 +456,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
       if (res.ok) {
         const buf = await res.arrayBuffer();
         const bytes = new Uint8Array(buf.slice(0, 4));
-        if (bytes[0] === 80 && bytes[1] === 75 && bytes[2] === 3 && bytes[3] === 4) {
-          return XLSX.read(buf, { type: 'array' });
-        }
+        if (bytes[0] === 80 && bytes[1] === 75 && bytes[2] === 3 && bytes[3] === 4) return XLSX.read(buf, { type: 'array' });
       }
     } catch {}
   }
@@ -513,14 +464,7 @@ async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.Wo
 }
 
 interface AbsensiRow {
-  nip: string;
-  nama: string;
-  planned: number;
-  effective: number;
-  overtime: number;
-  idle: number;
-  terlambat: number;
-  sakit: number;
+  nip: string; nama: string; planned: number; effective: number; overtime: number; idle: number; terlambat: number; sakit: number;
 }
 
 const absNum = (v: any): number => {
@@ -529,15 +473,11 @@ const absNum = (v: any): number => {
   const n = parseFloat(String(v).trim().replace('%', '').replace(',', '.'));
   return isNaN(n) ? 0 : n;
 };
-
 export const fmtNum = (n: number) => String(Math.round(n * 100) / 100);
 
 function findMonthSheet(wb: XLSX.WorkBook | null, monthKey: string): string | undefined {
   if (!wb) return undefined;
-  return wb.SheetNames.find(s => {
-    const l = s.toLowerCase().trim();
-    return l.includes(monthKey) || l.includes(monthKey.slice(0, 3));
-  });
+  return wb.SheetNames.find(s => { const l = s.toLowerCase().trim(); return l.includes(monthKey) || l.includes(monthKey.slice(0, 3)); });
 }
 
 function buildRekap(wb: XLSX.WorkBook | null, biroName: string, monthKey: string, csv: string): AbsensiRow[] {
@@ -546,67 +486,43 @@ function buildRekap(wb: XLSX.WorkBook | null, biroName: string, monthKey: string
   const abs = new Map<string, { terlambat: number; sakit: number }>();
   (csv || '').split(/\r?\n/).forEach((line, i) => {
     if (i === 0 || !line.trim()) return;
-    const p = line.split(',');
-    if (p.length < 6) return;
+    const p = line.split(','); if (p.length < 6) return;
     const k = cleanText(p[1] || '');
     if (k) abs.set(k, { terlambat: absNum(p[p.length - 3]), sakit: absNum(p[p.length - 2]) });
   });
   const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
-  const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
-  const planIdx = head.findIndex(h => h.includes('plan'));
+  const head = (rows[0] || []).map((v: any) => String(v).trim().toLowerCase());
+  const planIdx = head.findIndex((h: string) => h.includes('plan'));
   const PLAN_COL = planIdx >= 0 ? planIdx : 9;
   const people = new Map<string, AbsensiRow>();
   rows.forEach((row, i) => {
     if (i === 0 || !row) return;
-    const nip = String(row[0] || '').trim();
-    const nama = String(row[1] || '').trim();
+    const nip = String(row[0] || '').trim(); const nama = String(row[1] || '').trim();
     if (!(nama || nip)) return;
     if (!isBiroMatch(String(row[7] || ''), biroName)) return;
     const key = cleanText(nama || nip);
     const p = people.get(key) || { nip: nip || '-', nama: nama || '-', planned: 0, effective: 0, overtime: 0, idle: 0, terlambat: 0, sakit: 0 };
-    p.planned += absNum(row[PLAN_COL]);
-    p.effective += absNum(row[10]);
-    p.overtime += absNum(row[11]);
-    p.idle += absNum(row[12]);
+    p.planned += absNum(row[PLAN_COL]); p.effective += absNum(row[10]); p.overtime += absNum(row[11]); p.idle += absNum(row[12]);
     people.set(key, p);
   });
-  return Array.from(people.values()).map(p => {
-    const a = abs.get(cleanText(p.nama));
-    return { ...p, terlambat: a ? a.terlambat : 0, sakit: a ? a.sakit : 0 };
-  });
+  return Array.from(people.values()).map(p => { const a = abs.get(cleanText(p.nama)); return { ...p, terlambat: a ? a.terlambat : 0, sakit: a ? a.sakit : 0 }; });
 }
 
 export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMonth, onUploadKpi }: {
-  biroName: string;
-  deptName: string;
-  wb: XLSX.WorkBook | null;
-  monthKey: string | null;
-  onChangeMonth: (k: string | null) => void;
-  onUploadKpi: (e: ChangeEvent<HTMLInputElement>) => void;
+  biroName: string; deptName: string; wb: XLSX.WorkBook | null; monthKey: string | null;
+  onChangeMonth: (k: string | null) => void; onUploadKpi: (e: ChangeEvent<HTMLInputElement>) => void;
 }) {
   const [q, setQ] = useState('');
-  const month = MONTHS.find(m => m.key === monthKey) || null;
-  const allRows = useMemo(
-    () => (month ? buildRekap(wb, biroName, month.key, csvMonthMap[month.key] || '') : []),
-    [wb, biroName, month]
-  );
-  const rows = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    return s ? allRows.filter(r => r.nip.toLowerCase().includes(s) || r.nama.toLowerCase().includes(s)) : allRows;
-  }, [allRows, q]);
+  const month = (MONTHS as any[]).find(m => m.key === monthKey) || null;
+  const allRows = useMemo(() => (month ? buildRekap(wb, biroName, month.key, csvMonthMap[month.key] || '') : []), [wb, biroName, month]);
+  const rows = useMemo(() => { const s = q.trim().toLowerCase(); return s ? allRows.filter(r => r.nip.toLowerCase().includes(s) || r.nama.toLowerCase().includes(s)) : allRows; }, [allRows, q]);
 
   if (!month) {
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-        </div>
-        {!wb && (
-          <div className="text-[11px] text-amber-400">
-            File data_kpi.xlsx belum termuat. Letakkan di folder src/ atau public/, atau upload manual dengan tombol di atas.
-          </div>
-        )}
+        {!wb && <div className="text-[11px] text-amber-400">File data_kpi.xlsx belum termuat.</div>}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {MONTHS.map(m => {
+          {(MONTHS as any[]).map(m => {
             const ada = !!findMonthSheet(wb, m.key);
             return (
               <button key={m.key} disabled={!ada} onClick={() => onChangeMonth(m.key)}
@@ -630,9 +546,7 @@ export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMont
           </button>
           <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wide">{deptName}</div>
           <h3 className="text-xl font-bold text-white">{biroName}</h3>
-          <div className="text-xs text-slate-400">
-            Rekapitulasi Jam Kerja &amp; Absensi Pegawai — <span className="text-blue-400 font-semibold">Bulan {month.label}</span>
-          </div>
+          <div className="text-xs text-slate-400">Rekapitulasi Jam Kerja &amp; Absensi Pegawai — <span className="text-blue-400 font-semibold">Bulan {month.label}</span></div>
         </div>
         <div className="px-5 py-3 bg-slate-950 border border-slate-800 rounded-xl text-right">
           <div className="text-2xl font-bold text-blue-400">{allRows.length}</div>
@@ -660,9 +574,7 @@ export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMont
               </tr>
             )) : (
               <tr><td colSpan={2} className="py-8 text-center font-sans text-slate-500">
-                {allRows.length === 0
-                  ? `Tidak ada data biro ini di sheet ${month.label} pada data_kpi.xlsx (cek kolom H = nama biro).`
-                  : 'Tidak ada data yang cocok dengan pencarian.'}
+                {allRows.length === 0 ? `Tidak ada data biro ini di sheet ${month.label}.` : 'Tidak ada data yang cocok.'}
               </td></tr>
             )}
           </tbody>
@@ -672,50 +584,29 @@ export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMont
   );
 }
 
-/* ===== TIME OFF (cuti & sakit) dari TIME_OFF_DIVISI_DESAIN.xlsx ===== */
 interface TimeOffEntry {
-  nip: string;
-  nama: string;
-  type: string;
-  kind: 'cuti' | 'sakit' | 'panjang' | 'khusus';
-  start: string;
-  end: string;
-  days: number;
-  status: string;
+  nip: string; nama: string; type: string; kind: 'cuti' | 'sakit' | 'panjang';
+  start: string; end: string; days: number; status: string;
 }
 
 const normNip = (s: any) => String(s ?? '').replace(/\D/g, '').replace(/^0+/, '');
-const isoLocal = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const shortType = (t: string) =>
-  t.replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s*\d{4}\s*$/, '').trim();
+const isoLocal = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const shortType = (t: string) => t.replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s*\d{4}\s*$/, '').trim();
 
 function classifyTimeOff(type: string): TimeOffEntry['kind'] {
   const t = type.toLowerCase().trim();
   if (t.startsWith('sakit')) return 'sakit';
   if (t.includes('kewajiban negara') || t.includes('persiapan pensiun') || t === 'cuti melahirkan') return 'panjang';
-  if (t.includes('umroh') || t.includes('umrah') || t.includes('haji')) return 'khusus';
-  if (t.includes('menikah') || t.includes('pernikahan') || t.includes('kawin')) return 'khusus';
-  if (t.includes('istri melahirkan') || t.includes('suami melahirkan') ||
-      (t.includes('melahirkan') && (t.includes('istri') || t.includes('suami')))) return 'khusus';
-  if ((t.includes('keluarga') || t.includes('anak') || t.includes('istri') ||
-       t.includes('suami') || t.includes('orang tua') || t.includes('ayah') ||
-       t.includes('ibu') || t.includes('bapak') || t.includes('mamah') ||
-       t.includes('papa') || t.includes('saudara')) &&
-      (t.includes('sakit') || t.includes('rawat inap') || t.includes('meninggal') ||
-       t.includes('duka') || t.includes('wafat') || t.includes('meninggal dunia'))) return 'khusus';
   return 'cuti';
 }
 
 function parseTimeOff(wb: XLSX.WorkBook | null): TimeOffEntry[] {
   if (!wb) return [];
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) return [];
+  const sheet = wb.Sheets[wb.SheetNames[0]]; if (!sheet) return [];
   const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-  const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
-  const col = (name: string) => head.findIndex(h => h === name);
-  const cEmp = col('employee'), cType = col('time off type'), cStart = col('start date'),
-    cEnd = col('end date'), cDur = col('duration'), cStatus = col('status');
+  const head = (rows[0] || []).map((v: any) => String(v).trim().toLowerCase());
+  const col = (name: string) => head.findIndex((h: string) => h === name);
+  const cEmp = col('employee'), cType = col('time off type'), cStart = col('start date'), cEnd = col('end date'), cDur = col('duration'), cStatus = col('status');
   if (cEmp < 0 || cType < 0 || cStart < 0 || cEnd < 0) return [];
   const isoRe = /^\d{4}-\d{2}-\d{2}$/;
   const out: TimeOffEntry[] = [];
@@ -723,20 +614,9 @@ function parseTimeOff(wb: XLSX.WorkBook | null): TimeOffEntry[] {
     const r = rows[i]; if (!r) continue;
     const emp = String(r[cEmp] || '').trim(); if (!emp) continue;
     const dash = emp.indexOf('-');
-    const start = parseToStandardDate(r[cStart]);
-    if (!isoRe.test(start)) continue;
-    const endRaw = parseToStandardDate(r[cEnd]);
-    const type = String(r[cType] || '').trim();
-    out.push({
-      nip: dash > 0 ? emp.slice(0, dash).trim() : '',
-      nama: dash > 0 ? emp.slice(dash + 1).trim() : emp,
-      type,
-      kind: classifyTimeOff(type),
-      start,
-      end: isoRe.test(endRaw) ? endRaw : start,
-      days: parseInt(String(r[cDur] || '').replace(/[^0-9]/g, ''), 10) || 1,
-      status: String(r[cStatus] || '').trim(),
-    });
+    const start = parseToStandardDate(r[cStart]); if (!isoRe.test(start)) continue;
+    const endRaw = parseToStandardDate(r[cEnd]); const type = String(r[cType] || '').trim();
+    out.push({ nip: dash > 0 ? emp.slice(0, dash).trim() : '', nama: dash > 0 ? emp.slice(dash + 1).trim() : emp, type, kind: classifyTimeOff(type), start, end: isoRe.test(endRaw) ? endRaw : start, days: parseInt(String(r[cDur] || '').replace(/[^0-9]/g, ''), 10) || 1, status: String(r[cStatus] || '').trim() });
   }
   return out;
 }
@@ -748,260 +628,128 @@ function getWeekRange(base: Date = new Date()) {
   return { from: isoLocal(mon), to: isoLocal(fri) };
 }
 
-/* ===== SISA CUTI dari Google Sheet Form Alokasi Cuti ===== */
 const SISA_CUTI_SHEET_ID = '1c6TgsfSRrLJ9QZkTQR8aIMe-fBgq89HxmoUdEcqU4b4';
 const SISA_CUTI_GID = '1997448035';
 
-interface SisaCutiInfo {
-  nama: string;
-  sisa: number;
-  filledAt: string;
-}
-
 interface SisaCutiData {
-  byName: Map<string, SisaCutiInfo>;
-}
-
-function parseSheetTimestamp(val: any, order: 'dmy' | 'mdy'): string {
-  const s = String(val ?? '').trim();
-  const m = s.match(/^(\d{1,4})[\/\-](\d{1,2})[\/\-](\d{1,4})/);
-  if (!m) return parseToStandardDate(s.split(' ')[0]);
-  const a = parseInt(m[1], 10), b = parseInt(m[2], 10), c = parseInt(m[3], 10);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  if (a > 31) return `${a}-${pad(b)}-${pad(c)}`;
-  const day = order === 'dmy' ? a : b;
-  const mon = order === 'dmy' ? b : a;
-  return `${c}-${pad(mon)}-${pad(day)}`;
-}
-
-function countDaysAfter(e: TimeOffEntry, filledAt: string): number {
-  if (!filledAt) return e.days;
-  if (e.start > filledAt) return e.days;
-  if (e.end <= filledAt) return 0;
-  let n = 0;
-  const d = new Date(filledAt + 'T00:00:00');
-  d.setDate(d.getDate() + 1);
-  const endD = new Date(e.end + 'T00:00:00');
-  while (d <= endD) {
-    const w = d.getDay();
-    if (w !== 0 && w !== 6) n++;
-    d.setDate(d.getDate() + 1);
-  }
-  return Math.min(n, e.days);
-}
-
-async function fetchSisaCutiCsv(): Promise<{ text: string; order: 'dmy' | 'mdy' } | null> {
-  const sources: { url: string; order: 'dmy' | 'mdy' }[] = [
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/pub?gid=${SISA_CUTI_GID}&single=true&output=csv`, order: 'dmy' },
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/export?format=csv&gid=${SISA_CUTI_GID}`, order: 'dmy' },
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}`, order: 'mdy' },
-  ];
-  for (const s of sources) {
-    try {
-      const res = await fetch(s.url);
-      if (res.ok) {
-        console.log('Sisa cuti diambil dari:', s.url);
-        return { text: await res.text(), order: s.order };
-      }
-    } catch (err) {
-      console.warn('Gagal fetch:', s.url, err);
-    }
-  }
-  return null;
-}
-
-function parseSisaNumber(raw: string): number | null {
-  const m = String(raw ?? '').replace(',', '.').match(/-?\d+(\.\d+)?/);
-  return m ? parseFloat(m[0]) : null;
+  byNip: Map<string, number>;
+  byName: Map<string, number>;
 }
 
 async function fetchSisaCuti(): Promise<SisaCutiData | null> {
   try {
-    const src = await fetchSisaCutiCsv();
-    if (!src) return null;
-    const wb = XLSX.read(src.text, { type: 'string' });
+    const res = await fetch(`https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}`);
+    if (!res.ok) return null;
+    const wb = XLSX.read(await res.text(), { type: 'string' });
     const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
     if (rows.length < 2) return null;
-    const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
-    let cTs = head.findIndex(h => h.includes('timestamp') || h.includes('cap waktu'));
-    let cName = head.findIndex(h => h.includes('nama personel'));
-    let cSisa = head.findIndex(h => h.includes('jumlah sisa cuti'));
-    if (cTs < 0) cTs = 0;
-    if (cName < 0) cName = 2;
-    if (cSisa < 0) cSisa = 5;
-    const byName = new Map<string, SisaCutiInfo>();
+    const head = (rows[0] || []).map((v: any) => String(v).trim().toLowerCase());
+    let cName = head.findIndex((h: string) => h.includes('nama personel'));
+    let cNip = head.findIndex((h: string) => h === 'nip');
+    let cSisa = head.findIndex((h: string) => h.includes('jumlah sisa cuti'));
+    if (cName < 0) cName = 2; if (cNip < 0) cNip = 3; if (cSisa < 0) cSisa = 5;
+    const byNip = new Map<string, number>(); const byName = new Map<string, number>();
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
-      const sisaNum = parseSisaNumber(String(r[cSisa] ?? ''));
-      if (sisaNum === null) continue;
-      const nm = cleanText(String(r[cName] ?? ''));
-      if (!nm) continue;
-      const info: SisaCutiInfo = { nama: String(r[cName] ?? '').trim(), sisa: sisaNum, filledAt: parseSheetTimestamp(r[cTs], src.order) };
-      const old = byName.get(nm);
-      if (!old || info.filledAt >= old.filledAt) byName.set(nm, info);
+      const raw = String(r[cSisa] ?? '').trim(); if (raw === '') continue;
+      const sisa = absNum(raw); const nip = normNip(r[cNip]); const nm = cleanText(String(r[cName] ?? ''));
+      if (nip) byNip.set(nip, sisa); if (nm) byName.set(nm, sisa);
     }
-    return { byName };
+    return { byNip, byName };
   } catch { return null; }
 }
 
-const normNameToken = (t: string) =>
-  t.replace(/ch/g, 'h').replace(/(.)\1+/g, '$1').replace(/^mu/, 'mo');
-const nameTokens = (name: string): string[] =>
-  String(name || '').toLowerCase().split(/[^a-z]+/).filter(Boolean).map(normNameToken);
-
-function sameNameFuzzy(a: string, b: string): boolean {
-  const ta = nameTokens(a), tb = nameTokens(b);
-  if (!ta.length || !tb.length) return false;
-  const [short, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
-  if (short.length === 1 && long.length > 1) {
-    return short[0].length >= 3 && long.includes(short[0]);
-  }
-  const used = new Set<number>();
-  for (const x of short) {
-    let idx = -1;
-    for (let i = 0; i < long.length; i++) {
-      if (!used.has(i) && long[i] === x) { idx = i; break; }
-    }
-    if (idx < 0 && !(x.length === 1 && short.length === 1)) {
-      for (let i = 0; i < long.length; i++) {
-        if (!used.has(i) && (long[i].startsWith(x) || x.startsWith(long[i]))) { idx = i; break; }
-      }
-    }
-    if (idx < 0) return false;
-    used.add(idx);
-  }
-  return true;
-}
-
-function findSisaCuti(data: SisaCutiData | null, nama: string, allNames: string[] = []): SisaCutiInfo | undefined {
-  if (!data) return undefined;
-  let best: SisaCutiInfo | undefined;
-  data.byName.forEach(info => {
-    if (!sameNameFuzzy(info.nama, nama)) return;
-    if (nameTokens(info.nama).length === 1) {
-      const kandidat = allNames.filter(n => sameNameFuzzy(info.nama, n));
-      if (kandidat.length > 1) return;
-    }
-    if (!best || info.filledAt > best.filledAt) best = info;
-  });
-  return best;
-}
-
-const isKadep = (jabatan: string) => {
-  const j = (jabatan || '').toLowerCase();
-  return j.includes('kepala departemen') || /\bkadep\b/.test(j);
-};
-
-const deptKey = (s: string) =>
-  cleanText(
-    (s || '').toLowerCase().replace('&', ' dan ')
-      .replace(/\b(kepala|departemen|dept|divisi|dan|kadep|biro)\b/gi, ' ')
-  );
-
-function getKadepForDept(all: ParsedMember[], deptName: string): ParsedMember[] {
-  const key = deptKey(deptName);
-  if (!key) return [];
-  const seen = new Set<string>();
-  return all.filter(p => {
-    if (!isKadep(p.jabatan)) return false;
-    if (deptKey(p.dept) !== key && deptKey(p.jabatan) !== key) return false;
-    const id = p.nip || p.nama;
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
-}
-
-function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
+// ── CutiSakitPanel ────────────────────────────────────────────────────────
+// Realisasi cuti & sakit ditampilkan mulai:
+//   • 2026 → Agustus s/d Desember
+//   • Tahun lain → Januari s/d Desember (otomatis)
+// Sisa cuti = nilai form dikurangi realisasi cuti SELURUH tahun (dari Januari).
+function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
   biroName: string;
   members: ParsedMember[];
   wb: XLSX.WorkBook | null;
   sisaCuti: SisaCutiData | null;
-  title?: string;
 }) {
   const entries = useMemo(() => parseTimeOff(wb), [wb]);
-  const week = useMemo(() => getWeekRange(), []);
-  const today = useMemo(() => isoLocal(new Date()), []);
-  const year = String(new Date().getFullYear());
-  const data = useMemo(() => {
-    const currentYear = new Date().getFullYear();
-    return members.map(m => {
-      const nip = normNip(m.nip), nm = cleanText(m.nama);
-      const mine = entries.filter(e =>
-        e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm)
-      );
-      let inYear: TimeOffEntry[] = [];
-      if (currentYear === 2026) {
-        inYear = mine.filter(e => {
-          const [y, mStr] = e.start.split('-');
-          const monthNum = parseInt(mStr, 10);
-          return y === '2026' && monthNum >= 8 && monthNum <= 12;
-        });
-      } else {
-        inYear = mine.filter(e => e.start.startsWith(String(currentYear)));
-      }
-      const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
-      const realisasiCuti = sum('cuti');
-      const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
-      const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama, members.map(x => x.nama));
-      const cutiSetelahIsi = info
-        ? inYear.filter(e => e.kind === 'cuti')
-            .reduce((s, e) => s + countDaysAfter(e, info.filledAt), 0)
-        : 0;
-      const sisa = info ? info.sisa - cutiSetelahIsi : undefined;
-      return {
-        m,
-        sisa,
-        filledAt: info?.filledAt,
-        cutiSetelahIsi,
-        cuti: realisasiCuti,
-        sakit: sum('sakit'),
-        sakitKali: inYear.filter(e => e.kind === 'sakit').length,
-        panjang: inYear.filter(e => e.kind === 'panjang'),
-        khusus: cutiKhusus,
-        minggu: mine.filter(e => e.start <= week.to && e.end >= week.from),
-      };
-    });
-  }, [members, entries, week, sisaCuti]);
+  const week    = useMemo(() => getWeekRange(), []);
+  const today   = useMemo(() => isoLocal(new Date()), []);
+  const year    = String(new Date().getFullYear());
 
-  const totalCuti = data.reduce((s, d) => s + d.cuti, 0);
-  const totalSakit = data.reduce((s, d) => s + d.sakit, 0);
+  // Bulan awal tampilan: 2026 → '08' (Agustus), tahun lain → '01' (Januari)
+  const DISPLAY_START_MONTH = year === '2026' ? '08' : '01';
+  const displayStartDate    = `${year}-${DISPLAY_START_MONTH}-01`;
+  const displayLabel        = DISPLAY_START_MONTH === '08' ? `Agu–Des ${year}` : `Jan–Des ${year}`;
+
+  const data = useMemo(() => members.map(m => {
+    const nip = normNip(m.nip), nm = cleanText(m.nama);
+    const mine = entries.filter(e =>
+      e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm));
+
+    // inYear   = semua entry tahun ini dari Januari → untuk hitung sisa cuti
+    const inYear   = mine.filter(e => e.start.startsWith(year));
+    // inDisplay = entry mulai bulan tampilan → untuk kolom Realisasi & Sakit
+    const inDisplay = mine.filter(e => e.start >= displayStartDate && e.start.startsWith(year));
+
+    const sumDisplay = (k: TimeOffEntry['kind']) =>
+      inDisplay.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
+
+    // Realisasi cuti dari Januari → untuk mengurangi sisa cuti
+    const realisasiDariJanuari =
+      inYear.filter(e => e.kind === 'cuti').reduce((s, e) => s + e.days, 0);
+
+    const sisa: number | undefined = sisaCuti
+      ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
+      : undefined;
+
+    const sisaHitung: number | undefined =
+      sisa !== undefined ? Math.max(0, sisa - realisasiDariJanuari) : undefined;
+
+    return {
+      m, sisa, sisaHitung,
+      cuti:             sumDisplay('cuti'),
+      cutiDariJanuari:  realisasiDariJanuari,
+      sakit:            sumDisplay('sakit'),              // Agu-Des 2026 / Jan-Des lain
+      sakitKali:        inDisplay.filter(e => e.kind === 'sakit').length,
+      panjang:          inDisplay.filter(e => e.kind === 'panjang'),
+      minggu:           mine.filter(e => e.start <= week.to && e.end >= week.from),
+    };
+  }), [members, entries, week, year, displayStartDate, sisaCuti]);
+
+  const totalCuti   = data.reduce((s, d) => s + d.cuti, 0);
+  const totalSakit  = data.reduce((s, d) => s + d.sakit, 0);
   const orangMinggu = data.filter(d => d.minggu.length > 0);
 
-  const kindLabel = (k: TimeOffEntry['kind']) => {
-    if (k === 'sakit') return 'Sakit';
-    if (k === 'panjang') return 'Cuti panjang';
-    if (k === 'khusus') return 'Cuti khusus';
-    return 'Cuti';
-  };
-
-  const kindClass = (k: TimeOffEntry['kind']) => {
-    if (k === 'sakit') return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-    if (k === 'panjang') return 'bg-violet-500/10 text-violet-300 border-violet-500/20';
-    if (k === 'khusus') return 'bg-orange-500/10 text-orange-300 border-orange-500/20';
-    return 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20';
-  };
+  const kindLabel = (k: TimeOffEntry['kind']) =>
+    k === 'sakit' ? 'Sakit' : k === 'panjang' ? 'Cuti panjang' : 'Cuti';
+  const kindClass = (k: TimeOffEntry['kind']) =>
+    k === 'sakit'   ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+    : k === 'panjang' ? 'bg-violet-500/10 text-violet-300 border-violet-500/20'
+    : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20';
 
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h4 className="text-sm font-bold text-white">{title ?? <>Cuti &amp; Sakit Tahun {year}</>}</h4>
+          <h4 className="text-sm font-bold text-white">
+            Cuti &amp; Sakit&nbsp;<span className="text-blue-400">{displayLabel}</span>
+          </h4>
           <span className="text-xs text-slate-400">{biroName}</span>
         </div>
       </div>
+
       {!wb ? (
         <div className="text-[11px] text-amber-400 bg-slate-900 border border-slate-800 rounded-xl p-4">
           Data Time Off belum termuat. Upload file TIME_OFF_DIVISI_DESAIN.xlsx lewat tombol "Upload Time Off" di halaman Departemen Desain.
         </div>
       ) : (
         <>
+          {/* Ringkasan */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { label: 'Anggota', value: data.length, color: 'text-blue-400' },
-              { label: 'Tidak Hadir Minggu Ini', value: orangMinggu.length, color: 'text-cyan-400' },
-              { label: 'Total Hari Cuti', value: totalCuti, color: 'text-emerald-400' },
-              { label: 'Total Hari Sakit', value: totalSakit, color: 'text-amber-400' },
+              { label: 'Anggota',                              value: data.length,        color: 'text-blue-400'    },
+              { label: 'Tidak Hadir Minggu Ini',               value: orangMinggu.length, color: 'text-cyan-400'    },
+              { label: `Total Hari Cuti (${displayLabel})`,    value: totalCuti,          color: 'text-emerald-400' },
+              { label: `Total Hari Sakit (${displayLabel})`,   value: totalSakit,         color: 'text-amber-400'   },
             ].map(c => (
               <div key={c.label} className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3">
                 <div className={`text-2xl font-bold ${c.color}`}>{c.value}</div>
@@ -1009,6 +757,8 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
               </div>
             ))}
           </div>
+
+          {/* Minggu ini */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <h5 className="text-xs font-bold text-white uppercase tracking-wide">Tidak Masuk Minggu Ini</h5>
@@ -1020,9 +770,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
                   <div key={`${d.m.nip}-${i}`} className="flex items-center justify-between gap-3 p-3 bg-slate-950 border border-slate-800 rounded-lg">
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-white truncate">{d.m.nama}</div>
-                      <div className="text-[11px] text-slate-400 truncate">
-                        {shortType(e.type)} • {formatDisplayDate(e.start)} s/d {formatDisplayDate(e.end)}
-                      </div>
+                      <div className="text-[11px] text-slate-400 truncate">{shortType(e.type)} • {formatDisplayDate(e.start)} s/d {formatDisplayDate(e.end)}</div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       {e.start <= today && e.end >= today && (
@@ -1037,15 +785,26 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
               <div className="text-xs text-slate-500 italic text-center py-3">Tidak ada anggota yang cuti minggu ini.</div>
             )}
           </div>
+
+          {/* Tabel per anggota */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="text-slate-400 border-b border-slate-800 uppercase text-[11px]">
                   <th className="py-3 px-3 w-10">No</th>
                   <th className="py-3 px-3">Nama Pegawai</th>
-                  <th className="py-3 px-3">Realisasi Cuti {year}</th>
-                  <th className="py-3 px-3 text-center text-sky-400 bg-sky-500/5">Sisa Cuti</th>
-                  <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th>
+                  <th className="py-3 px-3">
+                    Realisasi Cuti
+                    <div className="text-[9px] font-normal normal-case text-slate-500">{displayLabel}</div>
+                  </th>
+                  <th className="py-3 px-3 text-center text-sky-400 bg-sky-500/5">
+                    Sisa Cuti
+                    <div className="text-[9px] font-normal normal-case text-slate-500">(form − realisasi Jan–Des)</div>
+                  </th>
+                  <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">
+                    Sakit
+                    <div className="text-[9px] font-normal normal-case text-slate-500">{displayLabel}</div>
+                  </th>
                   <th className="py-3 px-3">Minggu Ini</th>
                 </tr>
               </thead>
@@ -1054,6 +813,8 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
                   <tr key={`${d.m.nip}-${i}`} className="hover:bg-slate-800/40">
                     <td className="py-3 px-3 text-slate-500 font-mono">{i + 1}</td>
                     <td className="py-3 px-3 font-semibold text-white">{d.m.nama}</td>
+
+                    {/* Realisasi Cuti */}
                     <td className="py-3 px-3">
                       <span className="font-mono font-bold text-emerald-400">{d.cuti} hari</span>
                       {d.panjang.length > 0 && (
@@ -1061,30 +822,31 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
                           + {d.panjang.map(e => `${shortType(e.type)} ${e.days} hari`).join(', ')} (tidak dihitung)
                         </div>
                       )}
-                      {d.khusus.length > 0 && (
-                        <div className="mt-1 text-[10px] text-orange-300">
-                          + {d.khusus.map(e => `${shortType(e.type)} ${e.days} hari`).join(', ')} (tidak dihitung)
+                    </td>
+
+                    {/* Sisa Cuti */}
+                    <td className="py-3 px-3 text-center bg-sky-500/5">
+                      {sisaCuti === null ? (
+                        <span className="text-slate-600 text-[11px]">memuat...</span>
+                      ) : d.sisaHitung !== undefined ? (
+                        <div>
+                          <span className="font-mono font-bold text-sky-400">{d.sisaHitung} hari</span>
+                          {d.cutiDariJanuari > 0 && (
+                            <div className="text-[10px] text-slate-500 mt-0.5">{d.sisa} − {d.cutiDariJanuari} = {d.sisaHitung}</div>
+                          )}
                         </div>
+                      ) : (
+                        <span className="text-slate-600" title="Belum mengisi form alokasi cuti">-</span>
                       )}
                     </td>
-                    <td className="py-3 px-3 text-center bg-sky-500/5">
-                      {sisaCuti === null
-                        ? <span className="text-slate-600 text-[11px]">memuat...</span>
-                        : d.sisa !== undefined
-                        ? (
-                          <div>
-                            <span className="font-mono font-bold text-sky-400">{d.sisa} hari</span>
-                            <div className="text-[10px] text-slate-500">
-                              isi form {formatDisplayDate(d.filledAt)}{d.cutiSetelahIsi > 0 ? ` • −${d.cutiSetelahIsi}` : ''}
-                            </div>
-                          </div>
-                        )
-                        : <span className="text-slate-600" title="Belum mengisi form alokasi cuti">-</span>}
-                    </td>
+
+                    {/* Sakit */}
                     <td className="py-3 px-3 text-center bg-amber-500/5">
                       <div className="font-mono font-bold text-amber-400">{d.sakit} hari</div>
                       <div className="text-[10px] text-slate-500">{d.sakitKali}x</div>
                     </td>
+
+                    {/* Minggu ini */}
                     <td className="py-3 px-3">
                       {d.minggu.length > 0
                         ? <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${kindClass(d.minggu[0].kind)}`}>{kindLabel(d.minggu[0].kind)}</span>
@@ -1097,91 +859,19 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
               </tbody>
             </table>
           </div>
+
           <div className="text-[10px] text-slate-500">
-            Dihitung dari status Approved. Durasi = hari kerja.{' '}
-            <b className="text-violet-300">Cuti panjang</b> (melahirkan, kewajiban negara, pensiun) dan{' '}
-            <b className="text-orange-300">cuti khusus</b> (umroh, menikah, istri melahirkan, keluarga inti sakit/rawat inap)
-            tidak masuk realisasi cuti.{' '}
-            Sisa Cuti diambil dari Google Sheet "Form Pengisian Alokasi Cuti 2026" (isian terakhir bila nama ganda),
-            lalu dikurangi cuti biasa yang tanggalnya <b>setelah</b> tanggal pengisian form. Tanda "-" berarti belum mengisi form.
+            Realisasi cuti &amp; sakit dihitung dari <b className="text-slate-400">{displayLabel}</b>, status Approved, durasi = hari kerja.
+            Cuti panjang (melahirkan, kewajiban negara, pensiun) tidak masuk realisasi cuti.
+            Sisa Cuti = nilai form alokasi dikurangi realisasi cuti <b className="text-slate-400">seluruh tahun {year}</b> (Jan–Des).
+            Tanda "-" = belum mengisi form alokasi cuti.
           </div>
         </>
       )}
     </div>
   );
 }
-
-// ===== TAMBAHKAN KOMPONEN INI DI ATAS `export default function RendalPage` =====
-function DeptWeeklyTimeOffPanel({ deptName, members, wb }: {
-  deptName: string;
-  members: ParsedMember[];
-  wb: XLSX.WorkBook | null;
-}) {
-  const entries = useMemo(() => parseTimeOff(wb), [wb]);
-  const week = useMemo(() => getWeekRange(), []);
-  const today = useMemo(() => isoLocal(new Date()), []);
-
-  const orangMinggu = useMemo(() => {
-    return members.map(m => {
-      const nip = normNip(m.nip), nm = cleanText(m.nama);
-      const mine = entries.filter(e =>
-        e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm)
-      );
-      const minggu = mine.filter(e => e.start <= week.to && e.end >= week.from);
-      return { m, minggu };
-    }).filter(d => d.minggu.length > 0);
-  }, [members, entries, week]);
-
-  const kindLabel = (k: TimeOffEntry['kind']) => {
-    if (k === 'sakit') return 'Sakit';
-    if (k === 'panjang') return 'Cuti panjang';
-    if (k === 'khusus') return 'Cuti khusus';
-    return 'Cuti';
-  };
-
-  const kindClass = (k: TimeOffEntry['kind']) => {
-    if (k === 'sakit') return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-    if (k === 'panjang') return 'bg-violet-500/10 text-violet-300 border-violet-500/20';
-    if (k === 'khusus') return 'bg-orange-500/10 text-orange-300 border-orange-500/20';
-    return 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20';
-  };
-
-  if (!wb) return null;
-
-  return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h5 className="text-xs font-bold text-white uppercase tracking-wide flex items-center gap-2">
-          <Clock className="w-3.5 h-3.5 text-cyan-400" />
-          Tidak Masuk Minggu Ini ({deptName})
-        </h5>
-        <span className="text-[11px] text-slate-400 font-mono">{formatDisplayDate(week.from)} s/d {formatDisplayDate(week.to)}</span>
-      </div>
-      {orangMinggu.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-          {orangMinggu.flatMap(d => d.minggu.map((e, i) => (
-            <div key={`${d.m.nip}-${i}`} className="flex items-center justify-between gap-3 p-3 bg-slate-950 border border-slate-800 rounded-lg">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-white truncate">{d.m.nama}</div>
-                <div className="text-[11px] text-slate-400 truncate">
-                  {shortType(e.type)} • {formatDisplayDate(e.start)} s/d {formatDisplayDate(e.end)}
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                {e.start <= today && e.end >= today && (
-                  <span className="px-2 py-0.5 text-[10px] font-bold rounded border bg-rose-500/10 text-rose-400 border-rose-500/20">Hari ini</span>
-                )}
-                <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${kindClass(e.kind)}`}>{kindLabel(e.kind)}</span>
-              </div>
-            </div>
-          )))}
-        </div>
-      ) : (
-        <div className="text-xs text-slate-500 italic text-center py-3">Tidak ada anggota departemen ini yang cuti minggu ini.</div>
-      )}
-    </div>
-  );
-}
+// ── End CutiSakitPanel ────────────────────────────────────────────────────
 
 export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [accessMode, setAccessMode] = useState<'landing' | 'organik' | 'subkon'>('landing');
@@ -1203,20 +893,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
   const [editingTaskKode, setEditingTaskKode] = useState<{ [taskId: string]: string }>({});
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
-  const [editFormData, setEditFormData] = useState({
-    project: '',
-    taskName: '',
-    startDate: '',
-    endDate: '',
-    jo: '',
-    kodeJc: '',
-    rev: '0',
-    release: '',
-  });
-  const [formData, setFormData] = useState({
-    nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '',
-    pic: '', jo: '', rev: '0', realJo: '', release: '',
-  });
+  const [editFormData, setEditFormData] = useState({ project: '', taskName: '', startDate: '', endDate: '', jo: '', kodeJc: '', rev: '0', release: '' });
+  const [formData, setFormData] = useState({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '', release: '' });
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -1236,16 +914,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       if (data) {
         const grouped: { [biroKey: string]: TaskItem[] } = {};
         data.forEach((row: any) => {
-          const biroKey = cleanText(row.biro_name || '');
-          if (!biroKey) return;
+          const biroKey = cleanText(row.biro_name || ''); if (!biroKey) return;
           if (!grouped[biroKey]) grouped[biroKey] = [];
           const persistedRev = (row.rev !== undefined && row.rev !== null && String(row.rev).trim() !== '') ? String(row.rev) : getLocalRev(row.id, '0');
           const persistedRelease = (row.release !== undefined && row.release !== null && String(row.release).trim() !== '') ? String(row.release) : getLocalRelease(row.id, '');
-          grouped[biroKey].push({
-            id: row.id, biroName: row.biro_name || '', project: row.project || '', taskName: row.task_name || '',
-            startDate: row.start_date || '', endDate: row.end_date || '', pic: row.pic || '', jo: row.jo || '',
-            kodeJc: row.kode_jc || '', rev: persistedRev, release: persistedRelease, realJo: row.real_jc || row.realJo || '',
-          });
+          grouped[biroKey].push({ id: row.id, biroName: row.biro_name || '', project: row.project || '', taskName: row.task_name || '', startDate: row.start_date || '', endDate: row.end_date || '', pic: row.pic || '', jo: row.jo || '', kodeJc: row.kode_jc || '', rev: persistedRev, release: persistedRelease, realJo: row.real_jc || row.realJo || '' });
         });
         setManualTasks(grouped);
       }
@@ -1255,10 +928,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   useEffect(() => {
     async function initMasterFiles() {
       try {
-        let im4Url = '';
-        let realisasiUrl = '';
-        let kpiUrl = '';
-        let timeOffUrl = '';
+        let im4Url = '', realisasiUrl = '', kpiUrl = '', timeOffUrl = '';
         Object.entries(excelGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
           if (pLower.includes('kpi')) kpiUrl = url;
@@ -1281,8 +951,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         setHourPlannerMap(await loadHourPlanner());
         const wbKpi = await fetchSafeWorkbook([kpiUrl, '/data_kpi.xlsx', './data_kpi.xlsx']);
         if (wbKpi) setKpiWorkbook(wbKpi);
-        const wbTimeOff = await loadMasterFile('timeoff')
-          .then(wb => wb || fetchSafeWorkbook([timeOffUrl, '/TIME_OFF_DIVISI_DESAIN.xlsx']));
+        const wbTimeOff = await loadMasterFile('timeoff').then(wb => wb || fetchSafeWorkbook([timeOffUrl, '/TIME_OFF_DIVISI_DESAIN.xlsx']));
         if (wbTimeOff) setTimeOffWorkbook(wbTimeOff);
       } catch {}
     }
@@ -1292,10 +961,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   useEffect(() => {
     let alive = true;
-    const load = async () => {
-      const data = await fetchSisaCuti();
-      if (alive && data) setSisaCuti(data);
-    };
+    const load = async () => { const data = await fetchSisaCuti(); if (alive && data) setSisaCuti(data); };
     load();
     const timer = setInterval(load, 10 * 60 * 1000);
     return () => { alive = false; clearInterval(timer); };
@@ -1308,66 +974,37 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const autoSyncReleases = useCallback(async (retryAll: boolean) => {
     if (autoRunning.current) return;
     const all = ([] as TaskItem[]).concat(...Object.values(manualTasks));
-    const todo = all.filter(t =>
-      t.project && t.taskName &&
-      !/^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(t.release)) &&
-      (retryAll || !autoTried.current.has(`${t.id}|${t.rev || '0'}`)));
+    const todo = all.filter(t => t.project && t.taskName && !/^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(t.release)) && (retryAll || !autoTried.current.has(`${t.id}|${t.rev || '0'}`)));
     if (todo.length === 0) return;
     autoRunning.current = true;
     try {
       const projects = Array.from(new Set(todo.map(t => t.project)));
       const rowsByProject = new Map<string, DrawingControlRow[]>();
       for (let i = 0; i < projects.length; i += 4) {
-        await Promise.all(projects.slice(i, i + 4).map(async p => {
-          try { rowsByProject.set(p, await fetchDrawingRowsFor(p)); } catch { rowsByProject.set(p, []); }
-        }));
+        await Promise.all(projects.slice(i, i + 4).map(async p => { try { rowsByProject.set(p, await fetchDrawingRowsFor(p)); } catch { rowsByProject.set(p, []); } }));
       }
       const found = new Map<string, string>();
-      todo.forEach(t => {
-        autoTried.current.add(`${t.id}|${t.rev || '0'}`);
-        const rel = findReleaseInRows(rowsByProject.get(t.project) || [], t.taskName, t.rev || '0');
-        if (rel) found.set(t.id, rel);
-      });
+      todo.forEach(t => { autoTried.current.add(`${t.id}|${t.rev || '0'}`); const rel = findReleaseInRows(rowsByProject.get(t.project) || [], t.taskName, t.rev || '0'); if (rel) found.set(t.id, rel); });
       if (found.size === 0) return;
       const ids = Array.from(found.keys());
       for (let i = 0; i < ids.length; i += 10) {
-        await Promise.all(ids.slice(i, i + 10).map(async id => {
-          const rel = found.get(id)!;
-          saveLocalRelease(id, rel);
-          try { await supabase.from('job_cards').update({ release: rel }).eq('id', id); } catch {}
-        }));
+        await Promise.all(ids.slice(i, i + 10).map(async id => { const rel = found.get(id)!; saveLocalRelease(id, rel); try { await supabase.from('job_cards').update({ release: rel }).eq('id', id); } catch {} }));
       }
-      setManualTasks(prev => {
-        const updated = { ...prev };
-        Object.keys(updated).forEach(k => {
-          updated[k] = updated[k].map(t => found.has(t.id) ? { ...t, release: found.get(t.id)! } : t);
-        });
-        return updated;
-      });
+      setManualTasks(prev => { const updated = { ...prev }; Object.keys(updated).forEach(k => { updated[k] = updated[k].map(t => found.has(t.id) ? { ...t, release: found.get(t.id)! } : t); }); return updated; });
       setAutoSyncMsg(`${found.size} tanggal Release terisi otomatis dari Drawing Control`);
       setTimeout(() => setAutoSyncMsg(''), 8000);
-    } finally {
-      autoRunning.current = false;
-    }
+    } finally { autoRunning.current = false; }
   }, [manualTasks]);
 
   useEffect(() => { autoSyncReleases(false); }, [autoSyncReleases]);
-  useEffect(() => {
-    const timer = setInterval(() => autoSyncReleases(true), 10 * 60 * 1000);
-    return () => clearInterval(timer);
-  }, [autoSyncReleases]);
+  useEffect(() => { const timer = setInterval(() => autoSyncReleases(true), 10 * 60 * 1000); return () => clearInterval(timer); }, [autoSyncReleases]);
 
   const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      try {
-        setIm4Workbook(XLSX.read(evt.target?.result, { type: 'binary' }));
-        const err = await saveMasterFile('im4', file);
-        alert(err
-          ? `File terbaca, tapi gagal disimpan ke server: ${err.message}`
-          : `Master Personel "${file.name}" berhasil diperbarui dan tersimpan!`);
-      } catch { alert('Gagal membaca file Excel Personel IM4.'); }
+      try { setIm4Workbook(XLSX.read(evt.target?.result, { type: 'binary' })); const err = await saveMasterFile('im4', file); alert(err ? `File terbaca, tapi gagal disimpan: ${err.message}` : `Master Personel "${file.name}" berhasil diperbarui!`); }
+      catch { alert('Gagal membaca file Excel Personel IM4.'); }
     };
     reader.readAsBinaryString(file);
   };
@@ -1376,55 +1013,32 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
-        setJobcardWorkbook(wb);
-        const err = await saveMasterFile('jobcard', file);
-        if (err) {
-          alert(`File "${file.name}" terbaca, tapi gagal disimpan ke server: ${err.message}`);
-        } else {
-          alert(`Katalog Jobcard "${file.name}" berhasil diperbarui dan tersimpan permanen di server!`);
-        }
-      }
+      try { const wb = XLSX.read(evt.target?.result, { type: 'binary' }); setJobcardWorkbook(wb); const err = await saveMasterFile('jobcard', file); alert(err ? `File terbaca, tapi gagal disimpan: ${err.message}` : `Katalog Jobcard "${file.name}" berhasil diperbarui!`); }
       catch { alert('Gagal membaca file JOBCARD_DESAIN.xlsx.'); }
     };
     reader.readAsBinaryString(file);
   };
 
   const handleUploadKpiExcel = (e: ChangeEvent<HTMLInputElement>) => {
-    const input = e.target;
-    const file = input.files?.[0]; if (!file) return;
+    const input = e.target; const file = input.files?.[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        setKpiWorkbook(XLSX.read(evt.target?.result, { type: 'binary' }));
-        alert(`File "${file.name}" berhasil dibaca untuk Rekap Absensi.`);
-      } catch { alert('Gagal membaca file data_kpi.xlsx.'); }
-      input.value = '';
-    };
+    reader.onload = (evt) => { try { setKpiWorkbook(XLSX.read(evt.target?.result, { type: 'binary' })); alert(`File "${file.name}" berhasil dibaca.`); } catch { alert('Gagal membaca file data_kpi.xlsx.'); } input.value = ''; };
     reader.readAsBinaryString(file);
   };
 
   const handleUploadTimeOffExcel = (e: ChangeEvent<HTMLInputElement>) => {
-    const input = e.target;
-    const file = input.files?.[0]; if (!file) return;
+    const input = e.target; const file = input.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      try {
-        setTimeOffWorkbook(XLSX.read(evt.target?.result, { type: 'binary' }));
-        const err = await saveMasterFile('timeoff', file);
-        alert(err
-          ? `File terbaca, tapi gagal disimpan ke server: ${err.message}`
-          : `Data Time Off "${file.name}" berhasil diperbarui dan tersimpan!`);
-      } catch { alert('Gagal membaca file Time Off.'); }
+      try { setTimeOffWorkbook(XLSX.read(evt.target?.result, { type: 'binary' })); const err = await saveMasterFile('timeoff', file); alert(err ? `File terbaca, tapi gagal disimpan: ${err.message}` : `Data Time Off "${file.name}" berhasil diperbarui!`); }
+      catch { alert('Gagal membaca file Time Off.'); }
       input.value = '';
     };
     reader.readAsBinaryString(file);
   };
 
   const handleImportHourPlanner = async (e: ChangeEvent<HTMLInputElement>) => {
-    const input = e.target;
-    const file = input.files?.[0]; if (!file) return;
+    const input = e.target; const file = input.files?.[0]; if (!file) return;
     setIsImportingHour(true);
     try {
       const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
@@ -1442,50 +1056,22 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         await Promise.all(toUpdate.slice(i, i + 10).map(async t => {
           const hour = String(entries[cleanText(t.kodeJc)].hour);
           const { error: upErr } = await supabase.from('job_cards').update({ jo: hour }).eq('id', t.id);
-          if (upErr) failCount++;
-          else { okCount++; newJo.set(t.id, hour); }
+          if (upErr) failCount++; else { okCount++; newJo.set(t.id, hour); }
         }));
       }
-      if (newJo.size > 0) {
-        setManualTasks(prev => {
-          const updated = { ...prev };
-          Object.keys(updated).forEach(k => {
-            updated[k] = updated[k].map(t => newJo.has(t.id) ? { ...t, jo: newJo.get(t.id)! } : t);
-          });
-          return updated;
-        });
-      }
+      if (newJo.size > 0) setManualTasks(prev => { const updated = { ...prev }; Object.keys(updated).forEach(k => { updated[k] = updated[k].map(t => newJo.has(t.id) ? { ...t, jo: newJo.get(t.id)! } : t); }); return updated; });
       const linkedKeys = new Set(toUpdate.map(t => cleanText(t.kodeJc)));
       const noJobcard = Object.keys(entries).filter(k => !linkedKeys.has(k)).length;
-      alert(
-        `Hour Planner "${file.name}" diimpor: ${rowCount} baris.\n` +
-        `• Plan JO terisi pada job card yang sudah ada: ${okCount}\n` +
-        `• Belum ada job card dengan kode itu: ${noJobcard} (tetap disimpan, Plan JO terisi otomatis saat kode Jobcard diisi di Planner)` +
-        (failCount ? `\nPERHATIAN: ${failCount} job card gagal diperbarui Plan JO-nya (cek tipe kolom jo di Supabase).` : '') +
-        (saveErr ? `\nPERHATIAN: gagal disimpan permanen ke server (${saveErr.message}). Data hanya ada di sesi ini.` : '')
-      );
-    } catch {
-      alert('Gagal membaca file Excel Hour Planner.');
-    } finally {
-      setIsImportingHour(false);
-      input.value = '';
-    }
+      alert(`Hour Planner "${file.name}" diimpor: ${rowCount} baris.\n• Plan JO terisi: ${okCount}\n• Belum ada job card: ${noJobcard}` + (failCount ? `\n\nPERHATIAN: ${failCount} gagal.` : '') + (saveErr ? `\n\nGagal disimpan ke server.` : ''));
+    } catch { alert('Gagal membaca file Excel Hour Planner.'); }
+    finally { setIsImportingHour(false); input.value = ''; }
   };
 
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
-        setRealisasiWorkbook(wb);
-        const err = await saveMasterFile('realisasi', file);
-        if (err) {
-          alert(`File "${file.name}" terbaca, tapi gagal disimpan ke server: ${err.message}`);
-        } else {
-          alert(`File "${file.name}" berhasil diperbarui dan tersimpan permanen! Real JO langsung terhitung otomatis.`);
-        }
-      }
+      try { const wb = XLSX.read(evt.target?.result, { type: 'binary' }); setRealisasiWorkbook(wb); const err = await saveMasterFile('realisasi', file); alert(err ? `File terbaca, tapi gagal disimpan: ${err.message}` : `File "${file.name}" berhasil diperbarui!`); }
       catch { alert('Gagal membaca file Realisasi JO.xlsx.'); }
     };
     reader.readAsBinaryString(file);
@@ -1494,8 +1080,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const parseValToNumber = (val: any): number => {
     if (val === null || val === undefined || val === '') return 0;
     if (typeof val === 'number') return isNaN(val) ? 0 : val;
-    const str = String(val).trim().replace('%', '').replace(',', '.');
-    const num = parseFloat(str);
+    const num = parseFloat(String(val).trim().replace('%', '').replace(',', '.'));
     return isNaN(num) ? 0 : num;
   };
 
@@ -1508,10 +1093,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }); if (rawRows.length === 0) return;
         let headerIdx = -1, jobcardCol = -1, effCol = -1, otCol = -1;
         for (let r = 0; r < Math.min(5, rawRows.length); r++) {
-          const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
-          const jcIdx = row.findIndex(c => c.includes('jobcard'));
-          const eIdx = row.findIndex(c => c.includes('effective'));
-          const oIdx = row.findIndex(c => c.includes('overtime'));
+          const row = (rawRows[r] || []).map((v: any) => String(v).trim().toLowerCase());
+          const jcIdx = row.findIndex((c: string) => c.includes('jobcard'));
+          const eIdx = row.findIndex((c: string) => c.includes('effective'));
+          const oIdx = row.findIndex((c: string) => c.includes('overtime'));
           if (jcIdx !== -1 && (eIdx !== -1 || oIdx !== -1)) { headerIdx = r; jobcardCol = jcIdx; effCol = eIdx; otCol = oIdx; break; }
         }
         if (jobcardCol === -1) jobcardCol = 16; if (effCol === -1) effCol = 11; if (otCol === -1) otCol = 12;
@@ -1519,9 +1104,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           const row = rawRows[r]; if (!row) continue;
           const rawJc = String(row[jobcardCol] || '').trim();
           if (!rawJc || rawJc.toLowerCase() === 'nan' || rawJc.toLowerCase().includes('jobcard')) continue;
-          const eff = effCol !== -1 ? parseValToNumber(row[effCol]) : 0;
-          const ot = otCol !== -1 ? parseValToNumber(row[otCol]) : 0;
-          const total = eff + ot;
+          const total = (effCol !== -1 ? parseValToNumber(row[effCol]) : 0) + (otCol !== -1 ? parseValToNumber(row[otCol]) : 0);
           const key = cleanText(rawJc); if (key) map.set(key, (map.get(key) || 0) + total);
         }
       });
@@ -1537,394 +1120,168 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
       let headerIdx = -1;
       for (let r = 0; r < Math.min(15, rawRows.length); r++) {
-        const rowVals = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
+        const rowVals = (rawRows[r] || []).map((v: any) => String(v).trim().toLowerCase());
         if (rowVals.includes('nama') && (rowVals.includes('nip') || rowVals.includes('status') || rowVals.includes('jabatan'))) { headerIdx = r; break; }
       }
       if (headerIdx === -1) return [];
-      const headers = rawRows[headerIdx].map(v => String(v).trim().toLowerCase());
-      const namaCol = headers.findIndex(h => h === 'nama');
-      const nipCol = headers.findIndex(h => h === 'nip');
-      const statusCol = headers.findIndex(h => h === 'status');
-      const unitCol = headers.findIndex(h => h.includes('unit'));
-      const jabatanCol = headers.findIndex(h => h.includes('jabatan'));
+      const headers = rawRows[headerIdx].map((v: any) => String(v).trim().toLowerCase());
+      const namaCol = headers.findIndex((h: string) => h === 'nama');
+      const nipCol = headers.findIndex((h: string) => h === 'nip');
+      const statusCol = headers.findIndex((h: string) => h === 'status');
+      const unitCol = headers.findIndex((h: string) => h.includes('unit'));
+      const jabatanCol = headers.findIndex((h: string) => h.includes('jabatan'));
       let currentDept = '', currentBiro = '';
       const results: ParsedMember[] = [];
       for (let r = headerIdx + 1; r < rawRows.length; r++) {
         const row = rawRows[r]; if (!row) continue;
         const nama = String(row[namaCol] || '').trim(); if (!nama || nama.toLowerCase() === 'nan' || nama.toLowerCase() === 'nama') continue;
-        const nip = String(row[nipCol] || '').trim();
-        const statusRaw = String(row[statusCol] || '').trim();
-        const unit = String(row[unitCol] || '').trim();
-        const jabatan = String(row[jabatanCol] || '').trim();
+        const nip = String(row[nipCol] || '').trim(); const statusRaw = String(row[statusCol] || '').trim(); const unit = String(row[unitCol] || '').trim(); const jabatan = String(row[jabatanCol] || '').trim();
         if (jabatan.toLowerCase().includes('kepala divisi')) { currentDept = 'Div. Desain'; currentBiro = 'Div. Desain'; }
-        else if (jabatan.toLowerCase().includes('kepala departemen') || jabatan.toLowerCase().includes('kadep')) {
-          if (unit && unit.toLowerCase() !== 'nan') currentDept = unit; else currentDept = jabatan; currentBiro = `Staf ${currentDept}`;
-        } else if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) {
-          currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').replace(/Kabiro/gi, 'Biro').trim();
-          if (unit && unit.toLowerCase() !== 'nan') currentDept = unit;
-        }
+        else if (jabatan.toLowerCase().includes('kepala departemen') || jabatan.toLowerCase().includes('kadep')) { if (unit && unit.toLowerCase() !== 'nan') currentDept = unit; else currentDept = jabatan; currentBiro = `Staf ${currentDept}`; }
+        else if (jabatan.toLowerCase().includes('kepala biro') || jabatan.toLowerCase().includes('kabiro')) { currentBiro = jabatan.replace(/Kepala Biro/gi, 'Biro').replace(/Kabiro/gi, 'Biro').trim(); if (unit && unit.toLowerCase() !== 'nan') currentDept = unit; }
         results.push({ nama, nip, status: statusRaw || 'PKWTT', jabatan, biro: currentBiro, dept: currentDept });
       }
       return results;
     } catch { return []; }
   }, [im4Workbook]);
 
-  const dynamicOutsourcingList = useMemo(() => {
-    return allParsedFromExcel.filter(p => p.status.toLowerCase().includes('outsourcing'));
-  }, [allParsedFromExcel]);
-
-  const getSubconMembersForBiro = useCallback((biroName: string) => {
-    return dynamicOutsourcingList.filter(os => isBiroMatch(os.biro, biroName));
-  }, [dynamicOutsourcingList]);
-
+  const dynamicOutsourcingList = useMemo(() => allParsedFromExcel.filter(p => p.status.toLowerCase().includes('outsourcing')), [allParsedFromExcel]);
+  const getSubconMembersForBiro = useCallback((biroName: string) => dynamicOutsourcingList.filter(os => isBiroMatch(os.biro, biroName)), [dynamicOutsourcingList]);
   const getSubconCountForDept = useCallback((deptName: string): number => {
     try {
-      const dept = (departmentsData || []).find(d => d.name === deptName);
-      if (!dept) return 0;
-      const uniq = new Set<string>();
-      dept.biros.forEach(biro => {
-        getSubconMembersForBiro(biro.name).forEach(p => uniq.add(p.nip || p.nama));
-      });
-      return uniq.size;
+      const dept = (departmentsData || []).find(d => d.name === deptName); if (!dept) return 0;
+      const uniq = new Set<string>(); dept.biros.forEach(biro => { getSubconMembersForBiro(biro.name).forEach(p => uniq.add(p.nip || p.nama)); }); return uniq.size;
     } catch { return 0; }
   }, [getSubconMembersForBiro]);
-
-  const getBiroMembers = useCallback((biroName: string) => {
-    return allParsedFromExcel.filter(p =>
-      isBiroMatch(p.biro, biroName) &&
-      !p.status.toLowerCase().includes('outsourcing') &&
-      !isPimpinanDivDept(p.jabatan));
-  }, [allParsedFromExcel]);
-
-  const toggleAccordion = (cardKey: string) => {
-    setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
-  };
+  const getBiroMembers = useCallback((biroName: string) => allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName) && !p.status.toLowerCase().includes('outsourcing')), [allParsedFromExcel]);
+  const toggleAccordion = (cardKey: string) => setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
 
   const handleOpenEdit = (task: TaskItem) => {
     setEditingTask(task);
-    setEditFormData({
-      project: task.project || '',
-      taskName: task.taskName || '',
-      startDate: task.startDate || '',
-      endDate: task.endDate || '',
-      jo: task.jo || '',
-      kodeJc: task.kodeJc || '',
-      rev: task.rev || '0',
-      release: task.release || '',
-    });
+    setEditFormData({ project: task.project || '', taskName: task.taskName || '', startDate: task.startDate || '', endDate: task.endDate || '', jo: task.jo || '', kodeJc: task.kodeJc || '', rev: task.rev || '0', release: task.release || '' });
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingTask) return;
+    e.preventDefault(); if (!editingTask) return;
     const revVal = (editFormData.rev && editFormData.rev.trim() !== '') ? editFormData.rev.trim() : '0';
     let releaseVal = editFormData.release ? editFormData.release.trim() : '';
-    const keyChanged = editingTask.project !== editFormData.project
-      || editingTask.taskName !== editFormData.taskName
-      || String(editingTask.rev || '0') !== revVal;
-    if (keyChanged) {
-      const cached = drawingControlMap[cleanText(editFormData.project)];
-      const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(editFormData.project);
-      releaseVal = findReleaseInRows(rows, editFormData.taskName, revVal);
+    const keyChanged = editingTask.project !== editFormData.project || editingTask.taskName !== editFormData.taskName || String(editingTask.rev || '0') !== revVal;
+    if (keyChanged) { const cached = drawingControlMap[cleanText(editFormData.project)]; const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(editFormData.project); releaseVal = findReleaseInRows(rows, editFormData.taskName, revVal); }
+    const updatePayload: any = { project: editFormData.project, project_code: editFormData.project, task_name: editFormData.taskName, start_date: editFormData.startDate, end_date: editFormData.endDate, jo: editFormData.jo, kode_jc: editFormData.kodeJc, rev: revVal, release: releaseVal };
+    let { error } = await supabase.from('job_cards').update(updatePayload).eq('id', editingTask.id);
+    if (error && (error.message?.includes('rev') || error.message?.includes('release'))) {
+      delete updatePayload.rev; delete updatePayload.release;
+      const retry = await supabase.from('job_cards').update(updatePayload).eq('id', editingTask.id); error = retry.error;
     }
-    const updatePayload: any = {
-      project: editFormData.project,
-      project_code: editFormData.project,
-      task_name: editFormData.taskName,
-      start_date: editFormData.startDate,
-      end_date: editFormData.endDate,
-      jo: editFormData.jo,
-      kode_jc: editFormData.kodeJc,
-      rev: revVal,
-      release: releaseVal,
-    };
-    let { error } = await supabase
-      .from('job_cards')
-      .update(updatePayload)
-      .eq('id', editingTask.id);
-    if (error && (error.message?.includes('rev') || error.message?.includes('release') || (error as any).details?.includes('rev') || (error as any).details?.includes('release'))) {
-      delete updatePayload.rev;
-      delete updatePayload.release;
-      const retry = await supabase.from('job_cards').update(updatePayload).eq('id', editingTask.id);
-      error = retry.error;
-    }
-    if (error) {
-      alert('Gagal mengupdate: ' + error.message);
-      return;
-    }
+    if (error) { alert('Gagal mengupdate: ' + error.message); return; }
     saveLocalRelease(editingTask.id, releaseVal);
-    setManualTasks(prev => {
-      const updated = { ...prev };
-      Object.keys(updated).forEach(k => {
-        updated[k] = updated[k].map(t => {
-          if (t.id === editingTask.id) {
-            return {
-              ...t,
-              project: editFormData.project,
-              taskName: editFormData.taskName,
-              startDate: editFormData.startDate,
-              endDate: editFormData.endDate,
-              jo: editFormData.jo,
-              kodeJc: editFormData.kodeJc,
-              rev: revVal,
-              release: releaseVal,
-            };
-          }
-          return t;
-        });
-      });
-      return updated;
-    });
-    setEditingTask(null);
-    alert('Penugasan berhasil diperbarui!');
-    loadAllJobCards();
+    setManualTasks(prev => { const updated = { ...prev }; Object.keys(updated).forEach(k => { updated[k] = updated[k].map(t => t.id === editingTask.id ? { ...t, project: editFormData.project, taskName: editFormData.taskName, startDate: editFormData.startDate, endDate: editFormData.endDate, jo: editFormData.jo, kodeJc: editFormData.kodeJc, rev: revVal, release: releaseVal } : t); }); return updated; });
+    setEditingTask(null); alert('Penugasan berhasil diperbarui!'); loadAllJobCards();
   };
 
   const handleDeleteTask = async (taskId: string) => {
     if (window.confirm('Apakah Anda yakin ingin menghapus tugas ini?')) {
       const { error } = await supabase.from('job_cards').delete().eq('id', taskId);
-      if (error) {
-        alert('Gagal menghapus: ' + error.message);
-        return;
-      }
-      setManualTasks(prev => {
-        const updated = { ...prev };
-        Object.keys(updated).forEach(k => {
-          updated[k] = updated[k].filter(t => t.id !== taskId);
-        });
-        return updated;
-      });
-      alert('Tugas berhasil dihapus!');
-      loadAllJobCards();
+      if (error) { alert('Gagal menghapus: ' + error.message); return; }
+      setManualTasks(prev => { const updated = { ...prev }; Object.keys(updated).forEach(k => { updated[k] = updated[k].filter(t => t.id !== taskId); }); return updated; });
+      alert('Tugas berhasil dihapus!'); loadAllJobCards();
     }
   };
 
   const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
     const cleanProj = cleanText(projectCode); if (!cleanProj) return;
     setIsFetchingDrawing(true);
-    try {
-      const rows = await fetchDrawingRowsFor(projectCode);
-      if (rows.length > 0) {
-        setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rows }));
-        setActiveDrawingSheetTitle(`Drawing Control ${projectCode}`);
-      }
-    } finally {
-      setIsFetchingDrawing(false);
-    }
+    try { const rows = await fetchDrawingRowsFor(projectCode); if (rows.length > 0) { setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rows })); setActiveDrawingSheetTitle(`Drawing Control ${projectCode}`); } }
+    finally { setIsFetchingDrawing(false); }
   }, []);
 
-  const handleProjectChange = (newProject: string) => {
-    setFormData(prev => ({ ...prev, kodeProyek: newProject, taskName: '', release: '' }));
-    fetchDrawingControlForProject(newProject);
-  };
+  const handleProjectChange = (newProject: string) => { setFormData(prev => ({ ...prev, kodeProyek: newProject, taskName: '', release: '' })); fetchDrawingControlForProject(newProject); };
 
   const handleDeskripsiChange = (selectedDesc: string) => {
-    const cleanProj = cleanText(formData.kodeProyek || '');
-    const rowsForThisProj = drawingControlMap[cleanProj] || [];
+    const cleanProj = cleanText(formData.kodeProyek || ''); const rowsForThisProj = drawingControlMap[cleanProj] || [];
     let autoRelease = ''; let autoRev = formData.rev || '0';
     if (rowsForThisProj.length > 0 && selectedDesc) {
-      const cleanTarget = cleanText(selectedDesc);
-      const currentFormRev = String(formData.rev || '0').trim();
-      const exactMatch = rowsForThisProj.find(r => {
-        const cFull = cleanText(r.fullDeskripsi); const cDwg = cleanText(r.noDwg); const cName = cleanText(r.drawingName);
-        const rowRev = String(r.rev || '0').trim();
-        const isRevMatch = rowRev === currentFormRev;
-        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
-        return isNameMatch && isRevMatch;
-      });
+      const cleanTarget = cleanText(selectedDesc); const currentFormRev = String(formData.rev || '0').trim();
+      const exactMatch = rowsForThisProj.find(r => { const cFull = cleanText(r.fullDeskripsi); const cDwg = cleanText(r.noDwg); const cName = cleanText(r.drawingName); const rowRev = String(r.rev || '0').trim(); return (cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull)) && rowRev === currentFormRev; });
       if (exactMatch && exactMatch.finishDate) { autoRelease = parseToStandardDate(exactMatch.finishDate); if (exactMatch.rev) autoRev = exactMatch.rev; }
-      else { autoRelease = ''; }
     }
     setFormData(prev => ({ ...prev, taskName: selectedDesc, release: autoRelease, rev: autoRev }));
   };
 
   const handleQuickSaveRelease = async (taskId: string, newVal: string) => {
-    const cleanDate = parseToStandardDate(newVal);
-    saveLocalRelease(taskId, cleanDate);
+    const cleanDate = parseToStandardDate(newVal); saveLocalRelease(taskId, cleanDate);
     try { await supabase.from('job_cards').update({ release: cleanDate }).eq('id', taskId); } catch {}
-    setManualTasks(prev => {
-      const updated = { ...prev };
-      Object.keys(updated).forEach(k => { updated[k] = updated[k].map(t => t.id === taskId ? { ...t, release: cleanDate } : t); });
-      return updated;
-    });
+    setManualTasks(prev => { const updated = { ...prev }; Object.keys(updated).forEach(k => { updated[k] = updated[k].map(t => t.id === taskId ? { ...t, release: cleanDate } : t); }); return updated; });
     setEditingReleaseId(null);
   };
 
   const handleSyncReleaseFromDrive = async (task: TaskItem) => {
-    const cleanProj = cleanText(task.project);
-    let rows: DrawingControlRow[] | undefined = drawingControlMap[cleanProj];
-    if (!rows || rows.length === 0) {
-      rows = await fetchDrawingRowsFor(task.project);
-      if (rows.length > 0) {
-        const fetched = rows;
-        setDrawingControlMap(prev => ({ ...prev, [cleanProj]: fetched }));
-      }
-    }
+    const cleanProj = cleanText(task.project); let rows: DrawingControlRow[] | undefined = drawingControlMap[cleanProj];
+    if (!rows || rows.length === 0) { rows = await fetchDrawingRowsFor(task.project); if (rows.length > 0) { const fetched = rows; setDrawingControlMap(prev => ({ ...prev, [cleanProj]: fetched })); } }
     const rel = findReleaseInRows(rows || [], task.taskName, task.rev || '0');
-    if (rel) {
-      await handleQuickSaveRelease(task.id, rel);
-      alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(rel)}`);
-      return;
-    }
+    if (rel) { await handleQuickSaveRelease(task.id, rel); alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(rel)}`); return; }
     alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
   };
 
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    const activeBiro = accessMode === 'subkon' ? subconSelectedBiro : selectedFormBiro?.biroName;
-    if (!activeBiro) return;
+    const activeBiro = accessMode === 'subkon' ? subconSelectedBiro : selectedFormBiro?.biroName; if (!activeBiro) return;
     try {
       let validBiroId: string | null = null;
       const { data: biroList } = await supabase.from('biros').select('id, name');
-      if (biroList && biroList.length > 0) {
-        const found = biroList.find(b => isBiroMatch(b.name, activeBiro));
-        validBiroId = found ? found.id : biroList[0].id;
-      }
-      const biroKey = cleanText(activeBiro);
-      const currentList = manualTasks[biroKey] || [];
-      let autoKode = '';
-      if (accessMode === 'subkon') {
-        const prefix = getBiroPrefix(activeBiro);
-        autoKode = `${prefix}${currentList.length + 1}`;
-      }
+      if (biroList && biroList.length > 0) { const found = biroList.find((b: any) => isBiroMatch(b.name, activeBiro)); validBiroId = found ? found.id : biroList[0].id; }
+      const biroKey = cleanText(activeBiro); const currentList = manualTasks[biroKey] || [];
+      let autoKode = ''; if (accessMode === 'subkon') { const prefix = getBiroPrefix(activeBiro); autoKode = `${prefix}${currentList.length + 1}`; }
       const revVal = (formData.rev && formData.rev.trim() !== '') ? formData.rev.trim() : '0';
       let releaseVal = '';
-      if (formData.kodeProyek && formData.taskName) {
-        const cp = cleanText(formData.kodeProyek);
-        const cached = drawingControlMap[cp];
-        const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(formData.kodeProyek);
-        releaseVal = findReleaseInRows(rows, formData.taskName, revVal);
-      }
-      const insertPayload: any = {
-        biro_id: validBiroId, biro_name: activeBiro, personil_name: formData.nama, project_code: formData.kodeProyek,
-        project: formData.kodeProyek, task_name: formData.taskName, start_date: formData.startDate, end_date: formData.endDate,
-        pic: formData.nama, jo: formData.jo, kode_jc: autoKode, status: accessMode === 'subkon' ? 'approved' : 'pending',
-        rev: revVal, release: releaseVal,
-      };
+      if (formData.kodeProyek && formData.taskName) { const cp = cleanText(formData.kodeProyek); const cached = drawingControlMap[cp]; const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(formData.kodeProyek); releaseVal = findReleaseInRows(rows, formData.taskName, revVal); }
+      const insertPayload: any = { biro_id: validBiroId, biro_name: activeBiro, personil_name: formData.nama, project_code: formData.kodeProyek, project: formData.kodeProyek, task_name: formData.taskName, start_date: formData.startDate, end_date: formData.endDate, pic: formData.nama, jo: formData.jo, kode_jc: autoKode, status: accessMode === 'subkon' ? 'approved' : 'pending', rev: revVal, release: releaseVal };
       let insertedRow: any = null;
       const { data: resData, error } = await supabase.from('job_cards').insert(insertPayload).select().single();
-      if (error) {
-        delete insertPayload.rev; delete insertPayload.release;
-        const { data: retryData, error: retryError } = await supabase.from('job_cards').insert(insertPayload).select().single();
-        if (retryError) { alert('Gagal simpan: ' + retryError.message); return; }
-        insertedRow = retryData;
-      } else { insertedRow = resData; }
+      if (error) { delete insertPayload.rev; delete insertPayload.release; const { data: retryData, error: retryError } = await supabase.from('job_cards').insert(insertPayload).select().single(); if (retryError) { alert('Gagal simpan: ' + retryError.message); return; } insertedRow = retryData; } else { insertedRow = resData; }
       if (releaseVal) saveLocalRelease(insertedRow.id, releaseVal);
-      const newTask: TaskItem = {
-        id: insertedRow.id, biroName: activeBiro, project: formData.kodeProyek, taskName: formData.taskName,
-        startDate: formData.startDate, endDate: formData.endDate, pic: formData.nama, jo: formData.jo,
-        kodeJc: autoKode, rev: revVal, release: releaseVal,
-      };
+      const newTask: TaskItem = { id: insertedRow.id, biroName: activeBiro, project: formData.kodeProyek, taskName: formData.taskName, startDate: formData.startDate, endDate: formData.endDate, pic: formData.nama, jo: formData.jo, kodeJc: autoKode, rev: revVal, release: releaseVal };
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
       setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '', release: '' });
-      if (accessMode === 'subkon') {
-        alert(`Tugas tersimpan! Work Order "${autoKode}" langsung terbit dan dapat dilihat di bawah nama personil.`);
-      } else {
-        alert('Tugas tersimpan! Buka Planner untuk approval Jobcard.');
-      }
+      alert(accessMode === 'subkon' ? `Tugas tersimpan! Work Order "${autoKode}" langsung terbit.` : 'Tugas tersimpan! Buka Planner untuk approval Jobcard.');
       loadAllJobCards();
     } catch { alert('Koneksi database bermasalah.'); }
   };
 
   const handleSaveKodeJcForTask = async (taskId: string) => {
-    const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase();
-    if (!inputVal) return;
-    const hp = hourPlannerMap[cleanText(inputVal)];
-    const payload: any = { kode_jc: inputVal, status: 'approved' };
-    if (hp) payload.jo = String(hp.hour);
+    const inputVal = (editingTaskKode[taskId] || '').trim().toUpperCase(); if (!inputVal) return;
+    const hp = hourPlannerMap[cleanText(inputVal)]; const payload: any = { kode_jc: inputVal, status: 'approved' }; if (hp) payload.jo = String(hp.hour);
     const { error } = await supabase.from('job_cards').update(payload).eq('id', taskId);
     if (error) { alert('Gagal simpan Jobcard: ' + error.message); return; }
-    setManualTasks(prev => {
-      const updated = { ...prev };
-      Object.keys(updated).forEach(k => {
-        updated[k] = updated[k].map(t => t.id === taskId
-          ? { ...t, kodeJc: inputVal, ...(hp ? { jo: String(hp.hour) } : {}) }
-          : t);
-      });
-      return updated;
-    });
+    setManualTasks(prev => { const updated = { ...prev }; Object.keys(updated).forEach(k => { updated[k] = updated[k].map(t => t.id === taskId ? { ...t, kodeJc: inputVal, ...(hp ? { jo: String(hp.hour) } : {}) } : t); }); return updated; });
     setEditingTaskKode(prev => { const next = { ...prev }; delete next[taskId]; return next; });
     loadAllJobCards();
   };
 
   const filteredDepartments = (departmentsData || []).filter(dept => dept.name.toLowerCase().includes(searchQuery.toLowerCase()));
   const filteredSubconDepartments = (departmentsData || []).filter(dept => dept.name.toLowerCase().includes(subconSearch.toLowerCase()));
-
-  const currentActiveBiroName = useMemo(() => {
-    if (accessMode === 'subkon') return subconSelectedBiro || '';
-    return selectedFormBiro?.biroName || '';
-  }, [accessMode, subconSelectedBiro, selectedFormBiro]);
-
+  const currentActiveBiroName = useMemo(() => { if (accessMode === 'subkon') return subconSelectedBiro || ''; return selectedFormBiro?.biroName || ''; }, [accessMode, subconSelectedBiro, selectedFormBiro]);
   const currentActiveBiroKey = useMemo(() => cleanText(currentActiveBiroName), [currentActiveBiroName]);
   const currentActiveBiroTasks = useMemo(() => manualTasks[currentActiveBiroKey] || [], [manualTasks, currentActiveBiroKey]);
-
-    // ===== TAMBAHKAN INI =====
-  const allDeptMembers = useMemo(() => {
-    if (!selectedDept) return [];
-    const kadeps = getKadepForDept(allParsedFromExcel, selectedDept.name);
-    const biroMembers = selectedDept.biros.flatMap(biro => getBiroMembers(biro.name));
-    const seen = new Set<string>();
-    return [...kadeps, ...biroMembers].filter(p => {
-      const id = p.nip || p.nama;
-      if (seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    });
-  }, [selectedDept, allParsedFromExcel]);
-
-  const activeSubconMembers = useMemo(() => {
-    if (!subconSelectedBiro) return [];
-    return getSubconMembersForBiro(subconSelectedBiro);
-  }, [subconSelectedBiro, getSubconMembersForBiro]);
-
-  const subconWorkOrders = useMemo(() => {
-    if (!subconSelectedBiro) return [];
-    const prefix = getBiroPrefix(subconSelectedBiro);
-    const subconNames = getSubconMembersForBiro(subconSelectedBiro).map(m => cleanText(m.nama));
-    const filteredTasks = currentActiveBiroTasks.filter(t => subconNames.includes(cleanText(t.pic)));
-    return filteredTasks.map((task, idx) => ({ ...task, packageTitle: `${prefix}${idx + 1}` }));
-  }, [subconSelectedBiro, currentActiveBiroTasks, getSubconMembersForBiro]);
+  const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
+  const activeSubconMembers = useMemo(() => { if (!subconSelectedBiro) return []; return getSubconMembersForBiro(subconSelectedBiro); }, [subconSelectedBiro, getSubconMembersForBiro]);
+  const subconWorkOrders = useMemo(() => { if (!subconSelectedBiro) return []; const prefix = getBiroPrefix(subconSelectedBiro); const subconNames = getSubconMembersForBiro(subconSelectedBiro).map(m => cleanText(m.nama)); return currentActiveBiroTasks.filter(t => subconNames.includes(cleanText(t.pic))).map((task, idx) => ({ ...task, packageTitle: `${prefix}${idx + 1}` })); }, [subconSelectedBiro, currentActiveBiroTasks, getSubconMembersForBiro]);
 
   const projectOptions = useMemo((): string[] => {
     const projectMap = new Map<string, string>();
-    GOOGLE_DRIVE_SHEETS.forEach(s => {
-      const cleaned = cleanProjectString(s.projectKey);
-      const normKey = getProjectNormKey(cleaned);
-      if (cleaned && normKey && !projectMap.has(normKey)) projectMap.set(normKey, cleaned);
-    });
+    GOOGLE_DRIVE_SHEETS.forEach(s => { const cleaned = cleanProjectString(s.projectKey); const normKey = getProjectNormKey(cleaned); if (cleaned && normKey && !projectMap.has(normKey)) projectMap.set(normKey, cleaned); });
     if (jobcardWorkbook) {
       try {
         jobcardWorkbook.SheetNames.forEach(sheetName => {
           const sheet = jobcardWorkbook.Sheets[sheetName]; if (!sheet) return;
-          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-          let projCol = 2;
-          for (let r = 0; r < Math.min(5, rows.length); r++) {
-            const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-            const foundIdx = rowVals.findIndex(v => v.includes('proyek') || v.includes('project'));
-            if (foundIdx !== -1) { projCol = foundIdx; break; }
-          }
-          rows.forEach((row, idx) => {
-            if (idx < 1 || !row) return;
-            const raw = String(row[projCol] || '').trim();
-            if (!raw || raw.toLowerCase() === 'nan' || raw.toLowerCase().includes('kode proyek') || raw.toLowerCase() === 'proyek' || raw.toLowerCase() === 'project') return;
-            const cleaned = cleanProjectString(raw);
-            const normKey = getProjectNormKey(cleaned);
-            if (cleaned && normKey && !projectMap.has(normKey)) projectMap.set(normKey, cleaned);
-          });
+          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }); let projCol = 2;
+          for (let r = 0; r < Math.min(5, rows.length); r++) { const rowVals = (rows[r] || []).map((v: any) => String(v).trim().toLowerCase()); const foundIdx = rowVals.findIndex((v: string) => v.includes('proyek') || v.includes('project')); if (foundIdx !== -1) { projCol = foundIdx; break; } }
+          rows.forEach((row, idx) => { if (idx < 1 || !row) return; const raw = String(row[projCol] || '').trim(); if (!raw || raw.toLowerCase() === 'nan' || raw.toLowerCase().includes('kode proyek') || raw.toLowerCase() === 'proyek' || raw.toLowerCase() === 'project') return; const cleaned = cleanProjectString(raw); const normKey = getProjectNormKey(cleaned); if (cleaned && normKey && !projectMap.has(normKey)) projectMap.set(normKey, cleaned); });
         });
       } catch {}
     }
-    Object.values(manualTasks).forEach(tasks => {
-      tasks.forEach(t => {
-        const raw = String(t.project || '').trim();
-        if (raw) {
-          const cleaned = cleanProjectString(raw);
-          const normKey = getProjectNormKey(cleaned);
-          if (cleaned && normKey && !projectMap.has(normKey)) projectMap.set(normKey, cleaned);
-        }
-      });
-    });
+    Object.values(manualTasks).forEach(tasks => { tasks.forEach(t => { const raw = String(t.project || '').trim(); if (raw) { const cleaned = cleanProjectString(raw); const normKey = getProjectNormKey(cleaned); if (cleaned && normKey && !projectMap.has(normKey)) projectMap.set(normKey, cleaned); } }); });
     return Array.from(projectMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook, manualTasks]);
 
@@ -1933,104 +1290,47 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     if (jobcardWorkbook) {
       try {
         jobcardWorkbook.SheetNames.forEach(sheetName => {
-          const sheet = jobcardWorkbook.Sheets[sheetName];
-          if (!sheet) return;
-          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-          let taskCol = -1;
-          for (let r = 0; r < Math.min(15, rows.length); r++) {
-            const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-            const foundIdx = rowVals.findIndex(v =>
-              v.includes('task') ||
-              v.includes('deskripsi') ||
-              v.includes('uraian') ||
-              v.includes('pekerjaan') ||
-              v.includes('nama gambar') ||
-              v.includes('judul')
-            );
-            if (foundIdx !== -1) {
-              taskCol = foundIdx;
-              break;
-            }
-          }
+          const sheet = jobcardWorkbook.Sheets[sheetName]; if (!sheet) return;
+          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }); let taskCol = -1;
+          for (let r = 0; r < Math.min(15, rows.length); r++) { const rowVals = (rows[r] || []).map((v: any) => String(v).trim().toLowerCase()); const foundIdx = rowVals.findIndex((v: string) => v.includes('task') || v.includes('deskripsi') || v.includes('uraian') || v.includes('pekerjaan') || v.includes('nama gambar') || v.includes('judul')); if (foundIdx !== -1) { taskCol = foundIdx; break; } }
           if (taskCol === -1) taskCol = 3;
-          rows.forEach((row, idx) => {
-            if (idx < 1 || !row) return;
-            const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
-            if (!raw || raw.toLowerCase() === 'nan' || raw.toLowerCase().includes('deskripsi') || raw.toLowerCase() === 'task' || raw.toLowerCase() === 'task name' || raw.toUpperCase().startsWith('REVISI KE - NO DOC')) return;
-            const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim();
-            const normKey = cleanText(cleaned);
-            if (cleaned && normKey && !taskMap.has(normKey)) {
-              taskMap.set(normKey, cleaned);
-            }
-          });
+          rows.forEach((row, idx) => { if (idx < 1 || !row) return; const raw = String(row[taskCol] || '').replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim(); if (!raw || raw.toLowerCase() === 'nan' || raw.toLowerCase().includes('deskripsi') || raw.toLowerCase() === 'task' || raw.toLowerCase() === 'task name' || raw.toUpperCase().startsWith('REVISI KE - NO DOC')) return; const cleaned = raw.replace(/[\.,;:\-_/\\\s]+$/, '').trim(); const normKey = cleanText(cleaned); if (cleaned && normKey && !taskMap.has(normKey)) taskMap.set(normKey, cleaned); });
         });
-      } catch (err) {
-        console.error("Gagal membaca jobcardWorkbook untuk opsi deskripsi:", err);
-      }
+      } catch (err) { console.error("Gagal membaca jobcardWorkbook:", err); }
     }
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook]);
 
   const pendingTasksByBiro = useMemo((): [string, TaskItem[]][] => {
     const groups: Record<string, TaskItem[]> = {};
-    Object.values(manualTasks).forEach(tasks => {
-      tasks.forEach(t => {
-        if (!t.kodeJc || t.kodeJc.trim() === '') {
-          const key = t.biroName || 'Tanpa Biro';
-          if (!groups[key]) groups[key] = [];
-          groups[key].push(t);
-        }
-      });
-    });
+    Object.values(manualTasks).forEach(tasks => { tasks.forEach(t => { if (!t.kodeJc || t.kodeJc.trim() === '') { const key = t.biroName || 'Tanpa Biro'; if (!groups[key]) groups[key] = []; groups[key].push(t); } }); });
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
   }, [manualTasks]);
 
-  const pendingTasksCount = useMemo(() => {
-    return pendingTasksByBiro.reduce((total, [, list]) => total + list.length, 0);
-  }, [pendingTasksByBiro]);
+  const pendingTasksCount = useMemo(() => pendingTasksByBiro.reduce((total, [, list]) => total + list.length, 0), [pendingTasksByBiro]);
 
-  if (showKpi) {
-    return <KpiDashboardPage user={user} onLogout={onLogout} onBack={() => setShowKpi(false)} />;
-  }
-  if (showImport) {
-    return <ImportJobcardPage user={user} onLogout={onLogout} onBack={() => setShowImport(false)} />;
-  }
+  if (showKpi) return <KpiDashboardPage user={user} onLogout={onLogout} onBack={() => setShowKpi(false)} />;
+  if (showImport) return <ImportJobcardPage user={user} onLogout={onLogout} onBack={() => setShowImport(false)} />;
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
       <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => { setAccessMode('landing'); setSelectedDept(null); setSelectedFormBiro(null); setSubconSelectedBiro(null); setSubconSelectedDept(null); }}>
-            <div className="p-1.5 bg-purple-600 rounded-lg text-white">
-              <Building2 className="w-4 h-4" />
-            </div>
+            <div className="p-1.5 bg-purple-600 rounded-lg text-white"><Building2 className="w-4 h-4" /></div>
             <div className="flex items-center gap-2">
               <span className="font-bold text-sm text-white">PORTAL ADMIN RENDAL</span>
-              {accessMode !== 'landing' && (
-                <span className="text-xs px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-300 border border-slate-700">
-                  {accessMode === 'organik' ? 'Organik' : 'Subkon'}
-                </span>
-              )}
+              {accessMode !== 'landing' && <span className="text-xs px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-300 border border-slate-700">{accessMode === 'organik' ? 'Organik' : 'Subkon'}</span>}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {autoSyncMsg && (
-              <span className="px-2.5 py-1 text-[11px] bg-cyan-500/10 text-cyan-300 rounded-lg border border-cyan-500/30 flex items-center gap-1">
-                <Sparkles className="w-3 h-3" /> {autoSyncMsg}
-              </span>
-            )}
-            {accessMode !== 'landing' && (
-              <button onClick={() => { setAccessMode('landing'); setSelectedDept(null); setSelectedFormBiro(null); setSubconSelectedBiro(null); setSubconSelectedDept(null); }}
-                className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer">
-                Ganti Portal
-              </button>
-            )}
-            <button onClick={onLogout} className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer">
-              Keluar
-            </button>
+            {autoSyncMsg && <span className="px-2.5 py-1 text-[11px] bg-cyan-500/10 text-cyan-300 rounded-lg border border-cyan-500/30 flex items-center gap-1"><Sparkles className="w-3 h-3" /> {autoSyncMsg}</span>}
+            {accessMode !== 'landing' && <button onClick={() => { setAccessMode('landing'); setSelectedDept(null); setSelectedFormBiro(null); setSubconSelectedBiro(null); setSubconSelectedDept(null); }} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer">Ganti Portal</button>}
+            <button onClick={onLogout} className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer">Keluar</button>
           </div>
         </div>
       </header>
+
       <main className="max-w-6xl mx-auto px-4 py-8">
         {accessMode === 'landing' && (
           <div className="max-w-2xl mx-auto text-center space-y-8 pt-8">
@@ -2039,57 +1339,36 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               <p className="text-slate-400 text-sm">Pilih portal akses kerja Anda</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div onClick={() => setAccessMode('organik')}
-                className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-2xl p-6 cursor-pointer text-left transition hover:bg-slate-900/80 group">
-                <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl w-fit mb-4 group-hover:bg-blue-600 group-hover:text-white transition">
-                  <Briefcase className="w-6 h-6" />
-                </div>
+              <div onClick={() => setAccessMode('organik')} className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-2xl p-6 cursor-pointer text-left transition hover:bg-slate-900/80 group">
+                <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl w-fit mb-4 group-hover:bg-blue-600 group-hover:text-white transition"><Briefcase className="w-6 h-6" /></div>
                 <h3 className="text-lg font-bold text-white">Pegawai Organik</h3>
                 <span className="text-xs text-slate-400">Pegawai PKWTT & PKWT Divisi Desain</span>
               </div>
-              <div onClick={() => setAccessMode('subkon')}
-                className="bg-slate-900 border border-slate-800 hover:border-amber-500 rounded-2xl p-6 cursor-pointer text-left transition hover:bg-slate-900/80 group">
-                <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl w-fit mb-4 group-hover:bg-amber-600 group-hover:text-white transition">
-                  <HardHat className="w-6 h-6" />
-                </div>
+              <div onClick={() => setAccessMode('subkon')} className="bg-slate-900 border border-slate-800 hover:border-amber-500 rounded-2xl p-6 cursor-pointer text-left transition hover:bg-slate-900/80 group">
+                <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl w-fit mb-4 group-hover:bg-amber-600 group-hover:text-white transition"><HardHat className="w-6 h-6" /></div>
                 <h3 className="text-lg font-bold text-white">Mitra / Subkon</h3>
                 <span className="text-xs text-slate-400">Personil Outsourcing</span>
               </div>
             </div>
           </div>
         )}
+
         {accessMode === 'subkon' && !subconSelectedDept && !subconSelectedBiro && (
           <div className="space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
-              <div>
-                <h2 className="text-lg font-bold text-white">Pilih Departemen</h2>
-                <span className="text-xs text-slate-400">Total {dynamicOutsourcingList.length} Personel Outsourcing</span>
-              </div>
+              <div><h2 className="text-lg font-bold text-white">Pilih Departemen</h2><span className="text-xs text-slate-400">Total {dynamicOutsourcingList.length} Personel Outsourcing</span></div>
               <div className="flex items-center gap-2 flex-wrap">
-                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <Users className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Update Personel IM4</span>
-                  <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
-                </label>
-                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Update Jobcard Desain</span>
-                  <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
-                </label>
-                <input type="text" placeholder="Cari..." value={subconSearch} onChange={(e) => setSubconSearch(e.target.value)}
-                  className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
+                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer"><Users className="w-3.5 h-3.5 text-amber-400" /><span>Update Personel IM4</span><input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" /></label>
+                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer"><FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" /><span>Update Jobcard Desain</span><input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" /></label>
+                <input type="text" placeholder="Cari..." value={subconSearch} onChange={(e) => setSubconSearch(e.target.value)} className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {filteredSubconDepartments.map((dept) => {
                 const count = getSubconCountForDept(dept.name);
                 return (
-                  <div key={dept.id} onClick={() => setSubconSelectedDept(dept)}
-                    className="bg-slate-900 border border-slate-800 hover:border-amber-500/60 rounded-xl p-4 cursor-pointer transition flex items-center justify-between">
-                    <div>
-                      <h4 className="font-semibold text-white text-sm">{dept.name}</h4>
-                      <span className="text-xs text-slate-400">{dept.biros.length} Biro</span>
-                    </div>
+                  <div key={dept.id} onClick={() => setSubconSelectedDept(dept)} className="bg-slate-900 border border-slate-800 hover:border-amber-500/60 rounded-xl p-4 cursor-pointer transition flex items-center justify-between">
+                    <div><h4 className="font-semibold text-white text-sm">{dept.name}</h4><span className="text-xs text-slate-400">{dept.biros.length} Biro</span></div>
                     <span className="px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded font-bold text-xs">{count}</span>
                   </div>
                 );
@@ -2097,31 +1376,21 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             </div>
           </div>
         )}
+
         {accessMode === 'subkon' && subconSelectedDept && !subconSelectedBiro && (
           <div className="space-y-4">
-            <button onClick={() => setSubconSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-              <ArrowLeft className="w-3.5 h-3.5" /> Kembali
-            </button>
-            <div className="border-b border-slate-800 pb-2">
-              <h2 className="text-base font-bold text-white">{subconSelectedDept.name}</h2>
-              <span className="text-xs text-slate-400">Pilih biro penugasan</span>
-            </div>
+            <button onClick={() => setSubconSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer"><ArrowLeft className="w-3.5 h-3.5" /> Kembali</button>
+            <div className="border-b border-slate-800 pb-2"><h2 className="text-base font-bold text-white">{subconSelectedDept.name}</h2><span className="text-xs text-slate-400">Pilih biro penugasan</span></div>
             <div className="space-y-2">
               {subconSelectedDept.biros.map((biro) => {
                 const countInBiro = getSubconMembersForBiro(biro.name).length;
                 return (
                   <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-white text-sm">{biro.name}</span>
-                      <span className="text-xs text-amber-400 font-mono">({countInBiro} Org)</span>
-                    </div>
+                    <div className="flex items-center gap-2 flex-wrap"><span className="font-semibold text-white text-sm">{biro.name}</span><span className="text-xs text-amber-400 font-mono">({countInBiro} Org)</span></div>
                     <div className="flex items-center gap-1.5 self-end sm:self-auto">
-                      <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('members'); }}
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-xs rounded border border-slate-700 cursor-pointer">Anggota</button>
-                      <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('form'); }}
-                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer">Form</button>
-                      <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('release'); }}
-                        className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer">Work Order</button>
+                      <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('members'); }} className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-xs rounded border border-slate-700 cursor-pointer">Anggota</button>
+                      <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('form'); }} className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer">Form</button>
+                      <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('release'); }} className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer">Work Order</button>
                     </div>
                   </div>
                 );
@@ -2129,27 +1398,19 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             </div>
           </div>
         )}
+
         {accessMode === 'subkon' && subconSelectedBiro && (
           <div className="space-y-4">
-            <button onClick={() => setSubconSelectedBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-              <ArrowLeft className="w-3.5 h-3.5" /> Kembali
-            </button>
+            <button onClick={() => setSubconSelectedBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer"><ArrowLeft className="w-3.5 h-3.5" /> Kembali</button>
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3>
-                <span className="text-xs text-slate-400 font-mono">{activeSubconMembers.length} Personel Outsourcing • Kode Biro: <b className="text-amber-400">{getBiroPrefix(subconSelectedBiro)}</b></span>
-              </div>
+              <div><h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3><span className="text-xs text-slate-400 font-mono">{activeSubconMembers.length} Personel Outsourcing • Kode Biro: <b className="text-amber-400">{getBiroPrefix(subconSelectedBiro)}</b></span></div>
               <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
-                <button onClick={() => setSubconPageMode('members')}
-                  className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'members' ? 'bg-amber-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Anggota</button>
-                <button onClick={() => setSubconPageMode('form')}
-                  className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'form' ? 'bg-emerald-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Form</button>
-                <button onClick={() => setSubconPageMode('release')}
-                  className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${subconPageMode === 'release' ? 'bg-purple-600 text-white font-bold shadow' : 'text-purple-300 hover:text-white hover:bg-slate-900'}`}>
-                  <FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({subconWorkOrders.length})
-                </button>
+                <button onClick={() => setSubconPageMode('members')} className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'members' ? 'bg-amber-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Anggota</button>
+                <button onClick={() => setSubconPageMode('form')} className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'form' ? 'bg-emerald-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Form</button>
+                <button onClick={() => setSubconPageMode('release')} className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${subconPageMode === 'release' ? 'bg-purple-600 text-white font-bold shadow' : 'text-purple-300 hover:text-white hover:bg-slate-900'}`}><FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({subconWorkOrders.length})</button>
               </div>
             </div>
+
             {subconPageMode === 'members' && (
               <div className="space-y-2.5">
                 {activeSubconMembers.length > 0 ? activeSubconMembers.map((person) => {
@@ -2160,16 +1421,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       <div onClick={() => toggleAccordion(person.nama)} className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold text-xs">{person.nama.charAt(0)}</div>
-                          <div>
-                            <div className="font-semibold text-white text-sm">{person.nama}</div>
-                            <div className="text-xs text-slate-400 font-mono">NIP: {person.nip || '-'} • <span className="text-cyan-400">{person.jabatan}</span></div>
-                          </div>
+                          <div><div className="font-semibold text-white text-sm">{person.nama}</div><div className="text-xs text-slate-400 font-mono">NIP: {person.nip || '-'} • <span className="text-cyan-400">{person.jabatan}</span></div></div>
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="text-xs font-mono text-slate-400 hidden sm:inline">{personTasks.length} Tugas</span>
-                          <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-amber-400' : ''}`}>
-                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                          </div>
+                          <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 ${isExpanded ? 'text-amber-400' : ''}`}>{isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</div>
                         </div>
                       </div>
                       {isExpanded && (
@@ -2177,15 +1433,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                           {personTasks.length > 0 ? (
                             <div className="overflow-x-auto">
                               <table className="w-full text-left text-xs">
-                                <thead><tr className="text-slate-400 border-b border-slate-800">
-                                  <th className="py-2 px-2.5 w-8">#</th>
-                                  <th className="py-2 px-2.5 font-mono text-amber-400">Kode WO</th>
-                                  <th className="py-2 px-2.5">Proyek</th>
-                                  <th className="py-2 px-2.5">Deskripsi</th>
-                                  <th className="py-2 px-2.5 font-mono">Jadwal</th>
-                                  <th className="py-2 px-2.5 font-mono">JO</th>
-                                  <th className="py-2 px-2.5 text-center w-20">Aksi</th>
-                                </tr></thead>
+                                <thead><tr className="text-slate-400 border-b border-slate-800"><th className="py-2 px-2.5 w-8">#</th><th className="py-2 px-2.5 font-mono text-amber-400">Kode WO</th><th className="py-2 px-2.5">Proyek</th><th className="py-2 px-2.5">Deskripsi</th><th className="py-2 px-2.5 font-mono">Jadwal</th><th className="py-2 px-2.5 font-mono">JO</th><th className="py-2 px-2.5 text-center w-20">Aksi</th></tr></thead>
                                 <tbody className="divide-y divide-slate-800 text-slate-300">
                                   {personTasks.map((task, tIdx) => (
                                     <tr key={task.id} className="hover:bg-slate-900/40">
@@ -2197,20 +1445,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                       <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo ? String(task.jo).replace(/^#+/, '') : '-'}</td>
                                       <td className="py-2 px-2.5 text-center">
                                         <div className="flex items-center justify-center gap-1.5">
-                                          <button
-                                            onClick={(e) => { e.stopPropagation(); handleOpenEdit(task); }}
-                                            className="p-1 rounded bg-slate-800 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 transition cursor-pointer"
-                                            title="Edit Tugas"
-                                          >
-                                            <Pencil className="w-3.5 h-3.5" />
-                                          </button>
-                                          <button
-                                            onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
-                                            className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
-                                            title="Hapus Tugas"
-                                          >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                          </button>
+                                          <button onClick={(e) => { e.stopPropagation(); handleOpenEdit(task); }} className="p-1 rounded bg-slate-800 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 transition cursor-pointer"><Pencil className="w-3.5 h-3.5" /></button>
+                                          <button onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }} className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
                                         </div>
                                       </td>
                                     </tr>
@@ -2226,75 +1462,32 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 }) : <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">Tidak ada personel outsourcing di biro ini</div>}
               </div>
             )}
+
             {subconPageMode === 'form' && (
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                 <form onSubmit={handleSubmitForm} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                    <div className="md:col-span-2">
-                      <label className="block text-slate-400 mb-1">Nama Drafter / Personel (Outsourcing)</label>
-                      <SearchableSelect options={activeSubconMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.jabatan})` }))}
-                        value={formData.nama} onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
-                        placeholder="Ketik nama personel outsourcing..." required />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                      <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
-                        placeholder="Ketik kode proyek..." required />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Nomor JO</label>
-                      <input type="text" inputMode="decimal" value={formData.jo}
-                        onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
-                        placeholder="Contoh: 300426" required
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-slate-400 mb-1">Deskripsi</label>
-                      <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={handleDeskripsiChange}
-                        placeholder="Ketik nama gambar / deskripsi tugas..." required />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
-                      <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                        required style={{ colorScheme: 'dark' }}
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
-                      <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                        required style={{ colorScheme: 'dark' }}
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
-                    </div>
+                    <div className="md:col-span-2"><label className="block text-slate-400 mb-1">Nama Drafter / Personel (Outsourcing)</label><SearchableSelect options={activeSubconMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.jabatan})` }))} value={formData.nama} onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))} placeholder="Ketik nama personel outsourcing..." required /></div>
+                    <div><label className="block text-slate-400 mb-1">Kode Proyek</label><SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)} placeholder="Ketik kode proyek..." required /></div>
+                    <div><label className="block text-slate-400 mb-1">Nomor JO</label><input type="text" inputMode="decimal" value={formData.jo} onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))} placeholder="Contoh: 300426" required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" /></div>
+                    <div className="md:col-span-2"><label className="block text-slate-400 mb-1">Deskripsi</label><SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={handleDeskripsiChange} placeholder="Ketik nama gambar / deskripsi tugas..." required /></div>
+                    <div><label className="block text-slate-400 mb-1">Tanggal Mulai</label><input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))} required style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" /></div>
+                    <div><label className="block text-slate-400 mb-1">Tanggal Selesai</label><input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))} required style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" /></div>
                   </div>
-                  <div className="pt-3 border-t border-slate-800 flex justify-end">
-                    <button type="submit" className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-lg transition cursor-pointer">
-                      Simpan Tugas & Terbitkan Work Order
-                    </button>
-                  </div>
+                  <div className="pt-3 border-t border-slate-800 flex justify-end"><button type="submit" className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-lg transition cursor-pointer">Simpan Tugas & Terbitkan Work Order</button></div>
                 </form>
               </div>
             )}
+
             {subconPageMode === 'release' && (
               <div className="space-y-3">
                 {subconWorkOrders.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {subconWorkOrders.map((pkg) => (
                       <div key={pkg.id} className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
-                        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                          <span className="px-2.5 py-0.5 bg-purple-600 rounded text-white font-mono font-bold text-sm tracking-wide shadow-sm">{pkg.packageTitle}</span>
-                          <span className="font-mono text-xs text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">{pkg.kodeJc || pkg.packageTitle}</span>
-                        </div>
-                        <div className="text-xs space-y-1">
-                          <div className="text-white font-semibold">{pkg.pic}</div>
-                          <div className="text-emerald-400 font-mono">{pkg.project} • {pkg.jo}</div>
-                          <div className="text-slate-300 text-[11px] bg-slate-950 p-2 rounded border border-slate-800">{pkg.taskName}</div>
-                        </div>
-                        <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-800 flex justify-between font-mono">
-                          <span>{formatDisplayDate(pkg.startDate)} s/d {formatDisplayDate(pkg.endDate)}</span>
-                          <button onClick={() => alert(`Mencetak Work Order ${pkg.packageTitle}...`)} className="text-amber-400 hover:underline cursor-pointer flex items-center gap-1">
-                            <Printer className="w-3 h-3" /> Cetak
-                          </button>
-                        </div>
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-2"><span className="px-2.5 py-0.5 bg-purple-600 rounded text-white font-mono font-bold text-sm tracking-wide shadow-sm">{pkg.packageTitle}</span><span className="font-mono text-xs text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">{pkg.kodeJc || pkg.packageTitle}</span></div>
+                        <div className="text-xs space-y-1"><div className="text-white font-semibold">{pkg.pic}</div><div className="text-emerald-400 font-mono">{pkg.project} • {pkg.jo}</div><div className="text-slate-300 text-[11px] bg-slate-950 p-2 rounded border border-slate-800">{pkg.taskName}</div></div>
+                        <div className="text-[10px] text-slate-500 pt-2 border-t border-slate-800 flex justify-between font-mono"><span>{formatDisplayDate(pkg.startDate)} s/d {formatDisplayDate(pkg.endDate)}</span><button onClick={() => alert(`Mencetak Work Order ${pkg.packageTitle}...`)} className="text-amber-400 hover:underline cursor-pointer flex items-center gap-1"><Printer className="w-3 h-3" /> Cetak</button></div>
                       </div>
                     ))}
                   </div>
@@ -2303,598 +1496,284 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             )}
           </div>
         )}
+
         {accessMode === 'organik' && !selectedDept && !selectedFormBiro && (
           <div className="space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
-              <div>
-                <h2 className="text-lg font-bold text-white">Departemen Desain</h2>
-                <span className="text-xs text-slate-400">Akses Pegawai Organik (PKWTT & PKWT)</span>
-              </div>
+              <div><h2 className="text-lg font-bold text-white">Departemen Desain</h2><span className="text-xs text-slate-400">Akses Pegawai Organik (PKWTT & PKWT)</span></div>
               <div className="flex items-center gap-2 flex-wrap">
-                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <Users className="w-3.5 h-3.5 text-blue-400" /><span>Update Personel IM4</span>
-                  <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
-                </label>
-                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" /><span>Update Jobcard Desain</span>
-                  <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
-                </label>
-                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <Clock className="w-3.5 h-3.5 text-emerald-400" /><span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
-                  <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
-                </label>
-                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-violet-400" />
-                  <span>{timeOffWorkbook ? 'Update Time Off' : 'Upload Time Off'}</span>
-                  <input type="file" accept=".xlsx, .xls" onChange={handleUploadTimeOffExcel} className="hidden" />
-                </label>
-                <button
-                  onClick={() => setIsPlannerOpen(true)}
-                  className="relative px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                  title={pendingTasksCount > 0 ? `${pendingTasksCount} tugas menunggu kode Jobcard` : 'Tidak ada tugas yang menunggu kode Jobcard'}
-                >
+                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer"><Users className="w-3.5 h-3.5 text-blue-400" /><span>Update Personel IM4</span><input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" /></label>
+                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer"><FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" /><span>Update Jobcard Desain</span><input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" /></label>
+                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer"><Clock className="w-3.5 h-3.5 text-emerald-400" /><span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span><input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" /></label>
+                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer"><FileSpreadsheet className="w-3.5 h-3.5 text-violet-400" /><span>{timeOffWorkbook ? 'Update Time Off' : 'Upload Time Off'}</span><input type="file" accept=".xlsx, .xls" onChange={handleUploadTimeOffExcel} className="hidden" /></label>
+                <button onClick={() => setIsPlannerOpen(true)} className="relative px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer">
                   <FileCheck className="w-3.5 h-3.5" /> Planner
-                  {pendingTasksCount > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center border-2 border-slate-950">
-                      {pendingTasksCount > 99 ? '99+' : pendingTasksCount}
-                    </span>
-                  )}
+                  {pendingTasksCount > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center border-2 border-slate-950">{pendingTasksCount > 99 ? '99+' : pendingTasksCount}</span>}
                 </button>
-                <button
-                  onClick={() => setShowKpi(true)}
-                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                  title="Buka Dashboard KPI Individual"
-                >
-                  <TrendingUp className="w-3.5 h-3.5" /> Dashboard KPI
-                </button>
-                <button
-                  onClick={() => setShowImport(true)}
-                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                  title="Impor Jobcard bulanan dari JOBCARD_DESAIN.xlsx"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" /> Import Jobcard
-                </button>
-                <label
-                  className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                  title="Impor Hour Planner (Hour_Planner.xlsx): kolom Hour Planned masuk ke Plan JO sesuai kode Jobcard"
-                >
-                  <Clock className="w-3.5 h-3.5" />
-                  {isImportingHour ? 'Mengimpor...' : `Import Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}
-                  <input type="file" accept=".xlsx, .xls" onChange={handleImportHourPlanner} disabled={isImportingHour} className="hidden" />
-                </label>
-                <input type="text" placeholder="Cari..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
+                <button onClick={() => setShowKpi(true)} className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"><TrendingUp className="w-3.5 h-3.5" /> Dashboard KPI</button>
+                <button onClick={() => setShowImport(true)} className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"><FileSpreadsheet className="w-3.5 h-3.5" /> Import Jobcard</button>
+                <label className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"><Clock className="w-3.5 h-3.5" />{isImportingHour ? 'Mengimpor...' : `Import Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}<input type="file" accept=".xlsx, .xls" onChange={handleImportHourPlanner} disabled={isImportingHour} className="hidden" /></label>
+                <input type="text" placeholder="Cari..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {filteredDepartments.map((dept) => (
-                <div key={dept.id} onClick={() => setSelectedDept(dept)}
-                  className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-xl p-4 cursor-pointer transition flex items-center justify-between">
-                  <div>
-                    <h4 className="font-semibold text-white text-sm">{dept.name}</h4>
-                    <span className="text-xs text-slate-400">{dept.biros.length} Biro</span>
-                  </div>
+                <div key={dept.id} onClick={() => setSelectedDept(dept)} className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-xl p-4 cursor-pointer transition flex items-center justify-between">
+                  <div><h4 className="font-semibold text-white text-sm">{dept.name}</h4><span className="text-xs text-slate-400">{dept.biros.length} Biro</span></div>
                   <ChevronRight className="w-4 h-4 text-slate-500" />
                 </div>
               ))}
             </div>
           </div>
         )}
-{accessMode === 'organik' && selectedDept && !selectedFormBiro && (
-  <div className="space-y-4">
-    <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-      <ArrowLeft className="w-3.5 h-3.5" /> Kembali
-    </button>
-    <div className="border-b border-slate-800 pb-2">
-      <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
-      <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
-    </div>
 
-    {/* ===== 1. PANEL PLAN CUTI MINGGU INI (DI ATAS) ===== */}
-    <DeptWeeklyTimeOffPanel 
-      deptName={selectedDept.name} 
-      members={allDeptMembers} 
-      wb={timeOffWorkbook} 
-    />
-
-    {/* ===== 2. BARIS KADEP (TOMBOL REKAP ABSENSI SAJA) ===== */}
-    {(() => {
-      const kadepList = getKadepForDept(allParsedFromExcel, selectedDept.name);
-      if (kadepList.length > 0) {
-        return (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">K</div>
-              <div>
-                <span className="font-semibold text-white text-sm">Kepala {selectedDept.name}</span>
-                <div className="text-[11px] text-slate-400">{kadepList.length} Pegawai</div>
+        {accessMode === 'organik' && selectedDept && !selectedFormBiro && (
+          <div className="space-y-4">
+            <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer"><ArrowLeft className="w-3.5 h-3.5" /> Kembali</button>
+            <div className="border-b border-slate-800 pb-2"><h2 className="text-base font-bold text-white">{selectedDept.name}</h2><span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span></div>
+            <div className="space-y-2">
+              {/* Baris Kadep — hanya tombol Rekap Absensi */}
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="font-semibold text-white text-sm">Kepala Departemen</span>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Staf {selectedDept.name}</div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    onClick={() => { setSelectedFormBiro({ biroName: , deptName: selectedDept.name }); setFormPageMode('absensi'); setAbsensiMonth(null); }}
+                    className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer"
+                  >Rekap Absensi</button>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <button
-                onClick={() => {
-                  setSelectedFormBiro({ biroName: `Kepala ${selectedDept.name}`, deptName: selectedDept.name });
-                  setFormPageMode('absensi');
-                }}
-                className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer flex items-center gap-1"
-              >
-                <Clock className="w-3 h-3" /> Rekap Absensi
-              </button>
+              {selectedDept.biros.map((biro) => (
+                <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <span className="font-semibold text-white text-sm">{biro.name}</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('members'); }} className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer">Anggota</button>
+                    <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }} className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer">Form</button>
+                    <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('absensi'); setAbsensiMonth(null); }} className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer">Rekap Absensi</button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        );
-      }
-      return null;
-    })()}
+        )}
 
-    {/* ===== 3. DAFTAR BIRO ===== */}
-    <div className="space-y-2">
-      {selectedDept.biros.map((biro) => (
-        <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <span className="font-semibold text-white text-sm">{biro.name}</span>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('members'); }}
-              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer">Anggota</button>
-            <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }}
-              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer">Form</button>
-            <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('absensi'); setAbsensiMonth(null); }}
-              className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer">Rekap Absensi</button>
-          </div>
-        </div>
-      ))}
-    </div>
-  </div>
-)}
+        {accessMode === 'organik' && selectedFormBiro && (() => {
+          // Jika biro Kadep, paksa mode absensi
+          if (selectedFormBiro.biroName.startsWith('Staf ') && formPageMode !== 'absensi') {
+            setTimeout(() => setFormPageMode('absensi'), 0);
+          }
+          return null;
+        })()}
         {accessMode === 'organik' && selectedFormBiro && (
-  <div className="space-y-4">
-    <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-      <ArrowLeft className="w-3.5 h-3.5" /> Kembali
-    </button>
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      <div>
-        <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
-        <div className="text-xs text-slate-400 font-mono flex items-center gap-2 mt-0.5">
-          <span>{currentBiroMembers.length} Pegawai Organik</span>
-          {activeDrawingSheetTitle && (
-            <span className="text-emerald-400 flex items-center gap-1">• <Sparkles className="w-3 h-3 text-amber-400" /> {activeDrawingSheetTitle}</span>
-          )}
-        </div>
-      </div>
-      <div className="flex items-center gap-2 flex-wrap">
-        <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-          <Clock className="w-3 h-3 text-emerald-400" /><span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
-          <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
-        </label>
-        <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-          {/* Sembunyikan tab Anggota & Form khusus untuk Kadep */}
-          {!selectedFormBiro.biroName.startsWith('Kepala ') && (
-            <>
-              <button onClick={() => setFormPageMode('members')}
-                className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'members' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
-                Anggota ({currentBiroMembers.length})
-              </button>
-              <button onClick={() => setFormPageMode('form')}
-                className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'form' ? 'bg-emerald-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
-                Form
-              </button>
-            </>
-          )}
-          <button onClick={() => setFormPageMode('absensi')}
-            className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'absensi' ? 'bg-purple-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
-            Rekap Absensi
-          </button>
-        </div>
-      </div>
-    </div>
-    {formPageMode === 'members' && (
-      <div className="space-y-2.5">
-        {currentBiroMembers.length > 0 ? currentBiroMembers.map((person) => {
-          const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
-          const isExpanded = !!expandedCards[person.nama];
-          return (
-            <div key={`${person.nama}-${person.nip}`} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-              <div onClick={() => toggleAccordion(person.nama)} className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">{person.nama.charAt(0)}</div>
+          <div className="space-y-4">
+            <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer"><ArrowLeft className="w-3.5 h-3.5" /> Kembali</button>
+            {/* Deteksi apakah ini biro Kadep (biroName diawali 'Staf ') */}
+            {(() => {
+              const isKadep = selectedFormBiro.biroName.startsWith('Staf ');
+              return (
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <div className="font-semibold text-white text-sm">{person.nama} <span className="text-xs font-mono text-cyan-400 font-normal">({person.status})</span></div>
-                    <div className="text-xs text-slate-400 font-mono">NIP: {person.nip || '-'} • <span className="text-slate-400">{person.jabatan}</span></div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono text-slate-400 hidden sm:inline">{personTasks.length} Tugas</span>
-                  <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-blue-400' : ''}`}>
-                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </div>
-                </div>
-              </div>
-              {isExpanded && (
-                <div className="p-3.5 border-t border-slate-800 bg-slate-950/60">
-                  {personTasks.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead><tr className="text-slate-400 border-b border-slate-800">
-                          <th className="py-2 px-2.5 w-8">#</th>
-                          <th className="py-2 px-2.5 font-mono text-amber-400">Jobcard</th>
-                          <th className="py-2 px-2.5">Proyek</th>
-                          <th className="py-2 px-2.5">Deskripsi</th>
-                          <th className="py-2 px-2.5 text-center font-mono">Rev</th>
-                          <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
-                          <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
-                          <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
-                          <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
-                          <th className="py-2 px-2.5 font-mono text-cyan-300">Release</th>
-                          <th className="py-2 px-2.5 text-center w-20">Aksi</th>
-                        </tr></thead>
-                        <tbody className="divide-y divide-slate-800 text-slate-300">
-                          {personTasks.map((task, tIdx) => {
-                            const jcKey = cleanText(task.kodeJc || '');
-                            const calculatedRealHours = jcKey ? realisasiMap.get(jcKey) : undefined;
-                            return (
-                              <tr key={task.id} className="hover:bg-slate-900/40">
-                                <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
-                                <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}</td>
-                                <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
-                                <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
-                                <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
-                                <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate)}</td>
-                                <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate)}</td>
-                                <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo ? String(task.jo).replace(/^#+/, '') : '-'}</td>
-                                <td className="py-2 px-2.5 font-mono font-bold">
-                                  {calculatedRealHours !== undefined ? (
-                                    <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">{Math.round(calculatedRealHours * 100) / 100} Jam</span>
-                                  ) : task.kodeJc ? <span className="text-slate-500 font-normal">0 Jam</span> : <span className="text-slate-600 font-normal">-</span>}
-                                </td>
-                                <td className="py-2 px-2.5 font-mono text-[11px]">
-                                  {editingReleaseId === task.id ? (
-                                    <div className="flex items-center gap-1">
-                                      <input type="date" value={editingReleaseVal} onChange={(e) => setEditingReleaseVal(e.target.value)}
-                                        style={{ colorScheme: 'dark' }} className="px-1.5 py-0.5 bg-slate-900 border border-blue-500 rounded text-xs text-white" autoFocus />
-                                      <button onClick={() => handleQuickSaveRelease(task.id, editingReleaseVal)} className="p-1 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 rounded cursor-pointer" title="Simpan">
-                                        <Check className="w-3 h-3" />
-                                      </button>
-                                      <button onClick={() => setEditingReleaseId(null)} className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer" title="Batal">
-                                        <X className="w-3 h-3" />
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center gap-1.5 group">
-                                      <span className="text-cyan-300 font-semibold">{formatDisplayDate(task.release)}</span>
-                                      <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
-                                        <button onClick={(e) => { e.stopPropagation(); setEditingReleaseId(task.id); setEditingReleaseVal(parseToStandardDate(task.release) || ''); }}
-                                          className="p-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer" title="Edit Langsung Tanggal Release">
-                                          <Pencil className="w-3 h-3" />
-                                        </button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleSyncReleaseFromDrive(task); }}
-                                          className="p-0.5 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition cursor-pointer" title="Tarik Otomatis dari Link Google Drive">
-                                          <Sparkles className="w-3 h-3" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
-                                </td>
-                                <td className="py-2 px-2.5 text-center">
-                                  <div className="flex items-center justify-center gap-1.5">
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
-                                      className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
-                                      title="Hapus Tugas"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+                    <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
+                    <div className="text-xs text-slate-400 font-mono flex items-center gap-2 mt-0.5">
+                      {isKadep
+                        ? <span className="text-violet-400">Kepala Departemen &amp; Staf Dept</span>
+                        : <><span>{currentBiroMembers.length} Pegawai Organik</span>
+                           {activeDrawingSheetTitle && <span className="text-emerald-400 flex items-center gap-1">• <Sparkles className="w-3 h-3 text-amber-400" /> {activeDrawingSheetTitle}</span>}</>
+                      }
                     </div>
-                  ) : <div className="text-xs text-slate-500 py-3 text-center italic">Belum ada tugas. Buka tab <b>Form</b> di atas untuk menambahkan penugasan.</div>}
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {!isKadep && (
+                      <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                        <Clock className="w-3 h-3 text-emerald-400" />
+                        <span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
+                        <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
+                      </label>
+                    )}
+                    <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                      {!isKadep && <>
+                        <button onClick={() => setFormPageMode('members')} className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'members' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>Anggota ({currentBiroMembers.length})</button>
+                        <button onClick={() => setFormPageMode('form')} className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'form' ? 'bg-emerald-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>Form</button>
+                      </>}
+                      <button onClick={() => setFormPageMode('absensi')} className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'absensi' ? 'bg-purple-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>Rekap Absensi</button>
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
-          );
-        }) : <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">Tidak ada personil organik di biro ini (Silakan upload Master IM4 terlebih dahulu)</div>}
-      </div>
-    )}
-    {formPageMode === 'form' && (
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <label className="block text-slate-400 mb-1">Nama Personel (Organik)</label>
-              <SearchableSelect options={currentBiroMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.status})` }))}
-                value={formData.nama} onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
-                placeholder="Ketik nama personel organik..." required />
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Kode Proyek</label>
-              <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
-                placeholder="Ketik kode proyek (contoh: M000313)..." required />
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Plan JO</label>
-              <input type="text" inputMode="decimal" value={formData.jo}
-                onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
-                placeholder="Contoh: 300426" required
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
-            </div>
-            <div className="md:col-span-2">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-slate-400">Deskripsi</label>
-                {isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Google Drive...</span>}
+              );
+            })()}
+
+            {formPageMode === 'members' && (
+              <div className="space-y-2.5">
+                {currentBiroMembers.length > 0 ? currentBiroMembers.map((person) => {
+                  const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
+                  const isExpanded = !!expandedCards[person.nama];
+                  return (
+                    <div key={`${person.nama}-${person.nip}`} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                      <div onClick={() => toggleAccordion(person.nama)} className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">{person.nama.charAt(0)}</div>
+                          <div><div className="font-semibold text-white text-sm">{person.nama} <span className="text-xs font-mono text-cyan-400 font-normal">({person.status})</span></div><div className="text-xs text-slate-400 font-mono">NIP: {person.nip || '-'} • <span className="text-slate-400">{person.jabatan}</span></div></div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-mono text-slate-400 hidden sm:inline">{personTasks.length} Tugas</span>
+                          <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 ${isExpanded ? 'text-blue-400' : ''}`}>{isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</div>
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <div className="p-3.5 border-t border-slate-800 bg-slate-950/60">
+                          {personTasks.length > 0 ? (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs">
+                                <thead><tr className="text-slate-400 border-b border-slate-800"><th className="py-2 px-2.5 w-8">#</th><th className="py-2 px-2.5 font-mono text-amber-400">Jobcard</th><th className="py-2 px-2.5">Proyek</th><th className="py-2 px-2.5">Deskripsi</th><th className="py-2 px-2.5 text-center font-mono">Rev</th><th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th><th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th><th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th><th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th><th className="py-2 px-2.5 font-mono text-cyan-300">Release</th><th className="py-2 px-2.5 text-center w-20">Aksi</th></tr></thead>
+                                <tbody className="divide-y divide-slate-800 text-slate-300">
+                                  {personTasks.map((task, tIdx) => {
+                                    const jcKey = cleanText(task.kodeJc || '');
+                                    const calculatedRealHours = jcKey ? realisasiMap.get(jcKey) : undefined;
+                                    return (
+                                      <tr key={task.id} className="hover:bg-slate-900/40">
+                                        <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
+                                        <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}</td>
+                                        <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
+                                        <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
+                                        <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate)}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate)}</td>
+                                        <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo ? String(task.jo).replace(/^#+/, '') : '-'}</td>
+                                        <td className="py-2 px-2.5 font-mono font-bold">{calculatedRealHours !== undefined ? <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">{Math.round(calculatedRealHours * 100) / 100} Jam</span> : task.kodeJc ? <span className="text-slate-500 font-normal">0 Jam</span> : <span className="text-slate-600 font-normal">-</span>}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px]">
+                                          {editingReleaseId === task.id ? (
+                                            <div className="flex items-center gap-1">
+                                              <input type="date" value={editingReleaseVal} onChange={(e) => setEditingReleaseVal(e.target.value)} style={{ colorScheme: 'dark' }} className="px-1.5 py-0.5 bg-slate-900 border border-blue-500 rounded text-xs text-white" autoFocus />
+                                              <button onClick={() => handleQuickSaveRelease(task.id, editingReleaseVal)} className="p-1 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 rounded cursor-pointer"><Check className="w-3 h-3" /></button>
+                                              <button onClick={() => setEditingReleaseId(null)} className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer"><X className="w-3 h-3" /></button>
+                                            </div>
+                                          ) : (
+                                            <div className="flex items-center gap-1.5 group">
+                                              <span className="text-cyan-300 font-semibold">{formatDisplayDate(task.release)}</span>
+                                              <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
+                                                <button onClick={(e) => { e.stopPropagation(); setEditingReleaseId(task.id); setEditingReleaseVal(parseToStandardDate(task.release) || ''); }} className="p-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer"><Pencil className="w-3 h-3" /></button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleSyncReleaseFromDrive(task); }} className="p-0.5 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition cursor-pointer"><Sparkles className="w-3 h-3" /></button>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </td>
+                                        <td className="py-2 px-2.5 text-center"><div className="flex items-center justify-center gap-1.5"><button onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }} className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button></div></td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : <div className="text-xs text-slate-500 py-3 text-center italic">Belum ada tugas. Buka tab <b>Form</b> di atas untuk menambahkan penugasan.</div>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }) : <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">Tidak ada personil organik di biro ini (Silakan upload Master IM4 terlebih dahulu)</div>}
               </div>
-              <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={handleDeskripsiChange}
-                placeholder="Ketik no dwg atau nama gambar (misal: Shaft Protection)..." required />
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
-              <input type="text" value={formData.rev}
-                onChange={(e) => {
-                  const newRev = e.target.value;
-                  const cleanProj = cleanText(formData.kodeProyek || '');
-                  const rows = drawingControlMap[cleanProj] || [];
-                  let autoRel = '';
-                  const exactMatch = rows.find(r => {
-                    const cFull = cleanText(r.fullDeskripsi); const cName = cleanText(r.drawingName);
-                    const isRevMatch = String(r.rev || '0').trim() === String(newRev).trim();
-                    const isNameMatch = cFull === cleanText(formData.taskName) || (cName && cleanText(formData.taskName).includes(cName));
-                    return isNameMatch && isRevMatch;
-                  });
-                  if (exactMatch && exactMatch.finishDate) autoRel = parseToStandardDate(exactMatch.finishDate);
-                  else autoRel = '';
-                  setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
-                }}
-                placeholder="0" className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
-            </div>
-            <div className="hidden">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-slate-400">Release (Tanggal-Bulan-Tahun)</label>
-                <div className="flex items-center gap-1.5">
-                  {formData.release && <span className="text-[10px] text-cyan-300 font-mono font-semibold">{formatDisplayDate(formData.release)}</span>}
-                  <button type="button" onClick={() => handleDeskripsiChange(formData.taskName)}
-                    className="px-1.5 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-[10px] flex items-center gap-1 cursor-pointer" title="Tarik ulang dari Link Drive">
-                    <Sparkles className="w-2.5 h-2.5" /> Dari Drive
-                  </button>
-                </div>
+            )}
+
+            {formPageMode === 'form' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2"><label className="block text-slate-400 mb-1">Nama Personel (Organik)</label><SearchableSelect options={currentBiroMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.status})` }))} value={formData.nama} onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))} placeholder="Ketik nama personel organik..." required /></div>
+                    <div><label className="block text-slate-400 mb-1">Kode Proyek</label><SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)} placeholder="Ketik kode proyek (contoh: M000313)..." required /></div>
+                    <div><label className="block text-slate-400 mb-1">Plan JO</label><input type="text" inputMode="decimal" value={formData.jo} onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))} placeholder="Contoh: 300426" required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" /></div>
+                    <div className="md:col-span-2">
+                      <div className="flex items-center justify-between mb-1"><label className="text-slate-400">Deskripsi</label>{isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Google Drive...</span>}</div>
+                      <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={handleDeskripsiChange} placeholder="Ketik no dwg atau nama gambar..." required />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
+                      <input type="text" value={formData.rev} onChange={(e) => { const newRev = e.target.value; const cleanProj = cleanText(formData.kodeProyek || ''); const rows = drawingControlMap[cleanProj] || []; let autoRel = ''; const exactMatch = rows.find(r => { const cFull = cleanText(r.fullDeskripsi); const cName = cleanText(r.drawingName); return (cFull === cleanText(formData.taskName) || (cName && cleanText(formData.taskName).includes(cName))) && String(r.rev || '0').trim() === String(newRev).trim(); }); if (exactMatch && exactMatch.finishDate) autoRel = parseToStandardDate(exactMatch.finishDate); setFormData(prev => ({ ...prev, rev: newRev, release: autoRel })); }} placeholder="0" className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
+                    </div>
+                    <div className="hidden">
+                      <div className="flex items-center justify-between mb-1"><label className="text-slate-400">Release</label><div className="flex items-center gap-1.5">{formData.release && <span className="text-[10px] text-cyan-300 font-mono font-semibold">{formatDisplayDate(formData.release)}</span>}<button type="button" onClick={() => handleDeskripsiChange(formData.taskName)} className="px-1.5 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-[10px] flex items-center gap-1 cursor-pointer"><Sparkles className="w-2.5 h-2.5" /> Dari Drive</button></div></div>
+                      <input type="date" value={formData.release} onChange={(e) => setFormData(prev => ({ ...prev, release: e.target.value }))} style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                    </div>
+                    <div><label className="block text-slate-400 mb-1">Plan Start</label><input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))} required style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" /></div>
+                    <div><label className="block text-slate-400 mb-1">Plan Finish</label><input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))} required style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" /></div>
+                  </div>
+                  <div className="flex justify-end pt-2"><button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer">Simpan Tugas</button></div>
+                </form>
               </div>
-              <input type="date" value={formData.release} onChange={(e) => setFormData(prev => ({ ...prev, release: e.target.value }))}
-                style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Plan Start</label>
-              <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                required style={{ colorScheme: 'dark' }}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Plan Finish</label>
-              <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                required style={{ colorScheme: 'dark' }}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
-            </div>
+            )}
+
+            {formPageMode === 'absensi' && (
+              <>
+                <CutiSakitPanel biroName={selectedFormBiro.biroName} members={currentBiroMembers} wb={timeOffWorkbook} sisaCuti={sisaCuti} />
+              </>
+            )}
           </div>
-          <div className="flex justify-end pt-2">
-            <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer">
-              Simpan Tugas
-            </button>
-          </div>
-        </form>
-      </div>
-    )}
-    {formPageMode === 'absensi' && (
-      <>
-        <CutiSakitPanel
-          biroName={selectedFormBiro.biroName}
-          members={currentBiroMembers}
-          wb={timeOffWorkbook}
-          sisaCuti={sisaCuti}
-        />
-      </>
-    )}
-  </div>
-)}
+        )}
       </main>
+
       {editingTask && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-fadeIn">
             <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-              <span className="font-bold text-xs text-white flex items-center gap-1.5">
-                <Pencil className="w-3.5 h-3.5 text-blue-400" /> Edit Penugasan — {editingTask.pic}
-              </span>
-              <button onClick={() => setEditingTask(null)} className="text-slate-400 hover:text-white cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
+              <span className="font-bold text-xs text-white flex items-center gap-1.5"><Pencil className="w-3.5 h-3.5 text-blue-400" /> Edit Penugasan — {editingTask.pic}</span>
+              <button onClick={() => setEditingTask(null)} className="text-slate-400 hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
             </div>
             <form onSubmit={handleSaveEdit} className="p-4 space-y-3.5 text-xs">
-              <div>
-                <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                <SearchableSelect
-                  options={projectOptions}
-                  value={editFormData.project}
-                  onChange={(val) => {
-                    setEditFormData(prev => ({ ...prev, project: val }));
-                    fetchDrawingControlForProject(val);
-                  }}
-                  placeholder="Ketik kode proyek..."
-                  required
-                />
-              </div>
+              <div><label className="block text-slate-400 mb-1">Kode Proyek</label><SearchableSelect options={projectOptions} value={editFormData.project} onChange={(val) => { setEditFormData(prev => ({ ...prev, project: val })); fetchDrawingControlForProject(val); }} placeholder="Ketik kode proyek..." required /></div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan JO' : 'Nomor JO'}
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={editFormData.jo}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
-                    required
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Jobcard' : 'Kode WO'}
-                  </label>
-                  <input
-                    type="text"
-                    value={editFormData.kodeJc}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, kodeJc: e.target.value.toUpperCase() }))}
-                    placeholder={accessMode === 'organik' ? 'JC...' : 'WO...'}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono uppercase"
-                  />
-                </div>
+                <div><label className="block text-slate-400 mb-1">{accessMode === 'organik' ? 'Plan JO' : 'Nomor JO'}</label><input type="text" inputMode="decimal" value={editFormData.jo} onChange={(e) => setEditFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))} required className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" /></div>
+                <div><label className="block text-slate-400 mb-1">{accessMode === 'organik' ? 'Jobcard' : 'Kode WO'}</label><input type="text" value={editFormData.kodeJc} onChange={(e) => setEditFormData(prev => ({ ...prev, kodeJc: e.target.value.toUpperCase() }))} placeholder={accessMode === 'organik' ? 'JC...' : 'WO...'} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono uppercase" /></div>
               </div>
-              <div>
-                <label className="block text-slate-400 mb-1">Deskripsi</label>
-                <SearchableSelect
-                  options={dynamicTaskOptions}
-                  value={editFormData.taskName}
-                  onChange={(val) => {
-                    const cleanProj = cleanText(editFormData.project || '');
-                    const rows = drawingControlMap[cleanProj] || [];
-                    let newRelease = '';
-                    let newRev = editFormData.rev;
-                    const cleanTarget = cleanText(val);
-                    const currentEditRev = String(editFormData.rev || '0').trim();
-                    const exactMatch = rows.find(r => {
-                      const cFull = cleanText(r.fullDeskripsi);
-                      const cDwg = cleanText(r.noDwg);
-                      const cName = cleanText(r.drawingName);
-                      const rowRev = String(r.rev || '0').trim();
-                      const isRevMatch = rowRev === currentEditRev;
-                      const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
-                      return isNameMatch && isRevMatch;
-                    });
-                    if (exactMatch && exactMatch.finishDate) {
-                      newRelease = parseToStandardDate(exactMatch.finishDate);
-                      if (exactMatch.rev) newRev = exactMatch.rev;
-                    } else {
-                      newRelease = '';
-                    }
-                    setEditFormData(prev => ({ ...prev, taskName: val, release: newRelease, rev: newRev }));
-                  }}
-                  placeholder="Ketik deskripsi gambar..."
-                  required
-                />
+              <div><label className="block text-slate-400 mb-1">Deskripsi</label>
+                <SearchableSelect options={dynamicTaskOptions} value={editFormData.taskName} onChange={(val) => {
+                  const cleanProj = cleanText(editFormData.project || ''); const rows = drawingControlMap[cleanProj] || [];
+                  let newRelease = ''; let newRev = editFormData.rev;
+                  const cleanTarget = cleanText(val); const currentEditRev = String(editFormData.rev || '0').trim();
+                  const exactMatch = rows.find(r => { const cFull = cleanText(r.fullDeskripsi); const cDwg = cleanText(r.noDwg); const cName = cleanText(r.drawingName); return (cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull)) && String(r.rev || '0').trim() === currentEditRev; });
+                  if (exactMatch && exactMatch.finishDate) { newRelease = parseToStandardDate(exactMatch.finishDate); if (exactMatch.rev) newRev = exactMatch.rev; }
+                  setEditFormData(prev => ({ ...prev, taskName: val, release: newRelease, rev: newRev }));
+                }} placeholder="Ketik deskripsi gambar..." required />
               </div>
               {accessMode === 'organik' && (
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
-                    <input
-                      type="text"
-                      value={editFormData.rev}
-                      onChange={(e) => {
-                        const newRev = e.target.value;
-                        const cleanProj = cleanText(editFormData.project || '');
-                        const rows = drawingControlMap[cleanProj] || [];
-                        let autoRel = '';
-                        const exactMatch = rows.find(r => {
-                          const cFull = cleanText(r.fullDeskripsi);
-                          const cDwg = cleanText(r.noDwg);
-                          const cName = cleanText(r.drawingName);
-                          const rowRev = String(r.rev || '0').trim();
-                          const isRevMatch = rowRev === String(newRev).trim();
-                          const isNameMatch = cleanText(editFormData.taskName).includes(cDwg) || cleanText(editFormData.taskName).includes(cName) || cFull.includes(cleanText(editFormData.taskName));
-                          return isNameMatch && isRevMatch;
-                        });
-                        if (exactMatch && exactMatch.finishDate) {
-                          autoRel = parseToStandardDate(exactMatch.finishDate);
-                        } else {
-                          autoRel = '';
-                        }
-                        setEditFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
-                      }}
-                      placeholder="0"
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
-                    />
+                  <div><label className="block text-slate-400 mb-1">Rev (Revisi)</label>
+                    <input type="text" value={editFormData.rev} onChange={(e) => {
+                      const newRev = e.target.value; const cleanProj = cleanText(editFormData.project || ''); const rows = drawingControlMap[cleanProj] || []; let autoRel = '';
+                      const exactMatch = rows.find(r => { const cFull = cleanText(r.fullDeskripsi); const cDwg = cleanText(r.noDwg); const cName = cleanText(r.drawingName); return (cleanText(editFormData.taskName).includes(cDwg) || cleanText(editFormData.taskName).includes(cName) || cFull.includes(cleanText(editFormData.taskName))) && String(r.rev || '0').trim() === String(newRev).trim(); });
+                      if (exactMatch && exactMatch.finishDate) autoRel = parseToStandardDate(exactMatch.finishDate);
+                      setEditFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
+                    }} placeholder="0" className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
                   </div>
-                  <div className="hidden">
-                    <label className="block text-slate-400 mb-1">Release</label>
-                    <input
-                      type="date"
-                      value={editFormData.release}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, release: e.target.value }))}
-                      style={{ colorScheme: 'dark' }}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                    />
-                  </div>
+                  <div className="hidden"><label className="block text-slate-400 mb-1">Release</label><input type="date" value={editFormData.release} onChange={(e) => setEditFormData(prev => ({ ...prev, release: e.target.value }))} style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" /></div>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'}
-                  </label>
-                  <input
-                    type="date"
-                    value={editFormData.startDate}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                    required
-                    style={{ colorScheme: 'dark' }}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'}
-                  </label>
-                  <input
-                    type="date"
-                    value={editFormData.endDate}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                    required
-                    style={{ colorScheme: 'dark' }}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                  />
-                </div>
+                <div><label className="block text-slate-400 mb-1">{accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'}</label><input type="date" value={editFormData.startDate} onChange={(e) => setEditFormData(prev => ({ ...prev, startDate: e.target.value }))} required style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" /></div>
+                <div><label className="block text-slate-400 mb-1">{accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'}</label><input type="date" value={editFormData.endDate} onChange={(e) => setEditFormData(prev => ({ ...prev, endDate: e.target.value }))} required style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" /></div>
               </div>
               <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingTask(null)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer"
-                >
-                  Simpan Perubahan
-                </button>
+                <button type="button" onClick={() => setEditingTask(null)} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer">Batal</button>
+                <button type="submit" className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer">Simpan Perubahan</button>
               </div>
             </form>
           </div>
         </div>
       )}
+
       {isPlannerOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
             <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-              <span className="font-bold text-xs text-white flex items-center gap-1.5">
-                <FileCheck className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard Semua Biro ({pendingTasksCount} Menunggu)
-              </span>
-              <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
+              <span className="font-bold text-xs text-white flex items-center gap-1.5"><FileCheck className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard Semua Biro ({pendingTasksCount} Menunggu)</span>
+              <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
             </div>
             <div className="p-4">
               <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
-                  <span className="text-slate-400">Daftar Pengajuan Jobcard ({pendingTasksCount}) dari {pendingTasksByBiro.length} Biro</span>
-                </div>
+                <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800"><span className="text-slate-400">Daftar Pengajuan Jobcard ({pendingTasksCount}) dari {pendingTasksByBiro.length} Biro</span></div>
                 <div className="max-h-96 overflow-y-auto space-y-4 pr-1">
                   {pendingTasksByBiro.length > 0 ? pendingTasksByBiro.map(([biroName, list]) => (
                     <div key={biroName} className="space-y-2">
-                      <div className="flex items-center justify-between text-[11px] px-1">
-                        <span className="font-bold text-slate-300">{biroName}</span>
-                        <span className="font-mono text-amber-400">{list.length} menunggu</span>
-                      </div>
+                      <div className="flex items-center justify-between text-[11px] px-1"><span className="font-bold text-slate-300">{biroName}</span><span className="font-mono text-amber-400">{list.length} menunggu</span></div>
                       {list.map((task, idx) => (
                         <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
                           <div>
@@ -2903,12 +1782,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                             <div className="text-emerald-400 font-mono text-[10px]">{task.project}</div>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
-                            <input type="text" value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
-                              onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
-                              placeholder="Jobcard (misal: JC020926 39833)..."
-                              className="w-48 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none" />
-                            <button onClick={() => handleSaveKodeJcForTask(task.id)}
-                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer">Simpan</button>
+                            <input type="text" value={editingTaskKode[task.id] ?? task.kodeJc ?? ''} onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))} placeholder="Jobcard (misal: JC020926 39833)..." className="w-48 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none" />
+                            <button onClick={() => handleSaveKodeJcForTask(task.id)} className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer">Simpan</button>
                           </div>
                         </div>
                       ))}
