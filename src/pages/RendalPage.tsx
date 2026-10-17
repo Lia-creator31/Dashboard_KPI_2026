@@ -678,7 +678,7 @@ interface TimeOffEntry {
   nip: string;
   nama: string;
   type: string;
-  kind: 'cuti' | 'sakit' | 'panjang' | 'khusus';  // ← TAMBAH 'khusus'
+  kind: 'cuti' | 'sakit' | 'panjang' | 'khusus';
   start: string;
   end: string;
   days: number;
@@ -691,30 +691,24 @@ const isoLocal = (d: Date) =>
 const shortType = (t: string) =>
   t.replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s*\d{4}\s*$/, '').trim();
 
-// ===== MODIFIKASI: classifyTimeOff =====
-// Sakit dipisah dari cuti; cuti panjang tidak dihitung ke realisasi cuti biasa
-// Cuti khusus (umroh, menikah, keluarga sakit, istri melahirkan) juga tidak dihitung
+// Sakit dipisah dari cuti; cuti panjang & cuti khusus tidak dihitung ke realisasi cuti biasa
 function classifyTimeOff(type: string): TimeOffEntry['kind'] {
   const t = type.toLowerCase().trim();
   if (t.startsWith('sakit')) return 'sakit';
   if (t.includes('kewajiban negara') || t.includes('persiapan pensiun') || t === 'cuti melahirkan') return 'panjang';
-  
-  // ===== CUTI KHUSUS - TIDAK DIHITUNG KE REALISASI CUTI TAHUNAN =====
-  // 1. Umroh / Haji
+
+  // ===== CUTI KHUSUS =====
   if (t.includes('umroh') || t.includes('umrah') || t.includes('haji')) return 'khusus';
-  // 2. Menikah / Pernikahan
   if (t.includes('menikah') || t.includes('pernikahan') || t.includes('kawin')) return 'khusus';
-  // 3. Istri Melahirkan (suami yang cuti)
-  if (t.includes('istri melahirkan') || t.includes('suami melahirkan') || 
+  if (t.includes('istri melahirkan') || t.includes('suami melahirkan') ||
       (t.includes('melahirkan') && (t.includes('istri') || t.includes('suami')))) return 'khusus';
-  // 4. Keluarga inti sakit keras / rawat inap / meninggal
-  if ((t.includes('keluarga') || t.includes('anak') || t.includes('istri') || 
-       t.includes('suami') || t.includes('orang tua') || t.includes('ayah') || 
-       t.includes('ibu') || t.includes('bapak') || t.includes('mamah') || 
-       t.includes('papa') || t.includes('saudara')) && 
-      (t.includes('sakit') || t.includes('rawat inap') || t.includes('meninggal') || 
+  if ((t.includes('keluarga') || t.includes('anak') || t.includes('istri') ||
+       t.includes('suami') || t.includes('orang tua') || t.includes('ayah') ||
+       t.includes('ibu') || t.includes('bapak') || t.includes('mamah') ||
+       t.includes('papa') || t.includes('saudara')) &&
+      (t.includes('sakit') || t.includes('rawat inap') || t.includes('meninggal') ||
        t.includes('duka') || t.includes('wafat') || t.includes('meninggal dunia'))) return 'khusus';
-  
+
   return 'cuti';
 }
 
@@ -759,16 +753,47 @@ function getWeekRange(base: Date = new Date()) {
   return { from: isoLocal(mon), to: isoLocal(fri) };
 }
 
+/* ===== SISA CUTI dari Google Sheet Form Alokasi Cuti ===== */
 const SISA_CUTI_SHEET_ID = '1c6TgsfSRrLJ9QZkTQR8aIMe-fBgq89HxmoUdEcqU4b4';
 const SISA_CUTI_GID = '1997448035';
-interface SisaCutiEntry {
+
+interface SisaCutiInfo {
   sisa: number;
-  timestamp: string; // Tanggal pengisian form (YYYY-MM-DD)
+  filledAt: string; // YYYY-MM-DD, tanggal pengisian form
+}
+interface SisaCutiData {
+  byNip: Map<string, SisaCutiInfo>;
+  byName: Map<string, SisaCutiInfo>;
 }
 
-interface SisaCutiData {
-  byNip: Map<string, SisaCutiEntry>;
-  byName: Map<string, SisaCutiEntry>;
+// Timestamp Google Form -> YYYY-MM-DD (default dd/mm/yyyy; jika angka kedua > 12 dibaca mm/dd/yyyy)
+function parseSheetTimestamp(val: any): string {
+  const s = String(val ?? '').trim();
+  const m = s.match(/^(\d{1,4})[\/\-](\d{1,2})[\/\-](\d{1,4})/);
+  if (!m) return parseToStandardDate(s.split(' ')[0]);
+  const a = parseInt(m[1], 10), b = parseInt(m[2], 10), c = parseInt(m[3], 10);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  if (a > 31) return `${a}-${pad(b)}-${pad(c)}`;   // yyyy/mm/dd
+  let day = a, mon = b;                             // dd/mm/yyyy
+  if (b > 12) { day = b; mon = a; }                 // ternyata mm/dd/yyyy
+  return `${c}-${pad(mon)}-${pad(day)}`;
+}
+
+// Hari cuti yang jatuh SETELAH tanggal pengisian form
+function countDaysAfter(e: TimeOffEntry, filledAt: string): number {
+  if (!filledAt) return e.days;
+  if (e.start > filledAt) return e.days;   // seluruhnya setelah isi form -> penuh
+  if (e.end <= filledAt) return 0;         // seluruhnya sebelum/sama dengan isi form -> tidak dihitung
+  let n = 0;                               // melintasi tanggal isi -> hari kerja setelahnya
+  const d = new Date(filledAt + 'T00:00:00');
+  d.setDate(d.getDate() + 1);
+  const endD = new Date(e.end + 'T00:00:00');
+  while (d <= endD) {
+    const w = d.getDay();
+    if (w !== 0 && w !== 6) n++;
+    d.setDate(d.getDate() + 1);
+  }
+  return Math.min(n, e.days);
 }
 
 async function fetchSisaCuti(): Promise<SisaCutiData | null> {
@@ -780,34 +805,26 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
     const wb = XLSX.read(await res.text(), { type: 'string' });
     const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
     if (rows.length < 2) return null;
-    
     const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
-    let cTime = head.findIndex(h => h.includes('timestamp') || h.includes('waktu') || h.includes('tanggal'));
+    let cTs = head.findIndex(h => h.includes('timestamp') || h.includes('cap waktu'));
     let cName = head.findIndex(h => h.includes('nama personel'));
     let cNip = head.findIndex(h => h === 'nip');
     let cSisa = head.findIndex(h => h.includes('jumlah sisa cuti'));
-    
-    if (cTime < 0) cTime = 0; // Kolom pertama (Timestamp)
+    if (cTs < 0) cTs = 0;
     if (cName < 0) cName = 2;
     if (cNip < 0) cNip = 3;
     if (cSisa < 0) cSisa = 5;
-
-    const byNip = new Map<string, SisaCutiEntry>();
-    const byName = new Map<string, SisaCutiEntry>();
-
+    const byNip = new Map<string, SisaCutiInfo>();
+    const byName = new Map<string, SisaCutiInfo>();
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
       const raw = String(r[cSisa] ?? '').trim();
       if (raw === '') continue;
-      
-      const sisa = absNum(raw);
+      const info: SisaCutiInfo = { sisa: absNum(raw), filledAt: parseSheetTimestamp(r[cTs]) };
       const nip = normNip(r[cNip]);
       const nm = cleanText(String(r[cName] ?? ''));
-      const timestamp = parseToStandardDate(r[cTime]) || '1970-01-01';
-
-      const entry: SisaCutiEntry = { sisa, timestamp };
-      if (nip) byNip.set(nip, entry);
-      if (nm) byName.set(nm, entry);
+      if (nip) byNip.set(nip, info);   // baris terakhir menimpa -> isian terbaru dipakai
+      if (nm) byName.set(nm, info);
     }
     return { byNip, byName };
   } catch { return null; }
@@ -844,29 +861,29 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
       }
 
       const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
-      
-      // Realisasi Cuti TETAP SEPERTI SEMULA (tidak diubah)
+
+      // Realisasi cuti: semua cuti biasa tahun ini (bukan sakit, panjang, khusus)
       const realisasiCuti = sum('cuti');
       const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
 
-      // Ambil data sisa cuti awal & timestamp pengisian form
-      const cutiEntry: SisaCutiEntry | undefined = sisaCuti
+      // Data form alokasi cuti: sisa + tanggal pengisian
+      const info: SisaCutiInfo | undefined = sisaCuti
         ? ((nip ? sisaCuti.byNip.get(nip) : undefined) ?? sisaCuti.byName.get(nm))
         : undefined;
 
-      const initialSisa = cutiEntry?.sisa;
-      const formTimestamp = cutiEntry?.timestamp || '1970-01-01';
-
-      // SISA CUTI BERKURANG HANYA JIKA TANGGAL REALISASI CUTI > TANGGAL PENGISIAN FORM
-      const cutiAfterForm = inYear.filter(e => e.kind === 'cuti' && e.start > formTimestamp);
-      const totalCutiAfterForm = cutiAfterForm.reduce((s, e) => s + e.days, 0);
-
-      const sisa = initialSisa !== undefined ? initialSisa - totalCutiAfterForm : undefined;
+      // Hanya cuti biasa yang jatuh SETELAH tanggal isi form yang mengurangi sisa
+      const cutiSetelahIsi = info
+        ? inYear.filter(e => e.kind === 'cuti')
+            .reduce((s, e) => s + countDaysAfter(e, info.filledAt), 0)
+        : 0;
+      const sisa = info ? info.sisa - cutiSetelahIsi : undefined;
 
       return {
         m,
         sisa,
-        cuti: realisasiCuti, // Realisasi cuti di tabel tetap menampilkan total keseluruhan sesuai program asli
+        filledAt: info?.filledAt,
+        cutiSetelahIsi,
+        cuti: realisasiCuti,
         sakit: sum('sakit'),
         sakitKali: inYear.filter(e => e.kind === 'sakit').length,
         panjang: inYear.filter(e => e.kind === 'panjang'),
@@ -880,7 +897,6 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
   const totalSakit = data.reduce((s, d) => s + d.sakit, 0);
   const orangMinggu = data.filter(d => d.minggu.length > 0);
 
-  // ===== MODIFIKASI: Tambah label & class untuk 'khusus' =====
   const kindLabel = (k: TimeOffEntry['kind']) => {
     if (k === 'sakit') return 'Sakit';
     if (k === 'panjang') return 'Cuti panjang';
@@ -891,7 +907,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
   const kindClass = (k: TimeOffEntry['kind']) => {
     if (k === 'sakit') return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     if (k === 'panjang') return 'bg-violet-500/10 text-violet-300 border-violet-500/20';
-    if (k === 'khusus') return 'bg-orange-500/10 text-orange-300 border-orange-500/20';  // ← TAMBAH
+    if (k === 'khusus') return 'bg-orange-500/10 text-orange-300 border-orange-500/20';
     return 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20';
   };
 
@@ -976,7 +992,6 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
                           + {d.panjang.map(e => `${shortType(e.type)} ${e.days} hari`).join(', ')} (tidak dihitung)
                         </div>
                       )}
-                      {/* ===== MODIFIKASI: Tampilkan cuti khusus ===== */}
                       {d.khusus.length > 0 && (
                         <div className="mt-1 text-[10px] text-orange-300">
                           + {d.khusus.map(e => `${shortType(e.type)} ${e.days} hari`).join(', ')} (tidak dihitung)
@@ -987,7 +1002,14 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
                       {sisaCuti === null
                         ? <span className="text-slate-600 text-[11px]">memuat...</span>
                         : d.sisa !== undefined
-                        ? <span className="font-mono font-bold text-sky-400">{d.sisa} hari</span>
+                        ? (
+                          <div>
+                            <span className="font-mono font-bold text-sky-400">{d.sisa} hari</span>
+                            <div className="text-[10px] text-slate-500">
+                              isi form {formatDisplayDate(d.filledAt)}{d.cutiSetelahIsi > 0 ? ` • −${d.cutiSetelahIsi}` : ''}
+                            </div>
+                          </div>
+                        )
                         : <span className="text-slate-600" title="Belum mengisi form alokasi cuti">-</span>}
                     </td>
                     <td className="py-3 px-3 text-center bg-amber-500/5">
@@ -1008,11 +1030,12 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
           </div>
 
           <div className="text-[10px] text-slate-500">
-            Dihitung dari status Approved. Durasi = hari kerja. 
-            <b className="text-violet-300">Cuti panjang</b> (melahirkan, kewajiban negara, pensiun) dan 
-            <b className="text-orange-300"> cuti khusus</b> (umroh, menikah, istri melahirkan, keluarga inti sakit/rawat inap) 
-            tidak masuk realisasi cuti.
-            Sisa Cuti diambil otomatis dari Google Sheet "Form Pengisian Alokasi Cuti 2026" (isian terakhir bila nama ganda); tanda "-" berarti belum mengisi form.
+            Dihitung dari status Approved. Durasi = hari kerja.{' '}
+            <b className="text-violet-300">Cuti panjang</b> (melahirkan, kewajiban negara, pensiun) dan{' '}
+            <b className="text-orange-300">cuti khusus</b> (umroh, menikah, istri melahirkan, keluarga inti sakit/rawat inap)
+            tidak masuk realisasi cuti.{' '}
+            Sisa Cuti diambil dari Google Sheet "Form Pengisian Alokasi Cuti 2026" (isian terakhir bila nama ganda),
+            lalu dikurangi cuti biasa yang tanggalnya <b>setelah</b> tanggal pengisian form. Tanda "-" berarti belum mengisi form.
           </div>
         </>
       )}
