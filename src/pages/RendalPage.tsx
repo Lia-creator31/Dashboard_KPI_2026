@@ -893,11 +893,19 @@ function sameNameFuzzy(a: string, b: string): boolean {
 }
 
 // Cari isian form milik seorang pegawai; bila ada beberapa isian yang cocok, pakai yang terbaru
-function findSisaCuti(data: SisaCutiData | null, nama: string): SisaCutiInfo | undefined {
+function findSisaCuti(data: SisaCutiData | null, nama: string, allNames: string[] = []): SisaCutiInfo | undefined {
   if (!data) return undefined;
   let best: SisaCutiInfo | undefined;
   data.byName.forEach(info => {
-    if (sameNameFuzzy(info.nama, nama) && (!best || info.filledAt > best.filledAt)) best = info;
+    if (!sameNameFuzzy(info.nama, nama)) return;
+
+    // Jika isian sheet hanya 1 kata dan ternyata cocok ke lebih dari 1 pegawai, anggap ambigu
+    if (nameTokens(info.nama).length === 1) {
+      const kandidat = allNames.filter(n => sameNameFuzzy(info.nama, n));
+      if (kandidat.length > 1) return;
+    }
+
+    if (!best || info.filledAt > best.filledAt) best = info;
   });
   return best;
 }
