@@ -202,7 +202,7 @@ function SearchableSelect({
   );
 }
 
-function cleanText(str: string): string {
+export function cleanText(str: string): string {
   return (str || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 }
 
@@ -256,7 +256,7 @@ function parseToStandardDate(val: any): string {
   return str;
 }
 
-function formatDisplayDate(val: any): string {
+export function formatDisplayDate(val: any): string {
   if (!val) return '-';
   const iso = parseToStandardDate(val);
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -674,7 +674,7 @@ export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMont
 }
 
 /* ===== TIME OFF (cuti & sakit) dari TIME_OFF_DIVISI_DESAIN.xlsx ===== */
-interface TimeOffEntry {
+export interface TimeOffEntry {
   nip: string;
   nama: string;
   type: string;
@@ -685,10 +685,10 @@ interface TimeOffEntry {
   status: string;
 }
 
-const normNip = (s: any) => String(s ?? '').replace(/\D/g, '').replace(/^0+/, '');
+export const normNip = (s: any) => String(s ?? '').replace(/\D/g, '').replace(/^0+/, '');
 const isoLocal = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const shortType = (t: string) =>
+export const shortType = (t: string) =>
   t.replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s*\d{4}\s*$/, '').trim();
 
 function classifyTimeOff(type: string): TimeOffEntry['kind'] {
@@ -708,7 +708,7 @@ function classifyTimeOff(type: string): TimeOffEntry['kind'] {
   return 'cuti';
 }
 
-function parseTimeOff(wb: XLSX.WorkBook | null): TimeOffEntry[] {
+export function parseTimeOff(wb: XLSX.WorkBook | null): TimeOffEntry[] {
   if (!wb) return [];
   const sheet = wb.Sheets[wb.SheetNames[0]];
   if (!sheet) return [];
@@ -753,7 +753,7 @@ function getWeekRange(base: Date = new Date()) {
 const SISA_CUTI_SHEET_ID = '1c6TgsfSRrLJ9QZkTQR8aIMe-fBgq89HxmoUdEcqU4b4';
 const SISA_CUTI_GID = '1997448035';
 
-interface SisaCutiInfo {
+export interface SisaCutiInfo {
   nama: string;
   sisa: number;
   filledAt: string;
@@ -776,7 +776,7 @@ function parseSheetTimestamp(val: any, order: 'dmy' | 'mdy'): string {
   return `${c}-${pad(mon)}-${pad(day)}`;
 }
 
-function countDaysAfter(e: TimeOffEntry, filledAt: string): number {
+export function countDaysAfter(e: TimeOffEntry, filledAt: string): number {
   if (!filledAt) return e.days;
   if (e.start > filledAt) return e.days;
   if (e.end <= filledAt) return 0;
@@ -898,7 +898,7 @@ function sameNameFuzzy(a: string, b: string): boolean {
   return true;
 }
 
-function findSisaCuti(data: SisaCutiData | null, nama: string, allNames: string[] = []): SisaCutiInfo | undefined {
+export function findSisaCuti(data: SisaCutiData | null, nama: string, allNames: string[] = []): SisaCutiInfo | undefined {
   if (!data) return undefined;
   let best: SisaCutiInfo | undefined;
   data.byName.forEach(info => {
