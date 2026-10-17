@@ -910,11 +910,39 @@ function findSisaCuti(data: SisaCutiData | null, nama: string, allNames: string[
   return best;
 }
 
-function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
+// ===== Kadep (Kepala Departemen) per departemen =====
+const isKadep = (jabatan: string) => {
+  const j = (jabatan || '').toLowerCase();
+  return j.includes('kepala departemen') || /\bkadep\b/.test(j);
+};
+
+// "Departemen Desain Kapal" -> "desainkapal" (kata umum dibuang, dicocokkan persis agar tidak tercampur antar departemen)
+const deptKey = (s: string) =>
+  cleanText(
+    (s || '').toLowerCase().replace('&', ' dan ')
+      .replace(/\b(kepala|departemen|dept|divisi|dan|kadep|biro)\b/gi, ' ')
+  );
+
+function getKadepForDept(all: ParsedMember[], deptName: string): ParsedMember[] {
+  const key = deptKey(deptName);
+  if (!key) return [];
+  const seen = new Set<string>();
+  return all.filter(p => {
+    if (!isKadep(p.jabatan)) return false;
+    if (deptKey(p.dept) !== key && deptKey(p.jabatan) !== key) return false;
+    const id = p.nip || p.nama;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
   biroName: string;
   members: ParsedMember[];
   wb: XLSX.WorkBook | null;
   sisaCuti: SisaCutiData | null;
+  title?: string;
 }) {
   const entries = useMemo(() => parseTimeOff(wb), [wb]);
   const week = useMemo(() => getWeekRange(), []);
@@ -947,7 +975,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
       const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
 
       // Data form alokasi cuti: sisa + tanggal pengisian
-     const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama, members.map(x => x.nama));
+      const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama, members.map(x => x.nama));
 
       // Hanya cuti biasa yang jatuh SETELAH tanggal isi form yang mengurangi sisa
       const cutiSetelahIsi = info
@@ -993,7 +1021,7 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti }: {
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h4 className="text-sm font-bold text-white">Cuti &amp; Sakit Tahun {year}</h4>
+          <h4 className="text-sm font-bold text-white">{title ?? <>Cuti &amp; Sakit Tahun {year}</>}</h4>
           <span className="text-xs text-slate-400">{biroName}</span>
         </div>
       </div>
@@ -2321,6 +2349,19 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
               <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
             </div>
+            {(() => {
+              const kadepList = getKadepForDept(allParsedFromExcel, selectedDept.name);
+              return kadepList.length > 0 ? (
+                <CutiSakitPanel
+                  key={selectedDept.id}
+                  title="Rekap Absensi Kadep"
+                  biroName={`Kepala ${selectedDept.name}`}
+                  members={kadepList}
+                  wb={timeOffWorkbook}
+                  sisaCuti={sisaCuti}
+                />
+              ) : null;
+            })()}
             <div className="space-y-2">
               {selectedDept.biros.map((biro) => (
                 <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
