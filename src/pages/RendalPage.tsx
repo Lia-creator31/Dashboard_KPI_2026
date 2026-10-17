@@ -1859,6 +1859,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const currentActiveBiroKey = useMemo(() => cleanText(currentActiveBiroName), [currentActiveBiroName]);
   const currentActiveBiroTasks = useMemo(() => manualTasks[currentActiveBiroKey] || [], [manualTasks, currentActiveBiroKey]);
 
+    // ===== TAMBAHKAN INI DI DALAM RendalPage, SEBELUM `if (showKpi)` =====
+  const allDeptMembers = useMemo(() => {
+    if (!selectedDept) return [];
+    const kadeps = getKadepForDept(allParsedFromExcel, selectedDept.name);
+    const biroMembers = selectedDept.biros.flatMap(biro => getBiroMembers(biro.name));
+    const seen = new Set<string>();
+    return [...kadeps, ...biroMembers].filter(p => {
+      const id = p.nip || p.nama;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [selectedDept, allParsedFromExcel]);
+
   // --- PERUBAHAN 1: currentBiroMembers sekarang mendukung Kadep ---
   const currentBiroMembers = useMemo(() => {
     if (!selectedFormBiro) return [];
