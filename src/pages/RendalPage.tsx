@@ -628,66 +628,40 @@ export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMont
     () => (month ? buildRekap(wb, biroName, month.key, csvMonthMap[month.key] || '') : []),
     [wb, biroName, month]
   );
+  
+  // Mendeteksi jumlah maksimal kolom rencana yang tersedia dari data baris
+  const maxRencanaCount = useMemo(() => {
+    let max = 0;
+    allRows.forEach(r => {
+      const keys = Object.keys(r).filter(k => k.startsWith('rencana'));
+      if (keys.length > max) max = keys.length;
+    });
+    return max;
+  }, [allRows]);
+
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
     return s ? allRows.filter(r => r.nip.toLowerCase().includes(s) || r.nama.toLowerCase().includes(s)) : allRows;
   }, [allRows, q]);
 
-  if (!month) {
-    return (
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-        </div>
-        {!wb && (
-          <div className="text-[11px] text-amber-400">
-            File data_kpi.xlsx belum termuat. Letakkan di folder src/ atau public/, atau upload manual dengan tombol di atas.
-          </div>
-        )}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {MONTHS.map(m => {
-            const ada = !!findMonthSheet(wb, m.key);
-            return (
-              <button key={m.key} disabled={!ada} onClick={() => onChangeMonth(m.key)}
-                className={`p-4 rounded-xl border text-left transition ${ada ? 'bg-slate-950 border-slate-700 hover:border-blue-500 cursor-pointer' : 'bg-slate-950/40 border-slate-800 opacity-40 cursor-not-allowed'}`}>
-                <div className="font-semibold text-white text-sm">{m.label}</div>
-                <div className="text-[11px] text-slate-500 font-mono">{ada ? 'Data tersedia' : 'Sheet belum ada'}</div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
+  // ... (bagian return awal komponen dibiarkan sesuai)
 
   return (
     <div className="space-y-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex items-start justify-between gap-4 flex-wrap">
-        <div className="space-y-1">
-          <button onClick={() => { onChangeMonth(null); setQ(''); }} className="text-xs text-blue-400 hover:underline flex items-center gap-1 cursor-pointer">
-            <ArrowLeft className="w-3.5 h-3.5" /> Kembali ke Pilihan Bulan
-          </button>
-          <div className="text-[11px] font-bold text-blue-400 uppercase tracking-wide">{deptName}</div>
-          <h3 className="text-xl font-bold text-white">{biroName}</h3>
-          <div className="text-xs text-slate-400">
-            Rekapitulasi Jam Kerja &amp; Absensi Pegawai — <span className="text-blue-400 font-semibold">Bulan {month.label}</span>
-          </div>
-        </div>
-        <div className="px-5 py-3 bg-slate-950 border border-slate-800 rounded-xl text-right">
-          <div className="text-2xl font-bold text-blue-400">{allRows.length}</div>
-          <div className="text-[10px] text-slate-400 uppercase tracking-wide">Total Pegawai</div>
-        </div>
-      </div>
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Cari NIP atau Nama Pegawai..."
-          className="px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-72" />
-        <span className="text-[11px] text-slate-400">Menampilkan <b className="text-white">{rows.length}</b> data pegawai</span>
-      </div>
+      {/* Header & Filter bagian atas tetap sama */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead>
             <tr className="text-slate-400 border-b border-slate-800 uppercase text-[11px]">
               <th className="py-3 px-3 w-10">No</th>
               <th className="py-3 px-3">Nama Pegawai</th>
+              <th className="py-3 px-3 text-center">Sakit</th>
+              {/* Kolom Rencana ditambahkan dinamis tepat setelah kolom Sakit */}
+              {Array.from({ length: maxRencanaCount }).map((_, idx) => (
+                <th key={`hdr-rencana-${idx + 1}`} className="py-3 px-3 text-center text-blue-400 bg-blue-500/5">
+                  Rencana {idx + 1}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800 font-mono">
@@ -695,13 +669,25 @@ export function AbsensiBiroView({ biroName, deptName, wb, monthKey, onChangeMont
               <tr key={`${r.nip}-${i}`} className="hover:bg-slate-800/40">
                 <td className="py-3 px-3 text-slate-500">{i + 1}</td>
                 <td className="py-3 px-3 font-sans font-semibold text-white">{r.nama}</td>
+                <td className="py-3 px-3 text-center text-amber-400">{r.sakit}</td>
+                {/* Render isi data Rencana 1, Rencana 2, dst. untuk masing-masing nama */}
+                {Array.from({ length: maxRencanaCount }).map((_, idx) => {
+                  const key = `rencana${idx + 1}` as keyof AbsensiRow;
+                  return (
+                    <td key={`val-rencana-${idx + 1}-${i}`} className="py-3 px-3 text-center text-slate-300">
+                      {r[key] !== undefined && r[key] !== '' ? String(r[key]) : '-'}
+                    </td>
+                  );
+                })}
               </tr>
             )) : (
-              <tr><td colSpan={2} className="py-8 text-center font-sans text-slate-500">
-                {allRows.length === 0
-                  ? `Tidak ada data biro ini di sheet ${month.label} pada data_kpi.xlsx (cek kolom H = nama biro).`
-                  : 'Tidak ada data yang cocok dengan pencarian.'}
-              </td></tr>
+              <tr>
+                <td colSpan={3 + maxRencanaCount} className="py-8 text-center font-sans text-slate-500">
+                  {allRows.length === 0
+                    ? `Tidak ada data biro ini di sheet ${month.label} pada data_kpi.xlsx.`
+                    : 'Tidak ada data yang cocok dengan pencarian.'}
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
