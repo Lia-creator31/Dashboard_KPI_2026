@@ -1,8 +1,10 @@
 import React, { useMemo, useState, ChangeEvent } from 'react';
 import * as XLSX from 'xlsx';
-import { ArrowLeft, Search, ChevronDown, ChevronUp, Users, FileSpreadsheet } from 'lucide-react';
-import { CutiSakitPanel } from './RendalPage';
-import type { ParsedMember, SisaCutiData } from './RendalPage';
+import { ArrowLeft, Search, FileSpreadsheet } from 'lucide-react';
+import {
+  parseTimeOff, findSisaCuti, countDaysAfter, normNip, cleanText, shortType, formatDisplayDate,
+} from './RendalPage';
+import type { ParsedMember, SisaCutiData, SisaCutiInfo, TimeOffEntry } from './RendalPage';
 
 export interface DivisiGroup {
   deptName: string;
@@ -13,30 +15,89 @@ export interface DivisiGroup {
 interface Props {
   groups: DivisiGroup[];
   wb: XLSX.WorkBook | null;          // TIME_OFF_DIVISI_DESAIN.xlsx
-  sisaCuti: SisaCutiData | null;     // Google Sheet Form Alokasi Cuti (termasuk Rencana Cuti 1, 2, ...)
+  sisaCuti: SisaCutiData | null;     // Google Sheet Form Alokasi Cuti (Rencana Cuti 1, 2, ...)
   onBack: () => void;
   onUploadTimeOff: (e: ChangeEvent<HTMLInputElement>) => void;
+}
+
+interface Row {
+  m: ParsedMember;
+  isKadep: boolean;
+  cuti: number;
+  panjang: TimeOffEntry[];
+  khusus: TimeOffEntry[];
+  sakit: number;
+  sakitKali: number;
+  sisa?: number;
+  filledAt?: string;
+  cutiSetelahIsi: number;
+  rencana: Record<string, string>;
 }
 
 const idOf = (m: ParsedMember) => m.nip || m.nama;
 
 export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, onUploadTimeOff }: Props) {
   const [q, setQ] = useState('');
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const year = String(new Date().getFullYear());
+  const entries = useMemo(() => parseTimeOff(wb), [wb]);
 
-  const filteredGroups = useMemo(() => {
+  // Kolom "Rencana Cuti 1, 2, ..." dinamis dari Google Sheet
+  const rencanaKeys = useMemo(() => {
+    if (!sisaCuti) return [] as string[];
+    const keys = new Set<string>();
+    sisaCuti.byName.forEach(info => Object.keys(info.rencana || {}).forEach(k => keys.add(k)));
+    return Array.from(keys).sort();
+  }, [sisaCuti]);
+
+  const sections = useMemo(() => {
     const s = q.trim().toLowerCase();
     const match = (m: ParsedMember) =>
       !s || m.nama.toLowerCase().includes(s) || (m.nip || '').toLowerCase().includes(s);
-    return groups
-      .map(g => ({ ...g, kadep: g.kadep.filter(match), staf: g.staf.filter(match) }))
-      .filter(g => g.kadep.length + g.staf.length > 0);
-  }, [groups, q]);
+    const currentYear = new Date().getFullYear();
 
-  const totalPegawai = useMemo(
-    () => filteredGroups.reduce((s, g) => s + g.kadep.length + g.staf.length, 0),
-    [filteredGroups]
-  );
+    return groups
+      .map(g => {
+        const kadepIds = new Set(g.kadep.map(idOf));
+        const allMembers = [...g.kadep, ...g.staf];
+        const allNames = allMembers.map(x => x.nama);
+        const rows: Row[] = allMembers.filter(match).map(m => {
+          const nip = normNip(m.nip), nm = cleanText(m.nama);
+          const mine = entries.filter(e =>
+            e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm));
+          const inYear = currentYear === 2026
+            ? mine.filter(e => {
+                const [y, mm] = e.start.split('-');
+                const n = parseInt(mm, 10);
+                return y === '2026' && n >= 8 && n <= 12;
+              })
+            : mine.filter(e => e.start.startsWith(String(currentYear)));
+          const sum = (k: TimeOffEntry['kind']) =>
+            inYear.filter(e => e.kind === k).reduce((a, e) => a + e.days, 0);
+          const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama, allNames);
+          const cutiSetelahIsi = info
+            ? inYear.filter(e => e.kind === 'cuti').reduce((a, e) => a + countDaysAfter(e, info.filledAt), 0)
+            : 0;
+          return {
+            m,
+            isKadep: kadepIds.has(idOf(m)),
+            cuti: sum('cuti'),
+            panjang: inYear.filter(e => e.kind === 'panjang'),
+            khusus: inYear.filter(e => e.kind === 'khusus'),
+            sakit: sum('sakit'),
+            sakitKali: inYear.filter(e => e.kind === 'sakit').length,
+            sisa: info ? info.sisa - cutiSetelahIsi : undefined,
+            filledAt: info?.filledAt,
+            cutiSetelahIsi,
+            rencana: info?.rencana || {},
+          };
+        });
+        return { deptName: g.deptName, rows };
+      })
+      .filter(sec => sec.rows.length > 0);
+  }, [groups, entries, sisaCuti, q]);
+
+  const colSpan = 5 + rencanaKeys.length;
+  let no = 0;
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
@@ -55,19 +116,6 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8 space-y-4">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex items-start justify-between gap-4 flex-wrap">
-          <div className="space-y-1">
-            <h3 className="text-xl font-bold text-white">Divisi Desain</h3>
-            <div className="text-xs text-slate-400">
-              Cuti, Sakit &amp; Rencana Cuti — seluruh departemen, Kadep dan staf
-            </div>
-          </div>
-          <div className="px-5 py-3 bg-slate-950 border border-slate-800 rounded-xl text-right">
-            <div className="text-2xl font-bold text-blue-400">{totalPegawai}</div>
-            <div className="text-[10px] text-slate-400 uppercase tracking-wide">Total Pegawai</div>
-          </div>
-        </div>
-
         <div className="relative w-72">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
@@ -78,44 +126,91 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
           />
         </div>
 
-        {filteredGroups.map(g => {
-          const members = [...g.kadep, ...g.staf]; // Kadep di atas, staf di bawah
-          const kadepIds = new Set(g.kadep.map(idOf));
-          const isOpen = !collapsed[g.deptName];
-          return (
-            <div key={g.deptName} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-              <div
-                onClick={() => setCollapsed(p => ({ ...p, [g.deptName]: isOpen }))}
-                className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition"
-              >
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-purple-400" />
-                  <span className="font-bold text-white text-sm">{g.deptName}</span>
-                  <span className="text-[11px] text-slate-400 font-mono">
-                    ({g.kadep.length} Kadep, {g.staf.length} staf)
-                  </span>
-                </div>
-                {isOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-              </div>
-              {isOpen && (
-                <div className="p-4 border-t border-slate-800">
-                  <CutiSakitPanel
-                    biroName={g.deptName}
-                    members={members}
-                    wb={wb}
-                    sisaCuti={sisaCuti}
-                    title="Cuti, Sakit & Rencana Cuti"
-                    kadepIds={kadepIds}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {filteredGroups.length === 0 && (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center text-xs text-slate-500">
-            Tidak ada data yang cocok.
+        {!wb ? (
+          <div className="text-[11px] text-amber-400 bg-slate-900 border border-slate-800 rounded-xl p-4">
+            Data Time Off belum termuat. Upload file TIME_OFF_DIVISI_DESAIN.xlsx lewat tombol di kanan atas.
+          </div>
+        ) : (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="text-slate-400 border-b border-slate-800 uppercase text-[11px]">
+                  <th className="py-3 px-3 w-10">No</th>
+                  <th className="py-3 px-3">Nama Pegawai</th>
+                  <th className="py-3 px-3">Realisasi Cuti {year}</th>
+                  <th className="py-3 px-8 text-center text-sky-400 bg-sky-500/5">Sisa Cuti</th>
+                  <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th>
+                  {rencanaKeys.map(key => (
+                    <th key={key} className="py-3 px-3 text-center text-blue-400 bg-blue-500/5 whitespace-nowrap">{key}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sections.length === 0 && (
+                  <tr><td colSpan={colSpan} className="py-8 text-center text-slate-500">Tidak ada data yang cocok.</td></tr>
+                )}
+                {sections.map(sec => (
+                  <React.Fragment key={sec.deptName}>
+                    <tr className="bg-purple-500/10 border-y border-purple-500/30">
+                      <td colSpan={colSpan} className="py-2.5 px-3">
+                        <span className="text-xs font-bold text-purple-300 uppercase tracking-wide">{sec.deptName}</span>
+                        <span className="ml-2 text-[11px] text-slate-400 font-mono">({sec.rows.length} orang)</span>
+                      </td>
+                    </tr>
+                    {sec.rows.map((d, i) => {
+                      no += 1;
+                      return (
+                        <tr key={`${d.m.nip}-${i}`} className="hover:bg-slate-800/40 border-b border-slate-800">
+                          <td className="py-3 px-3 text-slate-500 font-mono">{no}</td>
+                          <td className="py-3 px-3 font-semibold text-white">
+                            {d.m.nama}
+                            {d.isKadep && (
+                              <span className="ml-2 px-1.5 py-0.5 text-[10px] font-bold rounded border bg-purple-500/10 text-purple-300 border-purple-500/20">Kadep</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="font-mono font-bold text-emerald-400">{d.cuti} hari</span>
+                            {d.panjang.length > 0 && (
+                              <div className="mt-1 text-[10px] text-violet-300">
+                                + {d.panjang.map(e => `${shortType(e.type)} ${e.days} hari`).join(', ')} (tidak dihitung)
+                              </div>
+                            )}
+                            {d.khusus.length > 0 && (
+                              <div className="mt-1 text-[10px] text-orange-300">
+                                + {d.khusus.map(e => `${shortType(e.type)} ${e.days} hari`).join(', ')} (tidak dihitung)
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-center bg-sky-500/5">
+                            {sisaCuti === null
+                              ? <span className="text-slate-600 text-[11px]">memuat...</span>
+                              : d.sisa !== undefined
+                              ? (
+                                <div>
+                                  <span className="font-mono font-bold text-sky-400">{d.sisa} hari</span>
+                                  <div className="text-[10px] text-slate-500">
+                                    isi form {formatDisplayDate(d.filledAt)}{d.cutiSetelahIsi > 0 ? ` • −${d.cutiSetelahIsi}` : ''}
+                                  </div>
+                                </div>
+                              )
+                              : <span className="text-slate-600" title="Belum mengisi form alokasi cuti">-</span>}
+                          </td>
+                          <td className="py-3 px-3 text-center bg-amber-500/5">
+                            <div className="font-mono font-bold text-amber-400">{d.sakit} hari</div>
+                            <div className="text-[10px] text-slate-500">{d.sakitKali}x</div>
+                          </td>
+                          {rencanaKeys.map(key => (
+                            <td key={key} className="py-3 px-3 text-center bg-blue-500/5 font-mono text-xs text-blue-300 whitespace-nowrap">
+                              {d.rencana[key] || '-'}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </main>
