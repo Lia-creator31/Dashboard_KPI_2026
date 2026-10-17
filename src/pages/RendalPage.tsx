@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import ImportJobcardPage from './ImportJobcardPage';
+import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
 import { projectCandidates, dedupeRows } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
@@ -1270,6 +1271,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showRekapDivisi, setShowRekapDivisi] = useState(false);
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
@@ -1932,6 +1934,21 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     });
   }, [selectedDept, allParsedFromExcel]);
 
+  // ===== BARU: Grup Kadep + Staf per departemen untuk halaman Rekap Absensi Divisi =====
+  const divisiGroups = useMemo<DivisiGroup[]>(() => {
+    return (departmentsData || []).map(dept => {
+      const kadep = getKadepForDept(allParsedFromExcel, dept.name);
+      const seen = new Set<string>(kadep.map(p => p.nip || p.nama));
+      const staf = dept.biros.flatMap(b => getBiroMembers(b.name)).filter(p => {
+        const id = p.nip || p.nama;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+      return { deptName: dept.name, kadep, staf };
+    }).filter(g => g.kadep.length + g.staf.length > 0);
+  }, [allParsedFromExcel, getBiroMembers]);
+
   const activeSubconMembers = useMemo(() => {
     if (!subconSelectedBiro) return [];
     return getSubconMembersForBiro(subconSelectedBiro);
@@ -2053,6 +2070,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   }
   if (showImport) {
     return <ImportJobcardPage user={user} onLogout={onLogout} onBack={() => setShowImport(false)} />;
+  }
+  if (showRekapDivisi) {
+    return (
+      <RekapAbsensiDivisiPage
+        groups={divisiGroups}
+        wb={kpiWorkbook}
+        months={MONTHS}
+        getCsv={(k) => csvMonthMap[k] || ''}
+        onBack={() => setShowRekapDivisi(false)}
+        onUploadKpi={handleUploadKpiExcel}
+      />
+    );
   }
 
   return (
@@ -2429,6 +2458,22 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
               </div>
             </div>
+
+            {/* ===== BARU: Tombol Rekap Absensi Divisi Desain (di bawah garis, di atas kartu departemen) ===== */}
+            <button
+              onClick={() => setShowRekapDivisi(true)}
+              className="w-full bg-gradient-to-r from-purple-600/20 to-blue-600/10 hover:from-purple-600/30 border border-purple-500/30 hover:border-purple-400 rounded-xl p-4 flex items-center justify-between transition cursor-pointer group text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-purple-600 rounded-lg text-white"><Clock className="w-5 h-5" /></div>
+                <div>
+                  <div className="font-bold text-white text-sm">Rekap Absensi Divisi Desain</div>
+                  <div className="text-xs text-slate-400">Seluruh departemen: Kadep dan staf dalam satu halaman</div>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-purple-300 group-hover:translate-x-1 transition" />
+            </button>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {filteredDepartments.map((dept) => (
                 <div key={dept.id} onClick={() => setSelectedDept(dept)}
