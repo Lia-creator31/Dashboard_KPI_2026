@@ -544,19 +544,34 @@ function findMonthSheet(wb: XLSX.WorkBook | null, monthKey: string): string | un
 function buildRekap(wb: XLSX.WorkBook | null, biroName: string, monthKey: string, csv: string): AbsensiRow[] {
   const sheetName = findMonthSheet(wb, monthKey);
   if (!wb || !sheetName) return [];
-  const abs = new Map<string, { terlambat: number; sakit: number }>();
+  const abs = new Map<string, { terlambat: number; sakit: number; rencanaList: string[] }>();
+  
   (csv || '').split(/\r?\n/).forEach((line, i) => {
     if (i === 0 || !line.trim()) return;
     const p = line.split(',');
     if (p.length < 6) return;
     const k = cleanText(p[1] || '');
-    if (k) abs.set(k, { terlambat: absNum(p[p.length - 3]), sakit: absNum(p[p.length - 2]) });
+    if (k) {
+      // Ambil data setelah kolom sakit (misal dari indeks setelah sakit hingga akhir baris)
+      // Asumsi kolom sakit berada di posisi tertentu atau kita ambil dinamis
+      const sakitVal = absNum(p[p.length - 2]);
+      const terlambatVal = absNum(p[p.length - 3]);
+      
+      // Mengambil kolom-kolom rencana setelah kolom sakit
+      // Contoh: kolom-kolom setelah sakit
+      const sakitIdx = p.length - 2;
+      const rencanaList = p.slice(sakitIdx + 1).map(val => val.trim());
+
+      abs.set(k, { terlambat: terlambatVal, sakit: sakitVal, rencanaList });
+    }
   });
+
   const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
   const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
   const planIdx = head.findIndex(h => h.includes('plan'));
   const PLAN_COL = planIdx >= 0 ? planIdx : 9;
   const people = new Map<string, AbsensiRow>();
+
   rows.forEach((row, i) => {
     if (i === 0 || !row) return;
     const nip = String(row[0] || '').trim();
@@ -564,16 +579,38 @@ function buildRekap(wb: XLSX.WorkBook | null, biroName: string, monthKey: string
     if (!(nama || nip)) return;
     if (!isBiroMatch(String(row[7] || ''), biroName)) return;
     const key = cleanText(nama || nip);
-    const p = people.get(key) || { nip: nip || '-', nama: nama || '-', planned: 0, effective: 0, overtime: 0, idle: 0, terlambat: 0, sakit: 0 };
+    const p = people.get(key) || { 
+      nip: nip || '-', 
+      nama: nama || '-', 
+      planned: 0, 
+      effective: 0, 
+      overtime: 0, 
+      idle: 0, 
+      terlambat: 0, 
+      sakit: 0 
+    };
     p.planned += absNum(row[PLAN_COL]);
     p.effective += absNum(row[10]);
     p.overtime += absNum(row[11]);
     p.idle += absNum(row[12]);
     people.set(key, p);
   });
+
   return Array.from(people.values()).map(p => {
     const a = abs.get(cleanText(p.nama));
-    return { ...p, terlambat: a ? a.terlambat : 0, sakit: a ? a.sakit : 0 };
+    const baseRow: AbsensiRow = { 
+      ...p, 
+      terlambat: a ? a.terlambat : 0, 
+      sakit: a ? a.sakit : 0 
+    };
+    
+    // Memasukkan dinamis kolom Rencana 1, Rencana 2, dst. tepat setelah sakit
+    if (a && a.rencanaList) {
+      a.rencanaList.forEach((val, idx) => {
+        baseRow[`rencana${idx + 1}`] = val;
+      });
+    }
+    return baseRow;
   });
 }
 
