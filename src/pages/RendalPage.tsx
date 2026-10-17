@@ -1111,10 +1111,10 @@ function CutiSakitPanel({ biroName, members, wb, sisaCuti, title }: {
   );
 }
 
-// ===== TAMBAHKAN KOMPONEN INI DI ATAS `export default function RendalPage` =====
+// ===== KOMPONEN BARU: Panel Plan Cuti Mingguan Departemen =====
 function DeptWeeklyTimeOffPanel({ deptName, members, wb }: {
   deptName: string;
-  members: ParsedMember[];
+  members: PadaftParsedMember[];
   wb: XLSX.WorkBook | null;
 }) {
   const entries = useMemo(() => parseTimeOff(wb), [wb]);
@@ -1149,7 +1149,7 @@ function DeptWeeklyTimeOffPanel({ deptName, members, wb }: {
   if (!wb) return null;
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 mb-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h5 className="text-xs font-bold text-white uppercase tracking-wide flex items-center gap-2">
           <Clock className="w-3.5 h-3.5 text-cyan-400" />
@@ -1859,7 +1859,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const currentActiveBiroKey = useMemo(() => cleanText(currentActiveBiroName), [currentActiveBiroName]);
   const currentActiveBiroTasks = useMemo(() => manualTasks[currentActiveBiroKey] || [], [manualTasks, currentActiveBiroKey]);
 
-    // ===== TAMBAHKAN INI =====
+  // ===== PERBAIKAN UTAMA: Logika ini memastikan data Kadep muncul saat diklik =====
+  const currentBiroMembers = useMemo(() => {
+    if (!selectedFormBiro) return [];
+    if (selectedFormBiro.biroName.startsWith('Kepala ')) {
+      return getKadepForDept(allParsedFromExcel, selectedFormBiro.deptName);
+    }
+    return getBiroMembers(selectedFormBiro.biroName);
+  }, [selectedFormBiro, allParsedFromExcel]);
+
+  // ===== Gabungan semua anggota departemen untuk Panel Mingguan =====
   const allDeptMembers = useMemo(() => {
     if (!selectedDept) return [];
     const kadeps = getKadepForDept(allParsedFromExcel, selectedDept.name);
@@ -2058,6 +2067,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             </div>
           </div>
         )}
+
         {accessMode === 'subkon' && !subconSelectedDept && !subconSelectedBiro && (
           <div className="space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
@@ -2097,6 +2107,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             </div>
           </div>
         )}
+
         {accessMode === 'subkon' && subconSelectedDept && !subconSelectedBiro && (
           <div className="space-y-4">
             <button onClick={() => setSubconSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
@@ -2129,6 +2140,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             </div>
           </div>
         )}
+
         {accessMode === 'subkon' && subconSelectedBiro && (
           <div className="space-y-4">
             <button onClick={() => setSubconSelectedBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
@@ -2303,6 +2315,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             )}
           </div>
         )}
+
         {accessMode === 'organik' && !selectedDept && !selectedFormBiro && (
           <div className="space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
@@ -2380,322 +2393,330 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             </div>
           </div>
         )}
-{accessMode === 'organik' && selectedDept && !selectedFormBiro && (
-  <div className="space-y-4">
-    <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-      <ArrowLeft className="w-3.5 h-3.5" /> Kembali
-    </button>
-    <div className="border-b border-slate-800 pb-2">
-      <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
-      <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
-    </div>
 
-    {/* ===== 1. PANEL PLAN CUTI MINGGU INI (DI ATAS) ===== */}
-    <DeptWeeklyTimeOffPanel 
-      deptName={selectedDept.name} 
-      members={allDeptMembers} 
-      wb={timeOffWorkbook} 
-    />
-
-    {/* ===== 2. BARIS KADEP (TOMBOL REKAP ABSENSI SAJA) ===== */}
-    {(() => {
-      const kadepList = getKadepForDept(allParsedFromExcel, selectedDept.name);
-      if (kadepList.length > 0) {
-        return (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">K</div>
-              <div>
-                <span className="font-semibold text-white text-sm">Kepala {selectedDept.name}</span>
-                <div className="text-[11px] text-slate-400">{kadepList.length} Pegawai</div>
-              </div>
+        {/* ===== TAMPILAN DETAIL DEPARTEMEN (Dengan Panel Mingguan & Tombol Kadep) ===== */}
+        {accessMode === 'organik' && selectedDept && !selectedFormBiro && (
+          <div className="space-y-4">
+            <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
+              <ArrowLeft className="w-3.5 h-3.5" /> Kembali
+            </button>
+            <div className="border-b border-slate-800 pb-2">
+              <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
+              <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <button
-                onClick={() => {
-                  setSelectedFormBiro({ biroName: `Kepala ${selectedDept.name}`, deptName: selectedDept.name });
-                  setFormPageMode('absensi');
-                }}
-                className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer flex items-center gap-1"
-              >
-                <Clock className="w-3 h-3" /> Rekap Absensi
-              </button>
-            </div>
-          </div>
-        );
-      }
-      return null;
-    })()}
 
-    {/* ===== 3. DAFTAR BIRO ===== */}
-    <div className="space-y-2">
-      {selectedDept.biros.map((biro) => (
-        <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <span className="font-semibold text-white text-sm">{biro.name}</span>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('members'); }}
-              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer">Anggota</button>
-            <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }}
-              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer">Form</button>
-            <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('absensi'); setAbsensiMonth(null); }}
-              className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer">Rekap Absensi</button>
-          </div>
-        </div>
-      ))}
-    </div>
-  </div>
-)}
-        {accessMode === 'organik' && selectedFormBiro && (
-  <div className="space-y-4">
-    <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-      <ArrowLeft className="w-3.5 h-3.5" /> Kembali
-    </button>
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-      <div>
-        <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
-        <div className="text-xs text-slate-400 font-mono flex items-center gap-2 mt-0.5">
-          <span>{currentBiroMembers.length} Pegawai Organik</span>
-          {activeDrawingSheetTitle && (
-            <span className="text-emerald-400 flex items-center gap-1">• <Sparkles className="w-3 h-3 text-amber-400" /> {activeDrawingSheetTitle}</span>
-          )}
-        </div>
-      </div>
-      <div className="flex items-center gap-2 flex-wrap">
-        <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-          <Clock className="w-3 h-3 text-emerald-400" /><span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
-          <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
-        </label>
-        <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-          {/* Sembunyikan tab Anggota & Form khusus untuk Kadep */}
-          {!selectedFormBiro.biroName.startsWith('Kepala ') && (
-            <>
-              <button onClick={() => setFormPageMode('members')}
-                className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'members' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
-                Anggota ({currentBiroMembers.length})
-              </button>
-              <button onClick={() => setFormPageMode('form')}
-                className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'form' ? 'bg-emerald-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
-                Form
-              </button>
-            </>
-          )}
-          <button onClick={() => setFormPageMode('absensi')}
-            className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'absensi' ? 'bg-purple-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
-            Rekap Absensi
-          </button>
-        </div>
-      </div>
-    </div>
-    {formPageMode === 'members' && (
-      <div className="space-y-2.5">
-        {currentBiroMembers.length > 0 ? currentBiroMembers.map((person) => {
-          const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
-          const isExpanded = !!expandedCards[person.nama];
-          return (
-            <div key={`${person.nama}-${person.nip}`} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-              <div onClick={() => toggleAccordion(person.nama)} className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">{person.nama.charAt(0)}</div>
-                  <div>
-                    <div className="font-semibold text-white text-sm">{person.nama} <span className="text-xs font-mono text-cyan-400 font-normal">({person.status})</span></div>
-                    <div className="text-xs text-slate-400 font-mono">NIP: {person.nip || '-'} • <span className="text-slate-400">{person.jabatan}</span></div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs font-mono text-slate-400 hidden sm:inline">{personTasks.length} Tugas</span>
-                  <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-blue-400' : ''}`}>
-                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </div>
-                </div>
-              </div>
-              {isExpanded && (
-                <div className="p-3.5 border-t border-slate-800 bg-slate-950/60">
-                  {personTasks.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead><tr className="text-slate-400 border-b border-slate-800">
-                          <th className="py-2 px-2.5 w-8">#</th>
-                          <th className="py-2 px-2.5 font-mono text-amber-400">Jobcard</th>
-                          <th className="py-2 px-2.5">Proyek</th>
-                          <th className="py-2 px-2.5">Deskripsi</th>
-                          <th className="py-2 px-2.5 text-center font-mono">Rev</th>
-                          <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
-                          <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
-                          <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
-                          <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
-                          <th className="py-2 px-2.5 font-mono text-cyan-300">Release</th>
-                          <th className="py-2 px-2.5 text-center w-20">Aksi</th>
-                        </tr></thead>
-                        <tbody className="divide-y divide-slate-800 text-slate-300">
-                          {personTasks.map((task, tIdx) => {
-                            const jcKey = cleanText(task.kodeJc || '');
-                            const calculatedRealHours = jcKey ? realisasiMap.get(jcKey) : undefined;
-                            return (
-                              <tr key={task.id} className="hover:bg-slate-900/40">
-                                <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
-                                <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}</td>
-                                <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
-                                <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
-                                <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
-                                <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate)}</td>
-                                <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate)}</td>
-                                <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo ? String(task.jo).replace(/^#+/, '') : '-'}</td>
-                                <td className="py-2 px-2.5 font-mono font-bold">
-                                  {calculatedRealHours !== undefined ? (
-                                    <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">{Math.round(calculatedRealHours * 100) / 100} Jam</span>
-                                  ) : task.kodeJc ? <span className="text-slate-500 font-normal">0 Jam</span> : <span className="text-slate-600 font-normal">-</span>}
-                                </td>
-                                <td className="py-2 px-2.5 font-mono text-[11px]">
-                                  {editingReleaseId === task.id ? (
-                                    <div className="flex items-center gap-1">
-                                      <input type="date" value={editingReleaseVal} onChange={(e) => setEditingReleaseVal(e.target.value)}
-                                        style={{ colorScheme: 'dark' }} className="px-1.5 py-0.5 bg-slate-900 border border-blue-500 rounded text-xs text-white" autoFocus />
-                                      <button onClick={() => handleQuickSaveRelease(task.id, editingReleaseVal)} className="p-1 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 rounded cursor-pointer" title="Simpan">
-                                        <Check className="w-3 h-3" />
-                                      </button>
-                                      <button onClick={() => setEditingReleaseId(null)} className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer" title="Batal">
-                                        <X className="w-3 h-3" />
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center gap-1.5 group">
-                                      <span className="text-cyan-300 font-semibold">{formatDisplayDate(task.release)}</span>
-                                      <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
-                                        <button onClick={(e) => { e.stopPropagation(); setEditingReleaseId(task.id); setEditingReleaseVal(parseToStandardDate(task.release) || ''); }}
-                                          className="p-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer" title="Edit Langsung Tanggal Release">
-                                          <Pencil className="w-3 h-3" />
-                                        </button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleSyncReleaseFromDrive(task); }}
-                                          className="p-0.5 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition cursor-pointer" title="Tarik Otomatis dari Link Google Drive">
-                                          <Sparkles className="w-3 h-3" />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
-                                </td>
-                                <td className="py-2 px-2.5 text-center">
-                                  <div className="flex items-center justify-center gap-1.5">
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
-                                      className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
-                                      title="Hapus Tugas"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
+            {/* 1. Panel Plan Cuti Minggu Ini (Di Atas) */}
+            <DeptWeeklyTimeOffPanel 
+              deptName={selectedDept.name} 
+              members={allDeptMembers} 
+              wb={timeOffWorkbook} 
+            />
+
+            {/* 2. Baris Kadep (Hanya Tombol Rekap Absensi) */}
+            {(() => {
+              const kadepList = getKadepForDept(allParsedFromExcel, selectedDept.name);
+              if (kadepList.length > 0) {
+                return (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">K</div>
+                      <div>
+                        <span className="font-semibold text-white text-sm">Kepala {selectedDept.name}</span>
+                        <div className="text-[11px] text-slate-400">{kadepList.length} Pegawai</div>
+                      </div>
                     </div>
-                  ) : <div className="text-xs text-slate-500 py-3 text-center italic">Belum ada tugas. Buka tab <b>Form</b> di atas untuk menambahkan penugasan.</div>}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        onClick={() => {
+                          setSelectedFormBiro({ biroName: `Kepala ${selectedDept.name}`, deptName: selectedDept.name });
+                          setFormPageMode('absensi');
+                        }}
+                        className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer flex items-center gap-1"
+                      >
+                        <Clock className="w-3 h-3" /> Rekap Absensi
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            {/* 3. Daftar Biro */}
+            <div className="space-y-2">
+              {selectedDept.biros.map((biro) => (
+                <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <span className="font-semibold text-white text-sm">{biro.name}</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('members'); }}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer">Anggota</button>
+                    <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer">Form</button>
+                    <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('absensi'); setAbsensiMonth(null); }}
+                      className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer">Rekap Absensi</button>
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
-          );
-        }) : <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">Tidak ada personil organik di biro ini (Silakan upload Master IM4 terlebih dahulu)</div>}
-      </div>
-    )}
-    {formPageMode === 'form' && (
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <label className="block text-slate-400 mb-1">Nama Personel (Organik)</label>
-              <SearchableSelect options={currentBiroMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.status})` }))}
-                value={formData.nama} onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
-                placeholder="Ketik nama personel organik..." required />
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Kode Proyek</label>
-              <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
-                placeholder="Ketik kode proyek (contoh: M000313)..." required />
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Plan JO</label>
-              <input type="text" inputMode="decimal" value={formData.jo}
-                onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
-                placeholder="Contoh: 300426" required
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
-            </div>
-            <div className="md:col-span-2">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-slate-400">Deskripsi</label>
-                {isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Google Drive...</span>}
+          </div>
+        )}
+
+        {/* ===== TAMPILAN DETAIL BIRO / KADEP ===== */}
+        {accessMode === 'organik' && selectedFormBiro && (
+          <div className="space-y-4">
+            <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
+              <ArrowLeft className="w-3.5 h-3.5" /> Kembali
+            </button>
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-white text-sm">{selectedFormBiro.biroName}</h3>
+                <div className="text-xs text-slate-400 font-mono flex items-center gap-2 mt-0.5">
+                  <span>{currentBiroMembers.length} Pegawai Organik</span>
+                  {activeDrawingSheetTitle && (
+                    <span className="text-emerald-400 flex items-center gap-1">• <Sparkles className="w-3 h-3 text-amber-400" /> {activeDrawingSheetTitle}</span>
+                  )}
+                </div>
               </div>
-              <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={handleDeskripsiChange}
-                placeholder="Ketik no dwg atau nama gambar (misal: Shaft Protection)..." required />
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
-              <input type="text" value={formData.rev}
-                onChange={(e) => {
-                  const newRev = e.target.value;
-                  const cleanProj = cleanText(formData.kodeProyek || '');
-                  const rows = drawingControlMap[cleanProj] || [];
-                  let autoRel = '';
-                  const exactMatch = rows.find(r => {
-                    const cFull = cleanText(r.fullDeskripsi); const cName = cleanText(r.drawingName);
-                    const isRevMatch = String(r.rev || '0').trim() === String(newRev).trim();
-                    const isNameMatch = cFull === cleanText(formData.taskName) || (cName && cleanText(formData.taskName).includes(cName));
-                    return isNameMatch && isRevMatch;
-                  });
-                  if (exactMatch && exactMatch.finishDate) autoRel = parseToStandardDate(exactMatch.finishDate);
-                  else autoRel = '';
-                  setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
-                }}
-                placeholder="0" className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
-            </div>
-            <div className="hidden">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-slate-400">Release (Tanggal-Bulan-Tahun)</label>
-                <div className="flex items-center gap-1.5">
-                  {formData.release && <span className="text-[10px] text-cyan-300 font-mono font-semibold">{formatDisplayDate(formData.release)}</span>}
-                  <button type="button" onClick={() => handleDeskripsiChange(formData.taskName)}
-                    className="px-1.5 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-[10px] flex items-center gap-1 cursor-pointer" title="Tarik ulang dari Link Drive">
-                    <Sparkles className="w-2.5 h-2.5" /> Dari Drive
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+                  <Clock className="w-3 h-3 text-emerald-400" /><span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
+                  <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
+                </label>
+                <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                  {/* Sembunyikan tab Anggota & Form khusus untuk Kadep */}
+                  {!selectedFormBiro.biroName.startsWith('Kepala ') && (
+                    <>
+                      <button onClick={() => setFormPageMode('members')}
+                        className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'members' ? 'bg-blue-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
+                        Anggota ({currentBiroMembers.length})
+                      </button>
+                      <button onClick={() => setFormPageMode('form')}
+                        className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'form' ? 'bg-emerald-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
+                        Form
+                      </button>
+                    </>
+                  )}
+                  <button onClick={() => setFormPageMode('absensi')}
+                    className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'absensi' ? 'bg-purple-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
+                    Rekap Absensi
                   </button>
                 </div>
               </div>
-              <input type="date" value={formData.release} onChange={(e) => setFormData(prev => ({ ...prev, release: e.target.value }))}
-                style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
             </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Plan Start</label>
-              <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                required style={{ colorScheme: 'dark' }}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1">Plan Finish</label>
-              <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                required style={{ colorScheme: 'dark' }}
-                className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
-            </div>
+
+            {formPageMode === 'members' && (
+              <div className="space-y-2.5">
+                {currentBiroMembers.length > 0 ? currentBiroMembers.map((person) => {
+                  const personTasks = currentActiveBiroTasks.filter(t => cleanText(t.pic) === cleanText(person.nama));
+                  const isExpanded = !!expandedCards[person.nama];
+                  return (
+                    <div key={`${person.nama}-${person.nip}`} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                      <div onClick={() => toggleAccordion(person.nama)} className="p-3.5 flex items-center justify-between cursor-pointer hover:bg-slate-800/40 transition">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">{person.nama.charAt(0)}</div>
+                          <div>
+                            <div className="font-semibold text-white text-sm">{person.nama} <span className="text-xs font-mono text-cyan-400 font-normal">({person.status})</span></div>
+                            <div className="text-xs text-slate-400 font-mono">NIP: {person.nip || '-'} • <span className="text-slate-400">{person.jabatan}</span></div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-mono text-slate-400 hidden sm:inline">{personTasks.length} Tugas</span>
+                          <div className={`p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 transition-transform duration-200 ${isExpanded ? 'text-blue-400' : ''}`}>
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </div>
+                        </div>
+                      </div>
+                      {isExpanded && (
+                        <div className="p-3.5 border-t border-slate-800 bg-slate-950/60">
+                          {personTasks.length > 0 ? (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs">
+                                <thead><tr className="text-slate-400 border-b border-slate-800">
+                                  <th className="py-2 px-2.5 w-8">#</th>
+                                  <th className="py-2 px-2.5 font-mono text-amber-400">Jobcard</th>
+                                  <th className="py-2 px-2.5">Proyek</th>
+                                  <th className="py-2 px-2.5">Deskripsi</th>
+                                  <th className="py-2 px-2.5 text-center font-mono">Rev</th>
+                                  <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Start</th>
+                                  <th className="py-2 px-2.5 font-mono text-cyan-400">Plan Finish</th>
+                                  <th className="py-2 px-2.5 font-mono text-violet-300">Plan JO</th>
+                                  <th className="py-2 px-2.5 font-mono text-emerald-400">Real JO</th>
+                                  <th className="py-2 px-2.5 font-mono text-cyan-300">Release</th>
+                                  <th className="py-2 px-2.5 text-center w-20">Aksi</th>
+                                </tr></thead>
+                                <tbody className="divide-y divide-slate-800 text-slate-300">
+                                  {personTasks.map((task, tIdx) => {
+                                    const jcKey = cleanText(task.kodeJc || '');
+                                    const calculatedRealHours = jcKey ? realisasiMap.get(jcKey) : undefined;
+                                    return (
+                                      <tr key={task.id} className="hover:bg-slate-900/40">
+                                        <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
+                                        <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}</td>
+                                        <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
+                                        <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
+                                        <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate)}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate)}</td>
+                                        <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo ? String(task.jo).replace(/^#+/, '') : '-'}</td>
+                                        <td className="py-2 px-2.5 font-mono font-bold">
+                                          {calculatedRealHours !== undefined ? (
+                                            <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">{Math.round(calculatedRealHours * 100) / 100} Jam</span>
+                                          ) : task.kodeJc ? <span className="text-slate-500 font-normal">0 Jam</span> : <span className="text-slate-600 font-normal">-</span>}
+                                        </td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px]">
+                                          {editingReleaseId === task.id ? (
+                                            <div className="flex items-center gap-1">
+                                              <input type="date" value={editingReleaseVal} onChange={(e) => setEditingReleaseVal(e.target.value)}
+                                                style={{ colorScheme: 'dark' }} className="px-1.5 py-0.5 bg-slate-900 border border-blue-500 rounded text-xs text-white" autoFocus />
+                                              <button onClick={() => handleQuickSaveRelease(task.id, editingReleaseVal)} className="p-1 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 rounded cursor-pointer" title="Simpan">
+                                                <Check className="w-3 h-3" />
+                                              </button>
+                                              <button onClick={() => setEditingReleaseId(null)} className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer" title="Batal">
+                                                <X className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <div className="flex items-center gap-1.5 group">
+                                              <span className="text-cyan-300 font-semibold">{formatDisplayDate(task.release)}</span>
+                                              <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
+                                                <button onClick={(e) => { e.stopPropagation(); setEditingReleaseId(task.id); setEditingReleaseVal(parseToStandardDate(task.release) || ''); }}
+                                                  className="p-0.5 rounded text-slate-400 hover:text-cyan-300 hover:bg-slate-800 transition cursor-pointer" title="Edit Langsung Tanggal Release">
+                                                  <Pencil className="w-3 h-3" />
+                                                </button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleSyncReleaseFromDrive(task); }}
+                                                  className="p-0.5 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition cursor-pointer" title="Tarik Otomatis dari Link Google Drive">
+                                                  <Sparkles className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </td>
+                                        <td className="py-2 px-2.5 text-center">
+                                          <div className="flex items-center justify-center gap-1.5">
+                                            <button
+                                              onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
+                                              className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                                              title="Hapus Tugas"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : <div className="text-xs text-slate-500 py-3 text-center italic">Belum ada tugas. Buka tab <b>Form</b> di atas untuk menambahkan penugasan.</div>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }) : <div className="py-8 text-center text-xs text-slate-500 bg-slate-900 border border-slate-800 rounded-xl">Tidak ada personil organik di biro ini (Silakan upload Master IM4 terlebih dahulu)</div>}
+              </div>
+            )}
+
+            {formPageMode === 'form' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-slate-400 mb-1">Nama Personel (Organik)</label>
+                      <SearchableSelect options={currentBiroMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.status})` }))}
+                        value={formData.nama} onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
+                        placeholder="Ketik nama personel organik..." required />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Kode Proyek</label>
+                      <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
+                        placeholder="Ketik kode proyek (contoh: M000313)..." required />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Plan JO</label>
+                      <input type="text" inputMode="decimal" value={formData.jo}
+                        onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
+                        placeholder="Contoh: 300426" required
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
+                    </div>
+                    <div className="md:col-span-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Deskripsi</label>
+                        {isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Google Drive...</span>}
+                      </div>
+                      <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={handleDeskripsiChange}
+                        placeholder="Ketik no dwg atau nama gambar (misal: Shaft Protection)..." required />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
+                      <input type="text" value={formData.rev}
+                        onChange={(e) => {
+                          const newRev = e.target.value;
+                          const cleanProj = cleanText(formData.kodeProyek || '');
+                          const rows = drawingControlMap[cleanProj] || [];
+                          let autoRel = '';
+                          const exactMatch = rows.find(r => {
+                            const cFull = cleanText(r.fullDeskripsi); const cName = cleanText(r.drawingName);
+                            const isRevMatch = String(r.rev || '0').trim() === String(newRev).trim();
+                            const isNameMatch = cFull === cleanText(formData.taskName) || (cName && cleanText(formData.taskName).includes(cName));
+                            return isNameMatch && isRevMatch;
+                          });
+                          if (exactMatch && exactMatch.finishDate) autoRel = parseToStandardDate(exactMatch.finishDate);
+                          else autoRel = '';
+                          setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
+                        }}
+                        placeholder="0" className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
+                    </div>
+                    <div className="hidden">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Release (Tanggal-Bulan-Tahun)</label>
+                        <div className="flex items-center gap-1.5">
+                          {formData.release && <span className="text-[10px] text-cyan-300 font-mono font-semibold">{formatDisplayDate(formData.release)}</span>}
+                          <button type="button" onClick={() => handleDeskripsiChange(formData.taskName)}
+                            className="px-1.5 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-[10px] flex items-center gap-1 cursor-pointer" title="Tarik ulang dari Link Drive">
+                            <Sparkles className="w-2.5 h-2.5" /> Dari Drive
+                          </button>
+                        </div>
+                      </div>
+                      <input type="date" value={formData.release} onChange={(e) => setFormData(prev => ({ ...prev, release: e.target.value }))}
+                        style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Plan Start</label>
+                      <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                        required style={{ colorScheme: 'dark' }}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Plan Finish</label>
+                      <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                        required style={{ colorScheme: 'dark' }}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                    </div>
+                  </div>
+                  <div className="flex justify-end pt-2">
+                    <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer">
+                      Simpan Tugas
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {formPageMode === 'absensi' && (
+              <>
+                <CutiSakitPanel
+                  biroName={selectedFormBiro.biroName}
+                  members={currentBiroMembers}
+                  wb={timeOffWorkbook}
+                  sisaCuti={sisaCuti}
+                />
+              </>
+            )}
           </div>
-          <div className="flex justify-end pt-2">
-            <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer">
-              Simpan Tugas
-            </button>
-          </div>
-        </form>
-      </div>
-    )}
-    {formPageMode === 'absensi' && (
-      <>
-        <CutiSakitPanel
-          biroName={selectedFormBiro.biroName}
-          members={currentBiroMembers}
-          wb={timeOffWorkbook}
-          sisaCuti={sisaCuti}
-        />
-      </>
-    )}
-  </div>
-)}
+        )}
       </main>
+
       {editingTask && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-fadeIn">
@@ -2872,6 +2893,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         </div>
       )}
+
       {isPlannerOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
