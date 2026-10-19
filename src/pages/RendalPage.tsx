@@ -757,7 +757,7 @@ export interface SisaCutiInfo {
   nama: string;
   sisa: number;
   filledAt: string;
-  rencana: Record<string, string>; // <--- TAMBAHAN: Untuk menampung Rencana 1, Rencana 2, dst.
+  rencana: Record<string, string>; // Rencana 1, Rencana 2, dst. dari Google Sheet
 }
 
 export interface SisaCutiData {
@@ -824,12 +824,12 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
     const wb = XLSX.read(src.text, { type: 'string' });
     const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
     if (rows.length < 2) return null;
-    
+
     const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
     let cTs = head.findIndex(h => h.includes('timestamp') || h.includes('cap waktu'));
     let cName = head.findIndex(h => h.includes('nama personel'));
     let cSisa = head.findIndex(h => h.includes('jumlah sisa cuti'));
-    
+
     // Cari semua kolom yang mengandung kata "rencana" (case-insensitive)
     const rencanaCols: { index: number; name: string }[] = [];
     head.forEach((h, idx) => {
@@ -841,7 +841,7 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
     if (cTs < 0) cTs = 0;
     if (cName < 0) cName = 2;
     if (cSisa < 0) cSisa = 5;
-    
+
     const byName = new Map<string, SisaCutiInfo>();
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
@@ -849,19 +849,19 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
       if (sisaNum === null) continue;
       const nm = cleanText(String(r[cName] ?? ''));
       if (!nm) continue;
-      
+
       const rencanaData: Record<string, string> = {};
       rencanaCols.forEach(col => {
         rencanaData[col.name] = String(r[col.index] ?? '').trim() || '-';
       });
 
-      const info: SisaCutiInfo = { 
-        nama: String(r[cName] ?? '').trim(), 
-        sisa: sisaNum, 
+      const info: SisaCutiInfo = {
+        nama: String(r[cName] ?? '').trim(),
+        sisa: sisaNum,
         filledAt: parseSheetTimestamp(r[cTs], src.order),
         rencana: rencanaData
       };
-      
+
       const old = byName.get(nm);
       if (!old || info.filledAt >= old.filledAt) byName.set(nm, info);
     }
@@ -912,6 +912,45 @@ export function findSisaCuti(data: SisaCutiData | null, nama: string, allNames: 
   return best;
 }
 
+/* ===== BARU: Parser isi kolom "Rencana" (teks dari Google Sheet) menjadi rentang tanggal =====
+   Format yang dikenali:
+   - tanggal tunggal : "20-10-2026", "2026-10-20", "20 Oktober 2026"
+   - rentang          : "20-10-2026 s/d 22-10-2026", "20 Okt 2026 sampai 22 Okt 2026"
+   - rentang pendek   : "20-22 Oktober 2026"
+   - beberapa tanggal dipisah koma / baris baru
+   Format tanggal angka dianggap dd-mm-yyyy. */
+const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseRencanaRanges(raw: string): { start: string; end: string }[] {
+  const s = String(raw || '').trim();
+  if (!s || s === '-') return [];
+  const out: { start: string; end: string }[] = [];
+  const mon = '[A-Za-z]{3,9}';
+
+  // a) "20-22 Oktober 2026"
+  const rShort = new RegExp(`(\\d{1,2})\\s*(?:-|–|s/d|sd|sampai)\\s*(\\d{1,2})\\s+(${mon})\\s+(\\d{4})`, 'gi');
+  for (const m of s.matchAll(rShort)) {
+    const a = parseToStandardDate(`${m[1]} ${m[3]} ${m[4]}`);
+    const b = parseToStandardDate(`${m[2]} ${m[3]} ${m[4]}`);
+    if (ISO_RE.test(a) && ISO_RE.test(b)) out.push({ start: a, end: b });
+  }
+  const rest = s.replace(rShort, ' ');
+
+  // b) tanggal lengkap (tunggal atau pasangan awal-akhir)
+  const dateRe = new RegExp(
+    `\\d{4}-\\d{1,2}-\\d{1,2}|\\d{1,2}[/-]\\d{1,2}[/-]\\d{4}|\\d{1,2}\\s+${mon}\\s+\\d{4}`, 'g');
+  const dates = (rest.match(dateRe) || []).map(parseToStandardDate).filter(d => ISO_RE.test(d));
+  const between = rest.replace(dateRe, '|');
+  const isRange = dates.length === 2 && /s\/d|\bsd\b|sampai|hingga|–|\s-\s/i.test(between);
+  if (isRange) {
+    const [a, b] = dates[0] <= dates[1] ? [dates[0], dates[1]] : [dates[1], dates[0]];
+    out.push({ start: a, end: b });
+  } else {
+    dates.forEach(d => out.push({ start: d, end: d }));
+  }
+  return out;
+}
+
 const isKadep = (jabatan: string) => {
   const j = (jabatan || '').toLowerCase();
   return j.includes('kepala departemen') || /\bkadep\b/.test(j);
@@ -949,7 +988,7 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
   const week = useMemo(() => getWeekRange(), []);
   const today = useMemo(() => isoLocal(new Date()), []);
   const year = String(new Date().getFullYear());
-  
+
   // Ambil semua key "Rencana" yang unik dari data sisa cuti untuk header tabel
   const rencanaKeys = useMemo(() => {
     if (!sisaCuti) return [];
@@ -999,7 +1038,7 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
         panjang: inYear.filter(e => e.kind === 'panjang'),
         khusus: cutiKhusus,
         minggu: mine.filter(e => e.start <= week.to && e.end >= week.from),
-        rencana: info?.rencana || {}, // <--- TAMBAHAN: Data rencana per orang
+        rencana: info?.rencana || {},
       };
     });
   }, [members, entries, week, sisaCuti]);
@@ -1086,7 +1125,7 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
                   <th className="py-3 px-3">Realisasi Cuti {year}</th>
                   <th className="py-3 px-8 text-center text-sky-400 bg-sky-500/5">Sisa Cuti</th>
                   <th className="py-3 px-3 text-center text-amber-400 bg-amber-500/5">Sakit</th>
-                  {/* <--- TAMBAHAN: Kolom-kolom Rencana dinamis setelah Sakit ---> */}
+                  {/* Kolom-kolom Rencana dinamis setelah Sakit */}
                   {rencanaKeys.map(key => (
                     <th key={key} className="py-3 px-3 text-center text-blue-400 bg-blue-500/5 whitespace-nowrap">
                       {key}
@@ -1136,7 +1175,7 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
                       <div className="font-mono font-bold text-amber-400">{d.sakit} hari</div>
                       <div className="text-[10px] text-slate-500">{d.sakitKali}x</div>
                     </td>
-                    {/* <--- TAMBAHAN: Isi data Rencana per orang ---> */}
+                    {/* Isi data Rencana per orang */}
                     {rencanaKeys.map(key => (
                       <td key={key} className="py-3 px-3 text-center bg-blue-500/5 font-mono text-xs text-blue-300 whitespace-nowrap">
                         {d.rencana[key] || '-'}
@@ -1168,42 +1207,89 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
   );
 }
 
-// ===== KOMPONEN BARU: Panel Plan Cuti Mingguan Departemen =====
-function DeptWeeklyTimeOffPanel({ deptName, members, wb }: {
+// ===== Panel "Tidak Masuk Minggu Ini" per Departemen =====
+// Sumber data:
+//   1) Time Off Approved dari TIME_OFF_DIVISI_DESAIN.xlsx
+//   2) Rencana cuti (Rencana 1, Rencana 2, ...) dari Google Sheet Form Alokasi Cuti
+function DeptWeeklyTimeOffPanel({ deptName, members, wb, sisaCuti }: {
   deptName: string;
   members: ParsedMember[];
   wb: XLSX.WorkBook | null;
+  sisaCuti: SisaCutiData | null;
 }) {
   const entries = useMemo(() => parseTimeOff(wb), [wb]);
   const week = useMemo(() => getWeekRange(), []);
   const today = useMemo(() => isoLocal(new Date()), []);
 
-  const orangMinggu = useMemo(() => {
-    return members.map(m => {
+  type WeekItem = {
+    key: string;
+    nama: string;
+    label: string;
+    start: string;
+    end: string;
+    kind: TimeOffEntry['kind'] | 'rencana';
+  };
+
+  const items = useMemo<WeekItem[]>(() => {
+    const allNames = members.map(x => x.nama);
+    const list: WeekItem[] = [];
+    members.forEach(m => {
       const nip = normNip(m.nip), nm = cleanText(m.nama);
       const mine = entries.filter(e =>
         e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm)
       );
-      const minggu = mine.filter(e => e.start <= week.to && e.end >= week.from);
-      return { m, minggu };
-    }).filter(d => d.minggu.length > 0);
-  }, [members, entries, week]);
 
-  const kindLabel = (k: TimeOffEntry['kind']) => {
+      // 1) Time Off Approved yang beririsan dengan minggu ini
+      mine
+        .filter(e => e.start <= week.to && e.end >= week.from)
+        .forEach((e, i) => list.push({
+          key: `to-${m.nip || m.nama}-${i}`,
+          nama: m.nama,
+          label: shortType(e.type),
+          start: e.start,
+          end: e.end,
+          kind: e.kind,
+        }));
+
+      // 2) Rencana dari Google Sheet
+      const info = findSisaCuti(sisaCuti, m.nama, allNames);
+      if (!info?.rencana) return;
+      Object.entries(info.rencana).forEach(([rKey, rVal]) => {
+        parseRencanaRanges(rVal).forEach((r, j) => {
+          if (!(r.start <= week.to && r.end >= week.from)) return;
+          // Lewati jika sudah tercatat di Time Off Approved agar tidak dobel
+          if (mine.some(e => e.start <= r.end && e.end >= r.start)) return;
+          list.push({
+            key: `rc-${m.nip || m.nama}-${rKey}-${j}`,
+            nama: m.nama,
+            label: rKey,
+            start: r.start,
+            end: r.end,
+            kind: 'rencana',
+          });
+        });
+      });
+    });
+    return list;
+  }, [members, entries, week, sisaCuti]);
+
+  const kindLabel = (k: WeekItem['kind']) => {
     if (k === 'sakit') return 'Sakit';
     if (k === 'panjang') return 'Cuti panjang';
     if (k === 'khusus') return 'Cuti khusus';
+    if (k === 'rencana') return 'Rencana';
     return 'Cuti';
   };
 
-  const kindClass = (k: TimeOffEntry['kind']) => {
+  const kindClass = (k: WeekItem['kind']) => {
     if (k === 'sakit') return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
     if (k === 'panjang') return 'bg-violet-500/10 text-violet-300 border-violet-500/20';
     if (k === 'khusus') return 'bg-orange-500/10 text-orange-300 border-orange-500/20';
+    if (k === 'rencana') return 'bg-blue-500/10 text-blue-300 border-blue-500/30 border-dashed';
     return 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20';
   };
 
-  if (!wb) return null;
+  if (!wb && !sisaCuti) return null;
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 mb-4">
@@ -1214,28 +1300,31 @@ function DeptWeeklyTimeOffPanel({ deptName, members, wb }: {
         </h5>
         <span className="text-[11px] text-slate-400 font-mono">{formatDisplayDate(week.from)} s/d {formatDisplayDate(week.to)}</span>
       </div>
-      {orangMinggu.length > 0 ? (
+      {items.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-          {orangMinggu.flatMap(d => d.minggu.map((e, i) => (
-            <div key={`${d.m.nip}-${i}`} className="flex items-center justify-between gap-3 p-3 bg-slate-950 border border-slate-800 rounded-lg">
+          {items.map(it => (
+            <div key={it.key} className="flex items-center justify-between gap-3 p-3 bg-slate-950 border border-slate-800 rounded-lg">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-white truncate">{d.m.nama}</div>
-                <div className="text-[11px] text-slate-400 truncate">
-                  {shortType(e.type)} • {formatDisplayDate(e.start)} s/d {formatDisplayDate(e.end)}
+                <div className="text-sm font-semibold text-white truncate">{it.nama}</div>
+                <div className="text-[11px] text-slate-400 break-words">
+                  {it.label} • {formatDisplayDate(it.start)} s/d {formatDisplayDate(it.end)}
                 </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                {e.start <= today && e.end >= today && (
+                {it.start <= today && it.end >= today && (
                   <span className="px-2 py-0.5 text-[10px] font-bold rounded border bg-rose-500/10 text-rose-400 border-rose-500/20">Hari ini</span>
                 )}
-                <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${kindClass(e.kind)}`}>{kindLabel(e.kind)}</span>
+                <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${kindClass(it.kind)}`}>{kindLabel(it.kind)}</span>
               </div>
             </div>
-          )))}
+          ))}
         </div>
       ) : (
         <div className="text-xs text-slate-500 italic text-center py-3">Tidak ada anggota departemen ini yang cuti minggu ini.</div>
       )}
+      <div className="text-[10px] text-slate-500">
+        <b className="text-blue-300">Rencana</b> = dari Google Sheet Form Alokasi Cuti (belum tentu sudah disetujui di Time Off).
+      </div>
     </div>
   );
 }
@@ -1917,7 +2006,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const currentActiveBiroKey = useMemo(() => cleanText(currentActiveBiroName), [currentActiveBiroName]);
   const currentActiveBiroTasks = useMemo(() => manualTasks[currentActiveBiroKey] || [], [manualTasks, currentActiveBiroKey]);
 
-  // ===== PERBAIKAN UTAMA: Logika ini memastikan data Kadep muncul saat diklik =====
+  // Memastikan data Kadep muncul saat diklik
   const currentBiroMembers = useMemo(() => {
     if (!selectedFormBiro) return [];
     if (selectedFormBiro.biroName.startsWith('Kepala ')) {
@@ -1926,7 +2015,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return getBiroMembers(selectedFormBiro.biroName);
   }, [selectedFormBiro, allParsedFromExcel]);
 
-  // ===== Gabungan semua anggota departemen untuk Panel Mingguan =====
+  // Gabungan semua anggota departemen untuk Panel Mingguan
   const allDeptMembers = useMemo(() => {
     if (!selectedDept) return [];
     const kadeps = getKadepForDept(allParsedFromExcel, selectedDept.name);
@@ -1940,7 +2029,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     });
   }, [selectedDept, allParsedFromExcel]);
 
-  // ===== BARU: Grup Kadep + Staf per departemen untuk halaman Rekap Absensi Divisi =====
+  // Grup Kadep + Staf per departemen untuk halaman Rekap Absensi Divisi
   const divisiGroups = useMemo<DivisiGroup[]>(() => {
     return (departmentsData || []).map(dept => {
       const kadep = getKadepForDept(allParsedFromExcel, dept.name);
@@ -2464,7 +2553,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </div>
             </div>
 
-            {/* ===== BARU: Tombol Rekap Absensi Divisi Desain (di bawah garis, di atas kartu departemen) ===== */}
+            {/* Tombol Rekap Absensi Divisi Desain */}
             <button
               onClick={() => setShowRekapDivisi(true)}
               className="w-full bg-gradient-to-r from-purple-600/20 to-blue-600/10 hover:from-purple-600/30 border border-purple-500/30 hover:border-purple-400 rounded-xl p-4 flex items-center justify-between transition cursor-pointer group text-left"
@@ -2494,7 +2583,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         )}
 
-        {/* ===== TAMPILAN DETAIL DEPARTEMEN (Dengan Panel Mingguan & Tombol Kadep) ===== */}
+        {/* ===== TAMPILAN DETAIL DEPARTEMEN (Panel Mingguan & Tombol Kadep) ===== */}
         {accessMode === 'organik' && selectedDept && !selectedFormBiro && (
           <div className="space-y-4">
             <button onClick={() => setSelectedDept(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
@@ -2505,11 +2594,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
             </div>
 
-            {/* 1. Panel Plan Cuti Minggu Ini (Di Atas) */}
-            <DeptWeeklyTimeOffPanel 
-              deptName={selectedDept.name} 
-              members={allDeptMembers} 
-              wb={timeOffWorkbook} 
+            {/* 1. Panel Tidak Masuk Minggu Ini (Time Off + Rencana dari Google Sheet) */}
+            <DeptWeeklyTimeOffPanel
+              deptName={selectedDept.name}
+              members={allDeptMembers}
+              wb={timeOffWorkbook}
+              sisaCuti={sisaCuti}
             />
 
             {/* 2. Baris Kadep (Hanya Tombol Rekap Absensi) */}
