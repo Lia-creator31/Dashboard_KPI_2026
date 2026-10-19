@@ -1366,7 +1366,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [showRekapDivisi, setShowRekapDivisi] = useState(false);
+  const [showRekapDivisi, setShowRekapDivisi] = useState(user.role === 'rekap');
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
