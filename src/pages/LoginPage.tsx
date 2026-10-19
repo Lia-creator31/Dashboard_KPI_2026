@@ -14,6 +14,11 @@ const ADMIN_ACCOUNTS = [
   { nama: 'Hashfi Moch Adam', nip: '105264937' },
 ];
 
+// Akun yang langsung masuk ke Rekap Absensi Divisi
+const REKAP_ACCOUNTS = [
+  { nama: 'Pengguna Rekap Absensi', nip: '105265074' },
+];
+
 const MASTER_BUCKET = 'master-files';
 
 interface Im4Member {
