@@ -34,14 +34,17 @@ interface Row {
   rencana: Record<string, string>;
 }
 
+type TabKey = 'realisasi' | 'plan';
+
 const idOf = (m: ParsedMember) => m.nip || m.nama;
 
 export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, onUploadTimeOff }: Props) {
   const [q, setQ] = useState('');
+  const [tab, setTab] = useState<TabKey>('realisasi');
   const year = String(new Date().getFullYear());
   const entries = useMemo(() => parseTimeOff(wb), [wb]);
 
-  // Kolom "Rencana Cuti 1, 2, ..." dinamis dari Google Sheet
+  // Kolom "Rencana Cuti 1, 2, ..." dinamis dari Google Sheet (hanya dipakai di tab Plan Cuti)
   const rencanaKeys = useMemo(() => {
     if (!sisaCuti) return [] as string[];
     const keys = new Set<string>();
@@ -96,8 +99,16 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
       .filter(sec => sec.rows.length > 0);
   }, [groups, entries, sisaCuti, q]);
 
-  const colSpan = 5 + rencanaKeys.length;
+  const showRencana = tab === 'plan';
+  const colSpan = 5 + (showRencana ? rencanaKeys.length : 0);
   let no = 0;
+
+  const tabClass = (active: boolean, activeColor: string) =>
+    `px-4 py-2 text-xs font-semibold rounded-lg border transition cursor-pointer ${
+      active
+        ? `${activeColor} text-white border-transparent shadow`
+        : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white hover:border-slate-500'
+    }`;
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
@@ -116,6 +127,22 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8 space-y-4">
+        {/* Dua tombol tampilan */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setTab('realisasi')}
+            className={tabClass(tab === 'realisasi', 'bg-emerald-600')}
+          >
+            Realisasi Cuti
+          </button>
+          <button
+            onClick={() => setTab('plan')}
+            className={tabClass(tab === 'plan', 'bg-blue-600')}
+          >
+            Plan Cuti
+          </button>
+        </div>
+
         <div className="relative w-72">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
@@ -131,7 +158,7 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
             Data Time Off belum termuat. Upload file TIME_OFF_DIVISI_DESAIN.xlsx lewat tombol di kanan atas.
           </div>
         ) : (
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-auto max-h-[calc(100vh-9rem)]">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-auto max-h-[calc(100vh-13rem)]">
             <table className="w-full min-w-max text-left text-xs">
               <thead>
                 <tr className="text-slate-400 uppercase text-[11px]">
@@ -140,7 +167,7 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
                   <th className="sticky top-0 z-20 bg-slate-900 border-b border-slate-800 py-3 px-3">Realisasi Cuti {year}</th>
                   <th className="sticky top-0 z-20 bg-sky-950 border-b border-slate-800 py-3 px-8 text-center text-sky-400">Sisa Cuti</th>
                   <th className="sticky top-0 z-20 bg-amber-950 border-b border-slate-800 py-3 px-3 text-center text-amber-400">Sakit</th>
-                  {rencanaKeys.map(key => (
+                  {showRencana && rencanaKeys.map(key => (
                     <th key={key} className="sticky top-0 z-20 bg-blue-950 border-b border-slate-800 py-3 px-3 text-center text-blue-400 whitespace-nowrap">{key}</th>
                   ))}
                 </tr>
@@ -201,7 +228,7 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
                             <div className="font-mono font-bold text-amber-400">{d.sakit} hari</div>
                             <div className="text-[10px] text-slate-500">{d.sakitKali}x</div>
                           </td>
-                          {rencanaKeys.map(key => (
+                          {showRencana && rencanaKeys.map(key => (
                             <td key={key} className="py-3 px-3 text-center bg-blue-500/5 font-mono text-xs text-blue-300 whitespace-nowrap">
                               {d.rencana[key] || '-'}
                             </td>
