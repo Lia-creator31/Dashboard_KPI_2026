@@ -117,6 +117,13 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       return;
     }
 
+        // Rekap: langsung dikenali dari NIP, tidak perlu cek master IM4
+    const rekap = REKAP_ACCOUNTS.find(a => a.nip === cleanNip);
+    if (rekap) {
+      onLogin({ nama: rekap.nama, nip: cleanNip, role: 'rekap' });
+      return;
+    }
+
     // Kabiro / Outsourcing: dicari di master IM4 lewat NIP
     setIsLoading(true);
     try {
