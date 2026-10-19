@@ -2172,7 +2172,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         groups={divisiGroups}
         wb={timeOffWorkbook}
         sisaCuti={sisaCuti}
-        onBack={() => setShowRekapDivisi(false)}
+        onBack={() => (user.role === 'rekap' ? onLogout() : setShowRekapDivisi(false))}
         onUploadTimeOff={handleUploadTimeOffExcel}
       />
     );
