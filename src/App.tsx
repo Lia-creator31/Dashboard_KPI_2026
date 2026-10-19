@@ -33,6 +33,11 @@ export default function App() {
     return <OutsourcingPage user={session} onLogout={() => setSession(null)} />; 
   }
 
+    // 2b. Role rekap: langsung ke Rekap Absensi Divisi (ditangani di RendalPage)
+  if (session.role === 'rekap') {
+    return <RendalPage user={session} onLogout={() => setSession(null)} />;
+  }
+
   // Fallback jika role tidak dikenali
   return null;
 }
