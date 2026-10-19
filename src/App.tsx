@@ -7,7 +7,7 @@ import OutsourcingPage from './pages/OutsourcingPage';
 export interface UserSession {
   nama: string;
   nip: string;
-  role: 'kabiro' | 'outsourcing' | 'admin';
+  role: 'kabiro' | 'outsourcing' | 'admin' | 'rekap';
 }
 
 export default function App() {
