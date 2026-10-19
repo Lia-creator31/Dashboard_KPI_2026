@@ -3,12 +3,11 @@ import LoginPage from './pages/LoginPage';
 import RendalPage from './pages/RendalPage';
 import KabiroPage from './pages/KabiroPage';
 import OutsourcingPage from './pages/OutsourcingPage';
-import RekapAbsensiDivisiPage from './pages/RekapAbsensiDivisiPage'; // 1. Impor komponen Rekap Absensi
 
 export interface UserSession {
   nama: string;
   nip: string;
-  role: 'kabiro' | 'outsourcing' | 'admin' | 'rekap_absensi'; // 2. Tambahkan 'rekap_absensi' ke tipe role
+  role: 'kabiro' | 'outsourcing' | 'admin';
 }
 
 export default function App() {
@@ -19,24 +18,19 @@ export default function App() {
     return <LoginPage onLogin={(userData) => setSession(userData)} />;
   }
 
-  // 2. Jika login sebagai Admin (Rendal), buka RendalPage
+  // 2. Jika login sebagai Admin (Rendal), buka RendalPage (Akses Penuh: Upload Excel, Planner, dll)
   if (session.role === 'admin') {
     return <RendalPage user={session} onLogout={() => setSession(null)} />;
   }
 
-  // 3. Jika login sebagai Kabiro, buka KabiroPage
+  // 3. Jika login sebagai Kabiro, buka KabiroPage (Hanya bisa lihat anggota & isi form, TIDAK bisa upload atau approve planner)
   if (session.role === 'kabiro') {
     return <KabiroPage user={session} onLogout={() => setSession(null)} />;
   }
 
-  // 4. Jika login sebagai Outsourcing, buka OutsourcingPage
+  // 4. Jika login sebagai Outsourcing, buka OutsourcingPage (Khusus untuk mengisi Timesheet dari Work Order)
   if (session.role === 'outsourcing') {
     return <OutsourcingPage user={session} onLogout={() => setSession(null)} />; 
-  }
-
-  // 5. Jika login dengan NIP Rekap Absensi, buka RekapAbsensiDivisiPage
-  if (session.role === 'rekap_absensi') {
-    return <RekapAbsensiDivisiPage user={session} onLogout={() => setSession(null)} />;
   }
 
   // Fallback jika role tidak dikenali
