@@ -14,11 +14,6 @@ const ADMIN_ACCOUNTS = [
   { nama: 'Hashfi Moch Adam', nip: '105264937' },
 ];
 
-// Akun khusus yang langsung menuju halaman Rekap Absensi Divisi
-const REKAP_ABSENSI_ACCOUNTS = [
-  { nama: 'User Rekap Absensi', nip: '105265074' }, // Anda bisa ubah namanya jika perlu
-];
-
 const MASTER_BUCKET = 'master-files';
 
 interface Im4Member {
@@ -85,7 +80,10 @@ function parseMembers(wb: XLSX.WorkBook | null): Im4Member[] {
   return out;
 }
 
-// Aturan peran dari data IM4
+// Aturan peran dari data IM4 (ubah di sini bila aturan akses berubah):
+// - status Outsourcing  -> outsourcing
+// - jabatan Kepala Biro -> kabiro
+// - selain itu          -> tidak punya akses
 function roleFromMember(m: Im4Member): 'kabiro' | 'outsourcing' | null {
   const status = m.status.toLowerCase();
   const jabatan = m.jabatan.toLowerCase();
@@ -107,21 +105,14 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       return;
     }
 
-    // 1. Cek Akun Khusus Rekap Absensi Divisi
-    const rekapUser = REKAP_ABSENSI_ACCOUNTS.find(r => r.nip === cleanNip);
-    if (rekapUser) {
-      onLogin({ nama: rekapUser.nama, nip: cleanNip, role: 'rekap_absensi' });
-      return;
-    }
-
-    // 2. Admin: langsung dikenali dari NIP
+    // Admin: langsung dikenali dari NIP
     const admin = ADMIN_ACCOUNTS.find(a => a.nip === cleanNip);
     if (admin) {
       onLogin({ nama: admin.nama, nip: cleanNip, role: 'admin' });
       return;
     }
 
-    // 3. Kabiro / Outsourcing: dicari di master IM4 lewat NIP
+    // Kabiro / Outsourcing: dicari di master IM4 lewat NIP
     setIsLoading(true);
     try {
       const members = parseMembers(await loadIm4Workbook());
@@ -136,7 +127,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       }
       const role = roleFromMember(member);
       if (!role) {
-        setError('Login gagal: NIP ini tidak memiliki akses.');
+        setError('Login gagal: NIP ini tidak memiliki akses (hanya Kabiro, Outsourcing, dan Admin).');
         return;
       }
       onLogin({ nama: member.nama, nip: cleanNip, role });
