@@ -49,7 +49,9 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
     if (!sisaCuti) return [] as string[];
     const keys = new Set<string>();
     sisaCuti.byName.forEach(info => Object.keys(info.rencana || {}).forEach(k => keys.add(k)));
-    return Array.from(keys).sort();
+    return Array.from(keys).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    );
   }, [sisaCuti]);
 
   const sections = useMemo(() => {
