@@ -817,6 +817,22 @@ function parseSisaNumber(raw: string): number | null {
   return m ? parseFloat(m[0]) : null;
 }
 
+function normalizeRencanaCell(raw: any): string {
+  const s = String(raw ?? '').trim();
+  if (!s || s === '-') return '-';
+  // Serial date Excel/Sheets, contoh: 46337.0000462963
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    const n = parseFloat(s);
+    if (n > 30000 && n < 60000) {
+      const d = new Date(Math.round((Math.floor(n) - 25569) * 86400 * 1000));
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+      return `${dd}/${mm}/${d.getUTCFullYear()}`;
+    }
+  }
+  return s;
+}
+
 async function fetchSisaCuti(): Promise<SisaCutiData | null> {
   try {
     const src = await fetchSisaCutiCsv();
