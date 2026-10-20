@@ -998,7 +998,9 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
         Object.keys(info.rencana).forEach(k => keys.add(k));
       }
     });
-    return Array.from(keys).sort();
+    return Array.from(keys).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    );
   }, [sisaCuti]);
 
   const data = useMemo(() => {
