@@ -868,7 +868,7 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
 
       const rencanaData: Record<string, string> = {};
       rencanaCols.forEach(col => {
-        rencanaData[col.name] = String(r[col.index] ?? '').trim() || '-';
+        rencanaData[col.name] = normalizeRencanaCell(r[col.index]);
       });
 
       const info: SisaCutiInfo = {
