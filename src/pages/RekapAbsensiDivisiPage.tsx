@@ -113,7 +113,7 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
     const isPlan = tab === 'plan';
     const head = [
       'No', 'Nama Pegawai', 'Departemen', `Realisasi Cuti ${year} (hari)`, 'Keterangan',
-      'Sisa Cuti (hari)', 'Sakit (hari)', 'Sakit (kali)',
+      'Sisa Cuti (hari)', 'Sakit (hari)',
       ...(isPlan ? rencanaKeys : []),
     ];
     const rows: (string | number)[][] = [];
@@ -136,7 +136,6 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
           ket ? `${ket} (tidak dihitung)` : '',
           d.sisa !== undefined ? d.sisa : '-',
           d.sakit,
-          d.sakitKali,
           ...(isPlan ? rencanaKeys.map(k => d.rencana[k] || '-') : []),
         ];
         rows.push(row);
