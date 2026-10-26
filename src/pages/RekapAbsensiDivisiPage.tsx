@@ -1,6 +1,8 @@
 import React, { useMemo, useState, ChangeEvent } from 'react';
 import * as XLSX from 'xlsx';
-import { ArrowLeft, Search, FileSpreadsheet } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { ArrowLeft, Search, FileSpreadsheet, FileDown, FileText } from 'lucide-react';
 import {
   parseTimeOff, findSisaCuti, countDaysAfter, normNip, cleanText, shortType, formatDisplayDate,
 } from './RendalPage';
@@ -105,6 +107,98 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
   const colSpan = 5 + (showRencana ? rencanaKeys.length : 0);
   let no = 0;
 
+  // ===== EXPORT (Excel & PDF) =====
+  // Mengikuti tab aktif (Realisasi Cuti / Plan Cuti) dan filter pencarian yang sedang dipakai.
+  const buildExport = () => {
+    const isPlan = tab === 'plan';
+    const head = [
+      'No', 'Nama Pegawai', 'Departemen', `Realisasi Cuti ${year} (hari)`, 'Keterangan',
+      'Sisa Cuti (hari)', 'Sakit (hari)', 'Sakit (kali)',
+      ...(isPlan ? rencanaKeys : []),
+    ];
+    const rows: (string | number)[][] = [];
+    const groupsOut: { deptName: string; rows: (string | number)[][] }[] = [];
+    let n = 0;
+
+    sections.forEach(sec => {
+      const secRows: (string | number)[][] = [];
+      sec.rows.forEach(d => {
+        n += 1;
+        const ket = [
+          ...d.panjang.map(e => `${shortType(e.type)} ${e.days} hari`),
+          ...d.khusus.map(e => `${shortType(e.type)} ${e.days} hari`),
+        ].join(', ');
+        const row: (string | number)[] = [
+          n,
+          d.m.nama + (d.isKadep ? ' (Kadep)' : ''),
+          sec.deptName,
+          d.cuti,
+          ket ? `${ket} (tidak dihitung)` : '',
+          d.sisa !== undefined ? d.sisa : '-',
+          d.sakit,
+          d.sakitKali,
+          ...(isPlan ? rencanaKeys.map(k => d.rencana[k] || '-') : []),
+        ];
+        rows.push(row);
+        secRows.push(row);
+      });
+      groupsOut.push({ deptName: sec.deptName, rows: secRows });
+    });
+
+    const title = isPlan ? 'Plan Cuti' : 'Realisasi Cuti';
+    return { head, rows, groupsOut, title };
+  };
+
+  const exportExcel = () => {
+    const { head, rows, title } = buildExport();
+    const ws = XLSX.utils.aoa_to_sheet([head, ...rows]);
+    ws['!cols'] = head.map((h, i) => ({
+      wch: i === 1 ? 32 : i === 2 ? 38 : i === 4 ? 36 : Math.max(10, h.length + 2),
+    }));
+    const wbOut = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wbOut, ws, title);
+    XLSX.writeFile(wbOut, `Rekap_${title.replace(' ', '_')}_Divisi_Desain_${year}.xlsx`);
+  };
+
+  const exportPdf = () => {
+    const { head, groupsOut, title } = buildExport();
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+
+    doc.setFontSize(13);
+    doc.text(`REKAP ${title.toUpperCase()} DIVISI DESAIN ${year}`, 40, 36);
+    doc.setFontSize(8);
+    doc.text(`Dicetak: ${new Date().toLocaleDateString('id-ID')}`, 40, 50);
+
+    // Departemen jadi baris pemisah, jadi kolom Departemen (indeks 2) dibuang di PDF
+    const pdfHead = head.filter((_, i) => i !== 2);
+    const body: any[] = [];
+    groupsOut.forEach(g => {
+      body.push([{
+        content: `${g.deptName} (${g.rows.length} orang)`,
+        colSpan: pdfHead.length,
+        styles: { fillColor: [233, 225, 250], textColor: [76, 29, 149], fontStyle: 'bold' },
+      }]);
+      g.rows.forEach(r => body.push(r.filter((_, i) => i !== 2)));
+    });
+
+    autoTable(doc, {
+      head: [pdfHead],
+      body,
+      startY: 60,
+      theme: 'grid',
+      styles: { fontSize: 7.5, cellPadding: 3, valign: 'middle' },
+      headStyles: { fillColor: [30, 41, 59], textColor: 255, halign: 'center' },
+      columnStyles: { 0: { halign: 'center', cellWidth: 28 } },
+      didDrawPage: () => {
+        const p = doc.getNumberOfPages();
+        doc.setFontSize(8);
+        doc.text(`Hal. ${p}`, doc.internal.pageSize.getWidth() - 60, doc.internal.pageSize.getHeight() - 20);
+      },
+    });
+
+    doc.save(`Rekap_${title.replace(' ', '_')}_Divisi_Desain_${year}.pdf`);
+  };
+
   const tabClass = (active: boolean, activeColor: string) =>
     `px-4 py-2 text-xs font-semibold rounded-lg border transition cursor-pointer ${
       active
@@ -145,14 +239,34 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
           </button>
         </div>
 
-        <div className="relative w-72">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-          <input
-            value={q}
-            onChange={e => setQ(e.target.value)}
-            placeholder="Cari NIP atau Nama..."
-            className="w-full pl-8 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-purple-500"
-          />
+        {/* Pencarian + tombol export */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="relative w-72">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              placeholder="Cari NIP atau Nama..."
+              className="w-full pl-8 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-purple-500"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={exportExcel}
+              disabled={!wb || sections.length === 0}
+              className="px-3 py-2 text-xs font-semibold rounded-lg border border-emerald-700 bg-emerald-600/10 text-emerald-300 hover:bg-emerald-600/20 flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <FileDown className="w-3.5 h-3.5" /> Export Excel
+            </button>
+            <button
+              onClick={exportPdf}
+              disabled={!wb || sections.length === 0}
+              className="px-3 py-2 text-xs font-semibold rounded-lg border border-red-700 bg-red-600/10 text-red-300 hover:bg-red-600/20 flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <FileText className="w-3.5 h-3.5" /> Export PDF
+            </button>
+          </div>
         </div>
 
         {!wb ? (
