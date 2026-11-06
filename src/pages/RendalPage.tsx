@@ -928,7 +928,140 @@ export function findSisaCuti(data: SisaCutiData | null, nama: string, allNames: 
   return best;
 }
 
-/* ===== BARU: Parser isi kolom "Rencana" (teks dari Google Sheet) menjadi rentang tanggal =====
+/* ===== REALISASI JO TANPA JOBCARD + ISI OTOMATIS KODE JOBCARD ===== */
+interface RealisasiRow {
+  nip: string;
+  nama: string;
+  project: string;
+  jobcard: string;   // kosong jika belum ada Jobcard
+  taskName: string;  // kolom "Jobcard/Task Name"
+  hours: number;     // Effective + Overtime
+}
+
+// Baca file Realisasi per BARIS (tidak membuang baris tanpa Jobcard).
+function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
+  const out: RealisasiRow[] = [];
+  if (!wb) return out;
+  wb.SheetNames.forEach(sheetName => {
+    const sheet = wb.Sheets[sheetName]; if (!sheet) return;
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (rows.length === 0) return;
+    let headerIdx = -1;
+    let cNip = 0, cName = 1, cProj = 5, cJc = 16, cEff = 11, cOt = 12, cTask = 22;
+    for (let r = 0; r < Math.min(5, rows.length); r++) {
+      const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+      const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+      const ef = h.findIndex(c => c.includes('effective'));
+      const ot = h.findIndex(c => c.includes('overtime'));
+      if (jc !== -1 && (ef !== -1 || ot !== -1)) {
+        headerIdx = r; cJc = jc; cEff = ef; cOt = ot;
+        const nm = h.findIndex(c => c === 'employee/name' || c === 'nama' || c === 'name');
+        const np = h.findIndex(c => c === 'employee/nip' || c === 'nip');
+        const pj = h.findIndex(c => c === 'project/code');
+        const tk = h.findIndex(c => c === 'jobcard/task name');
+        if (nm !== -1) cName = nm;
+        if (np !== -1) cNip = np;
+        if (pj !== -1) cProj = pj;
+        if (tk !== -1) cTask = tk;
+        break;
+      }
+    }
+    if (headerIdx === -1) return;
+    for (let r = headerIdx + 1; r < rows.length; r++) {
+      const row = rows[r]; if (!row) continue;
+      const nama = String(row[cName] ?? '').trim();
+      if (!nama) continue;
+      const jcRaw = String(row[cJc] ?? '').trim();
+      const jobcard = (jcRaw.toLowerCase() === 'nan' || jcRaw.toLowerCase().includes('jobcard')) ? '' : jcRaw;
+      const hours = (cEff !== -1 ? absNum(row[cEff]) : 0) + (cOt !== -1 ? absNum(row[cOt]) : 0);
+      out.push({
+        nip: String(row[cNip] ?? '').trim(),
+        nama,
+        project: String(row[cProj] ?? '').trim(),
+        jobcard,
+        taskName: String(row[cTask] ?? '').trim(),
+        hours,
+      });
+    }
+  });
+  return out;
+}
+
+interface NoJcSummary {
+  nama: string;
+  hours: number;
+  rows: number;
+  byProject: Record<string, number>;
+}
+
+// Total jam realisasi yang belum punya Jobcard, per pegawai.
+function summarizeNoJobcard(rows: RealisasiRow[]): Map<string, NoJcSummary> {
+  const m = new Map<string, NoJcSummary>();
+  rows.filter(r => !r.jobcard).forEach(r => {
+    const k = cleanText(r.nama); if (!k) return;
+    const cur = m.get(k) || { nama: r.nama, hours: 0, rows: 0, byProject: {} };
+    cur.hours += r.hours;
+    cur.rows += 1;
+    const p = r.project || '-';
+    cur.byProject[p] = (cur.byProject[p] || 0) + r.hours;
+    m.set(k, cur);
+  });
+  return m;
+}
+
+// "R0 - EC123C.6 - PROD. DWG ..." -> 0
+function revFromTaskName(s: string): number | null {
+  const m = (s || '').trim().match(/^R(?:EV)?\.?\s*(\d{1,2})\b/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+// Cocokkan baris Excel yang SUDAH punya Jobcard ke tugas Form yang kode-nya kosong.
+// Syarat cocok: nama sama + proyek sama + nomor gambar sama (+ Rev sama bila terbaca).
+// Cadangan: jika pegawai itu hanya punya SATU tugas menunggu di proyek tsb dan
+// Excel hanya punya SATU kode Jobcard untuk nama+proyek itu, pasangkan keduanya.
+// Jika ada lebih dari satu kemungkinan kode, dilewati (tidak ditebak).
+function matchJobcardsToTasks(
+  rows: RealisasiRow[],
+  pending: TaskItem[],
+  usedCodes: Set<string>
+): Map<string, string> {
+  const withJc = rows.filter(r => r.jobcard);
+  const result = new Map<string, string>();
+  const taken = new Set(usedCodes);
+  const projKey = (p: string) => getProjectNormKey(cleanProjectString(p));
+  const toNum = (v: any) => { const n = parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10); return isNaN(n) ? 0 : n; };
+
+  const pendingCount = new Map<string, number>();
+  pending.forEach(t => {
+    const k = `${cleanText(t.pic)}|${projKey(t.project)}`;
+    pendingCount.set(k, (pendingCount.get(k) || 0) + 1);
+  });
+
+  pending.forEach(t => {
+    const key = `${cleanText(t.pic)}|${projKey(t.project)}`;
+    const cands = withJc.filter(r => sameNameFuzzy(r.nama, t.pic) && projKey(r.project) === projKey(t.project));
+    if (cands.length === 0) return;
+
+    const wantDwg = drawingKey(t.taskName);
+    const wantRev = toNum(t.rev);
+    let pick = cands.filter(r => {
+      if (!wantDwg || drawingKey(r.taskName) !== wantDwg) return false;
+      const rv = revFromTaskName(r.taskName);
+      return rv === null || rv === wantRev;
+    });
+    if (pick.length === 0 && pendingCount.get(key) === 1) pick = cands;
+
+    const codes = Array.from(new Set(pick.map(r => r.jobcard.replace(/\s+/g, ' ').trim().toUpperCase())))
+      .filter(c => !taken.has(cleanText(c)));
+    if (codes.length !== 1) return;
+
+    result.set(t.id, codes[0]);
+    taken.add(cleanText(codes[0]));
+  });
+  return result;
+}
+
+/* ===== Parser isi kolom "Rencana" (teks dari Google Sheet) menjadi rentang tanggal =====
    Format yang dikenali:
    - tanggal tunggal : "20-10-2026", "2026-10-20", "20 Oktober 2026"
    - rentang          : "20-10-2026 s/d 22-10-2026", "20 Okt 2026 sampai 22 Okt 2026"
@@ -1637,21 +1770,63 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     }
   };
 
+  // Isi kode Jobcard otomatis pada tugas Form yang masih kosong (nama + proyek + nomor gambar).
+  const autoAssignJobcardsFromRealisasi = async (wb: XLSX.WorkBook): Promise<number> => {
+    const rows = parseRealisasiRows(wb);
+    const all = ([] as TaskItem[]).concat(...Object.values(manualTasks));
+    const pending = all.filter(t => !(t.kodeJc || '').trim() && t.pic && t.project);
+    if (pending.length === 0) return 0;
+    const used = new Set(all.map(t => cleanText(t.kodeJc || '')).filter(Boolean));
+    const matched = matchJobcardsToTasks(rows, pending, used);
+    if (matched.size === 0) return 0;
+
+    const done = new Map<string, { kode: string; jo?: string }>();
+    const ids = Array.from(matched.keys());
+    for (let i = 0; i < ids.length; i += 10) {
+      await Promise.all(ids.slice(i, i + 10).map(async id => {
+        const kode = matched.get(id)!;
+        const hp = hourPlannerMap[cleanText(kode)];
+        const payload: any = { kode_jc: kode, status: 'approved' };
+        if (hp) payload.jo = String(hp.hour); // sama seperti saat Planner menyimpan kode
+        const { error } = await supabase.from('job_cards').update(payload).eq('id', id);
+        if (!error) done.set(id, { kode, jo: hp ? String(hp.hour) : undefined });
+      }));
+    }
+    if (done.size > 0) {
+      setManualTasks(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(k => {
+          updated[k] = updated[k].map(t => {
+            const d = done.get(t.id);
+            return d ? { ...t, kodeJc: d.kode, ...(d.jo !== undefined ? { jo: d.jo } : {}) } : t;
+          });
+        });
+        return updated;
+      });
+      loadAllJobCards();
+    }
+    return done.size;
+  };
+
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return;
+    const input = e.target;
+    const file = input.files?.[0]; if (!file) return;
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
         const wb = XLSX.read(evt.target?.result, { type: 'binary' });
         setRealisasiWorkbook(wb);
         const err = await saveMasterFile('realisasi', file);
+        const filled = await autoAssignJobcardsFromRealisasi(wb);
+        const info = filled > 0 ? `\n${filled} tugas terisi kode Jobcard otomatis dari file ini.` : '';
         if (err) {
-          alert(`File "${file.name}" terbaca, tapi gagal disimpan ke server: ${err.message}`);
+          alert(`File "${file.name}" terbaca, tapi gagal disimpan ke server: ${err.message}${info}`);
         } else {
-          alert(`File "${file.name}" berhasil diperbarui dan tersimpan permanen! Real JO langsung terhitung otomatis.`);
+          alert(`File "${file.name}" berhasil diperbarui dan tersimpan permanen! Real JO langsung terhitung otomatis.${info}`);
         }
       }
       catch { alert('Gagal membaca file Realisasi JO.xlsx.'); }
+      input.value = '';
     };
     reader.readAsBinaryString(file);
   };
@@ -1693,6 +1868,19 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     } catch {}
     return map;
   }, [realisasiWorkbook]);
+
+  // Jam realisasi per pegawai yang BELUM punya kode Jobcard (tetap ditampilkan di tab Anggota).
+  const realisasiRows = useMemo(() => parseRealisasiRows(realisasiWorkbook), [realisasiWorkbook]);
+  const realisasiNoJc = useMemo(() => summarizeNoJobcard(realisasiRows), [realisasiRows]);
+
+  const getNoJcFor = (nama: string): NoJcSummary | undefined => {
+    const direct = realisasiNoJc.get(cleanText(nama));
+    if (direct) return direct;
+    for (const v of realisasiNoJc.values()) {
+      if (sameNameFuzzy(v.nama, nama)) return v;
+    }
+    return undefined;
+  };
 
   const allParsedFromExcel = useMemo<ParsedMember[]>(() => {
     if (!im4Workbook) return [];
@@ -2736,6 +2924,24 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       </div>
                       {isExpanded && (
                         <div className="p-3.5 border-t border-slate-800 bg-slate-950/60">
+                          {/* Jam realisasi yang belum punya kode Jobcard (dari file Realisasi JO) */}
+                          {(() => {
+                            const nj = getNoJcFor(person.nama);
+                            if (!nj) return null;
+                            return (
+                              <div className="mb-3 px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-300">
+                                <span className="text-emerald-400 font-semibold">Realisasi tanpa Jobcard: </span>
+                                <b className="font-mono text-white">{fmtNum(nj.hours)} jam</b>
+                                <span className="text-slate-500"> ({nj.rows} baris)</span>
+                                <div className="mt-1 text-[10px] text-slate-500 font-mono break-words">
+                                  {Object.entries(nj.byProject)
+                                    .sort((a, b) => b[1] - a[1])
+                                    .map(([p, h]) => `${p}: ${fmtNum(h)} jam`)
+                                    .join(' • ')}
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {personTasks.length > 0 ? (
                             <div className="overflow-x-auto">
                               <table className="w-full text-left text-xs">
