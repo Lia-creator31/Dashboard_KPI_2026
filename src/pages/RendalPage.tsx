@@ -1020,15 +1020,17 @@ function revFromTaskName(s: string): number | null {
 // Syarat cocok: nama sama + proyek sama + nomor gambar sama (+ Rev sama bila terbaca).
 // Cadangan: jika pegawai itu hanya punya SATU tugas menunggu di proyek tsb dan
 // Excel hanya punya SATU kode Jobcard untuk nama+proyek itu, pasangkan keduanya.
+// Beberapa personel dalam proyek yang sama diperbolehkan memakai kode Jobcard yang sama
+// (pembatas "taken" berlaku per personel, bukan global).
 // Jika ada lebih dari satu kemungkinan kode, dilewati (tidak ditebak).
 function matchJobcardsToTasks(
   rows: RealisasiRow[],
   pending: TaskItem[],
-  usedCodes: Set<string>
+  usedPersonCodes: Set<string>
 ): Map<string, string> {
   const withJc = rows.filter(r => r.jobcard);
   const result = new Map<string, string>();
-  const taken = new Set(usedCodes);
+  const taken = new Set(usedPersonCodes);
   const projKey = (p: string) => getProjectNormKey(cleanProjectString(p));
   const toNum = (v: any) => { const n = parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10); return isNaN(n) ? 0 : n; };
 
@@ -1050,14 +1052,16 @@ function matchJobcardsToTasks(
       const rv = revFromTaskName(r.taskName);
       return rv === null || rv === wantRev;
     });
-    if (pick.length === 0 && pendingCount.get(key) === 1) pick = cands;
+    const matchedByDwg = pick.length > 0;
+    if (!matchedByDwg && pendingCount.get(key) === 1) pick = cands;
 
+    const personCodeKey = (c: string) => `${cleanText(t.pic)}|${cleanText(c)}`;
     const codes = Array.from(new Set(pick.map(r => r.jobcard.replace(/\s+/g, ' ').trim().toUpperCase())))
-      .filter(c => !taken.has(cleanText(c)));
+      .filter(c => matchedByDwg || !taken.has(personCodeKey(c)));
     if (codes.length !== 1) return;
 
     result.set(t.id, codes[0]);
-    taken.add(cleanText(codes[0]));
+    taken.add(personCodeKey(codes[0]));
   });
   return result;
 }
@@ -1575,10 +1579,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           loadMasterFile('im4').then(wb => wb || fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx'])),
           loadMasterFile('realisasi').then(wb => wb || fetchSafeWorkbook([realisasiUrl, '/Realisasi JO.xlsx', './Realisasi JO.xlsx'])),
         ]);
+        setHourPlannerMap(await loadHourPlanner());
         if (wbJc) setJobcardWorkbook(wbJc);
         if (wbIm4) setIm4Workbook(wbIm4);
         if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
-        setHourPlannerMap(await loadHourPlanner());
         const wbKpi = await fetchSafeWorkbook([kpiUrl, '/data_kpi.xlsx', './data_kpi.xlsx']);
         if (wbKpi) setKpiWorkbook(wbKpi);
         const wbTimeOff = await loadMasterFile('timeoff')
@@ -1773,12 +1777,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   };
 
   // Isi kode Jobcard otomatis pada tugas Form yang masih kosong (nama + proyek + nomor gambar).
-  const autoAssignJobcardsFromRealisasi = async (wb: XLSX.WorkBook): Promise<number> => {
+  const autoAssignJobcardsFromRealisasi = useCallback(async (wb: XLSX.WorkBook): Promise<number> => {
     const rows = parseRealisasiRows(wb);
     const all = ([] as TaskItem[]).concat(...Object.values(manualTasks));
     const pending = all.filter(t => !(t.kodeJc || '').trim() && t.pic && t.project);
     if (pending.length === 0) return 0;
-    const used = new Set(all.map(t => cleanText(t.kodeJc || '')).filter(Boolean));
+    const used = new Set(
+      all
+        .filter(t => (t.kodeJc || '').trim() && t.pic)
+        .map(t => `${cleanText(t.pic)}|${cleanText(t.kodeJc || '')}`)
+    );
     const matched = matchJobcardsToTasks(rows, pending, used);
     if (matched.size === 0) return 0;
 
@@ -1800,7 +1808,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         Object.keys(updated).forEach(k => {
           updated[k] = updated[k].map(t => {
             const d = done.get(t.id);
-            return d ? { ...t, kodeJc: d.kode, ...(d.jo !== undefined ? { jo: d.jo } : {}) } : t;
+            return d ? { ...t, kodeJc: d.kode, status: 'approved', ...(d.jo !== undefined ? { jo: d.jo } : {}) } : t;
           });
         });
         return updated;
@@ -1808,7 +1816,27 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       loadAllJobCards();
     }
     return done.size;
-  };
+  }, [manualTasks, hourPlannerMap, loadAllJobCards]);
+
+  const autoJcTriedRef = useRef<Set<string>>(new Set());
+  const autoJcRunningRef = useRef(false);
+  useEffect(() => {
+    autoJcTriedRef.current.clear();
+  }, [realisasiWorkbook]);
+
+  useEffect(() => {
+    if (!realisasiWorkbook || autoJcRunningRef.current) return;
+    const all = ([] as TaskItem[]).concat(...Object.values(manualTasks));
+    const untriedPending = all.filter(
+      t => !(t.kodeJc || '').trim() && t.pic && t.project && !autoJcTriedRef.current.has(t.id)
+    );
+    if (untriedPending.length === 0) return;
+    untriedPending.forEach(t => autoJcTriedRef.current.add(t.id));
+    autoJcRunningRef.current = true;
+    autoAssignJobcardsFromRealisasi(realisasiWorkbook).finally(() => {
+      autoJcRunningRef.current = false;
+    });
+  }, [realisasiWorkbook, manualTasks, autoAssignJobcardsFromRealisasi]);
 
   const handleManualUploadRealisasi = (e: ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
@@ -1851,7 +1879,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         let headerIdx = -1, jobcardCol = -1, effCol = -1, otCol = -1;
         for (let r = 0; r < Math.min(5, rawRows.length); r++) {
           const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
-          const jcIdx = row.findIndex(c => c.includes('jobcard'));
+          let jcIdx = row.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+          if (jcIdx === -1) jcIdx = row.findIndex(c => c.includes('jobcard'));
           const eIdx = row.findIndex(c => c.includes('effective'));
           const oIdx = row.findIndex(c => c.includes('overtime'));
           if (jcIdx !== -1 && (eIdx !== -1 || oIdx !== -1)) { headerIdx = r; jobcardCol = jcIdx; effCol = eIdx; otCol = oIdx; break; }
@@ -1874,6 +1903,22 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   // Jam realisasi per pegawai yang BELUM punya kode Jobcard (tetap ditampilkan di tab Anggota).
   const realisasiRows = useMemo(() => parseRealisasiRows(realisasiWorkbook), [realisasiWorkbook]);
   const realisasiNoJc = useMemo(() => summarizeNoJobcard(realisasiRows), [realisasiRows]);
+
+  // Hitung Real JO per personel pada kode Jobcard (mendukung kode Jobcard bersama dalam proyek yang sama).
+  const getRealHoursForTask = useCallback((pic: string, kodeJc: string): number | undefined => {
+    const jcKey = cleanText(kodeJc || '');
+    if (!jcKey) return undefined;
+    const jcRows = realisasiRows.filter(r => cleanText(r.jobcard) === jcKey);
+    if (jcRows.length > 0 && (pic || '').trim()) {
+      const picClean = cleanText(pic);
+      const personRows = jcRows.filter(r => cleanText(r.nama) === picClean || sameNameFuzzy(r.nama, pic));
+      if (personRows.length > 0) {
+        return personRows.reduce((sum, r) => sum + r.hours, 0);
+      }
+      return undefined;
+    }
+    return realisasiMap.get(jcKey);
+  }, [realisasiRows, realisasiMap]);
 
   const getNoJcFor = (nama: string): NoJcSummary | undefined => {
     const direct = realisasiNoJc.get(cleanText(nama));
@@ -1982,14 +2027,21 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(editFormData.project);
       releaseVal = findReleaseInRows(rows, editFormData.taskName, revVal);
     }
+    const trimmedKodeJc = (editFormData.kodeJc || '').replace(/\s+/g, ' ').trim().toUpperCase();
+    const hpEntry = trimmedKodeJc ? hourPlannerMap[cleanText(trimmedKodeJc)] : undefined;
+    const resolvedJo = ((!editFormData.jo || editFormData.jo === '0' || editFormData.jo === '-') && hpEntry)
+      ? String(hpEntry.hour)
+      : editFormData.jo;
+    const nextStatus = trimmedKodeJc ? 'approved' : (editingTask.status || 'pending');
     const updatePayload: any = {
       project: editFormData.project,
       project_code: editFormData.project,
       task_name: editFormData.taskName,
       start_date: editFormData.startDate,
       end_date: editFormData.endDate,
-      jo: editFormData.jo,
-      kode_jc: editFormData.kodeJc,
+      jo: resolvedJo,
+      kode_jc: trimmedKodeJc,
+      status: nextStatus,
       rev: revVal,
       release: releaseVal,
     };
@@ -2019,8 +2071,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               taskName: editFormData.taskName,
               startDate: editFormData.startDate,
               endDate: editFormData.endDate,
-              jo: editFormData.jo,
-              kodeJc: editFormData.kodeJc,
+              jo: resolvedJo,
+              kodeJc: trimmedKodeJc,
+              status: nextStatus,
               rev: revVal,
               release: releaseVal,
             };
@@ -2968,7 +3021,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                 <tbody className="divide-y divide-slate-800 text-slate-300">
                                   {personTasks.map((task, tIdx) => {
                                     const jcKey = cleanText(task.kodeJc || '');
-                                    const calculatedRealHours = jcKey ? realisasiMap.get(jcKey) : undefined;
+                                    const calculatedRealHours = getRealHoursForTask(task.pic, task.kodeJc);
+                                    const rawJo = task.jo ? String(task.jo).replace(/^#+/, '').trim() : '';
+                                    const displayPlanJo = (rawJo && rawJo !== '-')
+                                      ? rawJo
+                                      : (jcKey && hourPlannerMap[jcKey] ? String(hourPlannerMap[jcKey].hour) : '-');
                                     return (
                                       <tr key={task.id} className="hover:bg-slate-900/40">
                                         <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
@@ -2978,7 +3035,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
                                         <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate)}</td>
                                         <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate)}</td>
-                                        <td className="py-2 px-2.5 font-mono text-violet-300">{task.jo ? String(task.jo).replace(/^#+/, '') : '-'}</td>
+                                        <td className="py-2 px-2.5 font-mono text-violet-300">{displayPlanJo}</td>
                                         <td className="py-2 px-2.5 font-mono font-bold">
                                           {calculatedRealHours !== undefined ? (
                                             <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">{Math.round(calculatedRealHours * 100) / 100} Jam</span>
@@ -3014,6 +3071,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         </td>
                                         <td className="py-2 px-2.5 text-center">
                                           <div className="flex items-center justify-center gap-1.5">
+                                            <button
+                                              onClick={(e) => { e.stopPropagation(); handleOpenEdit(task); }}
+                                              className="p-1 rounded bg-slate-800 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 transition cursor-pointer"
+                                              title="Edit Tugas"
+                                            >
+                                              <Pencil className="w-3.5 h-3.5" />
+                                            </button>
                                             <button
                                               onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
                                               className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
@@ -3173,7 +3237,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     inputMode="decimal"
                     value={editFormData.jo}
                     onChange={(e) => setEditFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
-                    required
+                    required={accessMode !== 'organik'}
+                    placeholder={accessMode === 'organik' ? 'Otomatis dari Hour Planner / ketik manual' : ''}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                   />
                 </div>
@@ -3184,7 +3249,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <input
                     type="text"
                     value={editFormData.kodeJc}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, kodeJc: e.target.value.toUpperCase() }))}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase();
+                      const hp = accessMode === 'organik' ? hourPlannerMap[cleanText(val)] : undefined;
+                      setEditFormData(prev => ({
+                        ...prev,
+                        kodeJc: val,
+                        jo: ((!prev.jo || prev.jo === '0' || prev.jo === '-') && hp) ? String(hp.hour) : prev.jo,
+                      }));
+                    }}
                     placeholder={accessMode === 'organik' ? 'JC...' : 'WO...'}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono uppercase"
                   />
