@@ -76,6 +76,7 @@ interface TaskItem {
   rev?: string;
   realJo?: string;
   release?: string;
+  status?: string;
 }
 
 interface DrawingControlRow {
@@ -1543,6 +1544,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             id: row.id, biroName: row.biro_name || '', project: row.project || '', taskName: row.task_name || '',
             startDate: row.start_date || '', endDate: row.end_date || '', pic: row.pic || '', jo: row.jo || '',
             kodeJc: row.kode_jc || '', rev: persistedRev, release: persistedRelease, realJo: row.real_jc || row.realJo || '',
+            status: row.status || '',
           });
         });
         setManualTasks(grouped);
@@ -2167,6 +2169,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         id: insertedRow.id, biroName: activeBiro, project: formData.kodeProyek, taskName: formData.taskName,
         startDate: formData.startDate, endDate: formData.endDate, pic: formData.nama, jo: formData.jo,
         kodeJc: autoKode, rev: revVal, release: releaseVal,
+        status: accessMode === 'subkon' ? 'approved' : 'pending',
       };
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
@@ -2192,7 +2195,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const updated = { ...prev };
       Object.keys(updated).forEach(k => {
         updated[k] = updated[k].map(t => t.id === taskId
-          ? { ...t, kodeJc: inputVal, ...(hp ? { jo: String(hp.hour) } : {}) }
+          ? { ...t, kodeJc: inputVal, status: 'approved', ...(hp ? { jo: String(hp.hour) } : {}) }
           : t);
       });
       return updated;
@@ -2348,10 +2351,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook]);
 
+  // Planner hanya menampilkan tugas hasil isian Form (status 'pending') yang belum punya kode Jobcard.
+  // Baris dari Excel Realisasi JO tidak pernah masuk ke sini.
   const pendingTasksByBiro = useMemo((): [string, TaskItem[]][] => {
     const groups: Record<string, TaskItem[]> = {};
     Object.values(manualTasks).forEach(tasks => {
       tasks.forEach(t => {
+        if (t.status !== 'pending') return;
+        if (!t.pic || !t.project) return;
         if (!t.kodeJc || t.kodeJc.trim() === '') {
           const key = t.biroName || 'Tanpa Biro';
           if (!groups[key]) groups[key] = [];
