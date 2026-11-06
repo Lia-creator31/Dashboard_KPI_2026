@@ -22,6 +22,8 @@ const A_ONLY_REV0 = false;            // true = jam kerja hanya dari drawing Rev
 const REQUIRE_JOBCARD_CODE = true;    // jobcard tanpa kode (Menunggu Planner) belum valid
 const COUNT_DRAFT_TIMESHEET = false;  // timesheet Draft tidak dihitung sebagai Real JO
 const PARTIAL_KPI = false;            // true = bila hanya A atau B ada, KPI memakai komponen yang ada
+const INCLUDE_REALISASI_JOBCARDS = true; // true = Jobcard yang hanya ada di file Realisasi JO (belum diinput lewat Form) ikut tampil sebagai penugasan
+const HOUR_PLANNER_FILE = 'hourplanner.json';
 
 const MASTER_BUCKET = 'master-files';
 const OTHER_DEPT_ID = '__other__';
@@ -38,6 +40,7 @@ interface JobCardRow {
   rev: string;
   release: string;
   realJo: number;
+  fromRealisasi?: boolean;   // true = diambil dari file Realisasi JO (tidak ada di job_cards)
 }
 
 // Anggota organik dari master IM4 (dipakai agar semua anggota biro tampil walau belum punya job card)
@@ -165,7 +168,8 @@ function buildRealisasiMap(wb: XLSX.WorkBook | null): Map<string, number> {
     let headerIdx = -1, jcCol = -1, effCol = -1, otCol = -1;
     for (let r = 0; r < Math.min(5, rows.length); r++) {
       const row = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-      const j = row.findIndex(c => c.includes('jobcard'));
+      let j = row.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+      if (j === -1) j = row.findIndex(c => c.includes('jobcard'));
       const e = row.findIndex(c => c.includes('effective'));
       const o = row.findIndex(c => c.includes('overtime'));
       if (j !== -1 && (e !== -1 || o !== -1)) { headerIdx = r; jcCol = j; effCol = e; otCol = o; break; }
@@ -183,6 +187,94 @@ function buildRealisasiMap(wb: XLSX.WorkBook | null): Map<string, number> {
     }
   });
   return map;
+}
+
+/* Pencocokan nama longgar (sama dengan RendalPage): "Fendy" = "Fendi", "Luqman Chakim" = "Lukman Hakim", dst. */
+const normNameToken = (t: string) =>
+  t.replace(/ch/g, 'h').replace(/(.)\1+/g, '$1').replace(/^mu/, 'mo').replace(/y$/, 'i').replace(/q/g, 'k');
+const nameTokens = (name: string): string[] =>
+  String(name || '').toLowerCase().split(/[^a-z]+/).filter(Boolean).map(normNameToken);
+
+function sameNameFuzzy(a: string, b: string): boolean {
+  const ta = nameTokens(a), tb = nameTokens(b);
+  if (!ta.length || !tb.length) return false;
+  const [short, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  if (short.length === 1 && long.length > 1) {
+    return short[0].length >= 3 && long.includes(short[0]);
+  }
+  const used = new Set<number>();
+  for (const x of short) {
+    let idx = -1;
+    for (let i = 0; i < long.length; i++) {
+      if (!used.has(i) && long[i] === x) { idx = i; break; }
+    }
+    if (idx < 0 && !(x.length === 1 && short.length === 1)) {
+      for (let i = 0; i < long.length; i++) {
+        if (!used.has(i) && (long[i].startsWith(x) || x.startsWith(long[i]))) { idx = i; break; }
+      }
+    }
+    if (idx < 0) return false;
+    used.add(idx);
+  }
+  return true;
+}
+
+/* Baris Realisasi JO per pegawai (dipakai agar Real JO dihitung per orang walau satu kode Jobcard dipakai bersama) */
+interface RealisasiRow {
+  nama: string;
+  project: string;
+  jobcard: string;
+  taskName: string;
+  hours: number;
+}
+
+function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
+  const out: RealisasiRow[] = [];
+  if (!wb) return out;
+  wb.SheetNames.forEach(sheetName => {
+    const sheet = wb.Sheets[sheetName]; if (!sheet) return;
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (!rows.length) return;
+    let headerIdx = -1, cName = -1, cProj = -1, cJc = -1, cEff = -1, cOt = -1, cTask = -1;
+    for (let r = 0; r < Math.min(5, rows.length); r++) {
+      const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+      const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+      const ef = h.findIndex(c => c.includes('effective'));
+      const ot = h.findIndex(c => c.includes('overtime'));
+      if (jc !== -1 && (ef !== -1 || ot !== -1)) {
+        headerIdx = r; cJc = jc; cEff = ef; cOt = ot;
+        cName = h.findIndex(c => c === 'employee/name' || c === 'nama' || c === 'name');
+        cProj = h.findIndex(c => c === 'project/code');
+        cTask = h.findIndex(c => c === 'jobcard/task name');
+        break;
+      }
+    }
+    if (headerIdx === -1 || cName === -1) return;   // tanpa kolom nama -> tidak bisa per pegawai
+    for (let r = headerIdx + 1; r < rows.length; r++) {
+      const row = rows[r]; if (!row) continue;
+      const nama = String(row[cName] ?? '').trim();
+      if (!nama) continue;
+      const jcRaw = String(row[cJc] ?? '').trim();
+      if (!jcRaw || jcRaw.toLowerCase() === 'nan' || jcRaw.toLowerCase().includes('jobcard')) continue;
+      out.push({
+        nama,
+        project: cProj !== -1 ? String(row[cProj] ?? '').trim() : '',
+        jobcard: jcRaw.replace(/\s+/g, ' ').toUpperCase(),
+        taskName: cTask !== -1 ? String(row[cTask] ?? '').trim() : '',
+        hours: (cEff !== -1 ? Math.abs(parseNumber(row[cEff])) : 0) + (cOt !== -1 ? Math.abs(parseNumber(row[cOt])) : 0),
+      });
+    }
+  });
+  return out;
+}
+
+async function loadHourPlanner(): Promise<Record<string, { hour: number; end?: string }>> {
+  try {
+    const { data, error } = await supabase.storage.from(MASTER_BUCKET).download(HOUR_PLANNER_FILE);
+    if (error || !data) return {};
+    const parsed = JSON.parse(await data.text());
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch { return {}; }
 }
 
 /* Baca master IM4: daftar nama organik & outsourcing, plus daftar anggota organik beserta biro/departemennya
@@ -272,7 +364,7 @@ function scorePerson(name: string, biro: string, cards: JobCardRow[]): PersonSco
   const a = aCards.length ? Math.min((sumPlan / sumReal) * 100, CAP_EFFICIENCY) : null;
 
   // B = jumlah drawing yang sudah ada tanggal release / total list drawing x 100% (semua revisi)
-  const targets = valid;
+  const targets = valid.filter(c => !c.fromRealisasi);   // jobcard dari Realisasi saja tidak punya daftar drawing
   const onTime = targets.filter(c => c.release !== '');   // = drawing yang sudah release
   const b = targets.length ? (onTime.length / targets.length) * 100 : null;
 
@@ -347,7 +439,7 @@ function buildProjectScores(cards: JobCardRow[]): ProjectScore[] {
     persons.sort((x, y) => (y.kpi ?? -1) - (x.kpi ?? -1) || x.name.localeCompare(y.name));
     let total = 0, released = 0;
     persons.forEach(pr => {
-      const valid = pr.cards.filter(c => !REQUIRE_JOBCARD_CODE || c.kodeJc.trim() !== '');
+      const valid = pr.cards.filter(c => (!REQUIRE_JOBCARD_CODE || c.kodeJc.trim() !== '') && !c.fromRealisasi);
       total += valid.length;
       released += valid.filter(c => c.release !== '').length;
     });
@@ -572,12 +664,13 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const [jcRes, tsRes, lineRes, wbRes, im4Wb] = await Promise.all([
+      const [jcRes, tsRes, lineRes, wbRes, im4Wb, hourPlanner] = await Promise.all([
         supabase.from('job_cards').select('*'),
         supabase.from('outsourcing_timesheets').select('id, status'),
         supabase.from('outsourcing_timesheet_lines').select('timesheet_id, work_order_code, effective_hours, overtime_hours'),
         supabase.storage.from(MASTER_BUCKET).download('realisasi.xlsx'),
         loadIm4Workbook(),
+        loadHourPlanner(),
       ]);
 
       if (jcRes.error) throw jcRes.error;
@@ -593,9 +686,46 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
 
       // Real JO dari Excel Realisasi JO
       let excelMap = new Map<string, number>();
+      let realRows: RealisasiRow[] = [];
       if (!wbRes.error && wbRes.data) {
-        try { excelMap = buildRealisasiMap(XLSX.read(await wbRes.data.arrayBuffer(), { type: 'array' })); } catch { /* abaikan */ }
+        try {
+          const realWb = XLSX.read(await wbRes.data.arrayBuffer(), { type: 'array' });
+          excelMap = buildRealisasiMap(realWb);
+          realRows = parseRealisasiRows(realWb);
+        } catch { /* abaikan */ }
       }
+
+      // Cocokkan nama (job card / Realisasi) ke nama anggota organik IM4 (persis dulu, lalu longgar)
+      const memberByKey = new Map<string, MemberRow>(memberList.map(m => [cleanText(m.nama), m] as [string, MemberRow]));
+      const resolveMember = (name: string): MemberRow | null => {
+        const k = cleanText(name);
+        if (!k || outsourcing.has(k)) return null;
+        const direct = memberByKey.get(k);
+        if (direct) return direct;
+        const cands = memberList.filter(m => sameNameFuzzy(m.nama, name));
+        return cands.length === 1 ? cands[0] : null;
+      };
+
+      // Jam Realisasi per pegawai per Jobcard (kunci: nama IM4 | kode Jobcard)
+      const personHours = new Map<string, number>();
+      const jcWithNamedRows = new Set<string>();
+      realRows.forEach(r => {
+        const jcKey = cleanText(r.jobcard);
+        jcWithNamedRows.add(jcKey);
+        const m = resolveMember(r.nama);
+        const who = cleanText(m ? m.nama : r.nama);
+        const k = `${who}|${jcKey}`;
+        personHours.set(k, (personHours.get(k) || 0) + r.hours);
+      });
+      const realHoursFor = (pic: string, jcKey: string): number => {
+        if (!jcKey) return 0;
+        if (!jcWithNamedRows.has(jcKey)) return excelMap.get(jcKey) || 0;   // file tanpa kolom nama
+        return personHours.get(`${cleanText(pic)}|${jcKey}`) || 0;          // hanya jam milik orang ini
+      };
+      const planFromHourPlanner = (jcKey: string): number => {
+        const hp = jcKey ? hourPlanner[jcKey] : undefined;
+        return hp ? parseNumber(hp.hour) : 0;
+      };
 
       // Real JO dari timesheet (kunci = kode Work Order = kode_jc)
       const statusById = new Map<string, string>();
@@ -619,24 +749,57 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
           ? String(row.rev) : String(revLocal[row.id] ?? '0');
         const rawRelease = row.release !== undefined && row.release !== null && String(row.release).trim() !== ''
           ? row.release : releaseLocal[row.id];
+        const rawPic = String(row.pic || row.personil_name || '').trim();
+        const member = resolveMember(rawPic);
+        const pic = member ? member.nama : rawPic;
+        const plannedJo = parseNumber(row.jo) || planFromHourPlanner(key);
         return {
           id: row.id,
           biro: row.biro_name || 'Tanpa Biro',
-          pic: String(row.pic || row.personil_name || '').trim(),
+          pic,
           project: row.project || '',
           taskName: row.task_name || '',
           endDate: normalizeDate(row.end_date),
-          plannedJo: parseNumber(row.jo),
+          plannedJo,
           kodeJc,
           rev: rawRev.trim() || '0',
           release: normalizeDate(rawRelease),
-          realJo: key ? (excelMap.get(key) || 0) + (tsMap.get(key) || 0) : 0,
+          realJo: key ? realHoursFor(pic, key) + (tsMap.get(key) || 0) : 0,
         };
       }).filter((r: JobCardRow) => {
         if (r.pic === '') return false;
         const k = cleanText(r.pic);
         return organic.has(k) && !outsourcing.has(k);   // hanya pegawai organik
       });
+
+      // Jobcard yang ada di Realisasi JO tetapi belum diinput lewat Form -> tetap tampil sebagai penugasan
+      if (INCLUDE_REALISASI_JOBCARDS && realRows.length > 0) {
+        const existing = new Set(rows.filter(r => r.kodeJc).map(r => `${cleanText(r.pic)}|${cleanText(r.kodeJc)}`));
+        const extra = new Map<string, JobCardRow>();
+        realRows.forEach(r => {
+          const m = resolveMember(r.nama);
+          if (!m) return;   // bukan pegawai organik IM4
+          const jcKey = cleanText(r.jobcard);
+          const k = `${cleanText(m.nama)}|${jcKey}`;
+          if (existing.has(k) || extra.has(k)) return;
+          const hp = hourPlanner[jcKey];
+          extra.set(k, {
+            id: `realisasi-${k}`,
+            biro: m.biro || 'Tanpa Biro',
+            pic: m.nama,
+            project: r.project,
+            taskName: r.taskName,
+            endDate: normalizeDate(hp?.end),
+            plannedJo: planFromHourPlanner(jcKey),
+            kodeJc: r.jobcard,
+            rev: '0',
+            release: '',
+            realJo: realHoursFor(m.nama, jcKey) + (tsMap.get(jcKey) || 0),
+            fromRealisasi: true,
+          });
+        });
+        rows.push(...extra.values());
+      }
 
       setCards(rows);
     } catch (err: any) {
@@ -766,6 +929,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
 
   const cardStatus = (c: JobCardRow): { text: string; cls: string } => {
     if (REQUIRE_JOBCARD_CODE && !c.kodeJc) return { text: 'Menunggu Planner', cls: 'text-rose-300' };
+    if (c.fromRealisasi) return { text: 'Dari Realisasi JO (belum diinput di Form)', cls: 'text-sky-300' };
     if (!c.release) return { text: 'Belum release', cls: 'text-amber-300' };
     return { text: `Sudah release (Rev ${c.rev})`, cls: 'text-emerald-300' };
   };
@@ -1039,9 +1203,11 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                 const k = c.project || '(tanpa proyek)';
                 if (!map.has(k)) map.set(k, { project: k, plan: 0, real: 0, total: 0, released: 0, cards: [] });
                 const r = map.get(k)!;
-                r.total += 1;
                 r.cards.push(c);
-                if (c.release !== '') r.released += 1;
+                if (!c.fromRealisasi) {
+                  r.total += 1;
+                  if (c.release !== '') r.released += 1;
+                }
                 if (c.plannedJo > 0 && c.realJo > 0 && (!A_ONLY_FROM_RELEASED || c.release !== '') && (!A_ONLY_REV0 || Number(c.rev) === 0)) {
                   r.plan += c.plannedJo;
                   r.real += c.realJo;
