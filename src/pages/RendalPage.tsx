@@ -939,6 +939,20 @@ interface RealisasiRow {
   hours: number;     // Effective + Overtime
 }
 
+function splitUserCell(raw: any): { nip: string; nama: string } {
+  const s = String(raw ?? '').trim();
+  const m = s.match(/^(\d[\d\s]*?)\s*-\s*(.+)$/);
+  if (m) return { nip: m[1].trim(), nama: m[2].trim() };
+  return { nip: '', nama: s };
+}
+
+function extractProjectCodeFromCell(raw: any): string {
+  const s = String(raw ?? '').trim();
+  if (!s || s === '-' || s.toLowerCase() === 'nan') return '';
+  const firstToken = s.split(/[\s-]+/)[0] || '';
+  return cleanProjectString(firstToken || s);
+}
+
 // Baca file Realisasi per BARIS (tidak membuang baris tanpa Jobcard).
 function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
   const out: RealisasiRow[] = [];
@@ -948,18 +962,18 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     if (rows.length === 0) return;
     let headerIdx = -1;
-    let cNip = 0, cName = 1, cProj = 5, cJc = 16, cEff = 11, cOt = 12, cTask = 22;
-    for (let r = 0; r < Math.min(5, rows.length); r++) {
+    let cNip = -1, cName = 1, cProj = 5, cJc = 16, cEff = 11, cOt = 12, cTask = 22;
+    for (let r = 0; r < Math.min(10, rows.length); r++) {
       const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
       const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
       const ef = h.findIndex(c => c.includes('effective'));
       const ot = h.findIndex(c => c.includes('overtime'));
       if (jc !== -1 && (ef !== -1 || ot !== -1)) {
         headerIdx = r; cJc = jc; cEff = ef; cOt = ot;
-        const nm = h.findIndex(c => c === 'employee/name' || c === 'nama' || c === 'name');
+        const nm = h.findIndex(c => c === 'employee/name' || c === 'nama' || c === 'name' || c === 'user' || c === 'employee' || c === 'pegawai');
         const np = h.findIndex(c => c === 'employee/nip' || c === 'nip');
-        const pj = h.findIndex(c => c === 'project/code');
-        const tk = h.findIndex(c => c === 'jobcard/task name');
+        const pj = h.findIndex(c => c === 'project/code' || c === 'project' || c === 'proyek');
+        const tk = h.findIndex(c => c === 'jobcard/task name' || c === 'description' || c === 'deskripsi' || c === 'task name');
         if (nm !== -1) cName = nm;
         if (np !== -1) cNip = np;
         if (pj !== -1) cProj = pj;
@@ -970,15 +984,17 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
     if (headerIdx === -1) return;
     for (let r = headerIdx + 1; r < rows.length; r++) {
       const row = rows[r]; if (!row) continue;
-      const nama = String(row[cName] ?? '').trim();
+      const userParsed = splitUserCell(row[cName]);
+      const nama = userParsed.nama;
       if (!nama) continue;
+      const nip = cNip !== -1 ? String(row[cNip] ?? '').trim() : userParsed.nip;
       const jcRaw = String(row[cJc] ?? '').trim();
       const jobcard = (jcRaw.toLowerCase() === 'nan' || jcRaw.toLowerCase().includes('jobcard')) ? '' : jcRaw;
       const hours = (cEff !== -1 ? absNum(row[cEff]) : 0) + (cOt !== -1 ? absNum(row[cOt]) : 0);
       out.push({
-        nip: String(row[cNip] ?? '').trim(),
+        nip,
         nama,
-        project: String(row[cProj] ?? '').trim(),
+        project: extractProjectCodeFromCell(row[cProj]),
         jobcard,
         taskName: String(row[cTask] ?? '').trim(),
         hours,
@@ -1530,6 +1546,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [isFetchingDrawing, setIsFetchingDrawing] = useState<boolean>(false);
   const [hourPlannerMap, setHourPlannerMap] = useState<HourPlannerMap>({});
   const [isImportingHour, setIsImportingHour] = useState(false);
+  const [isImportingUnified, setIsImportingUnified] = useState(false);
   const [sisaCuti, setSisaCuti] = useState<SisaCutiData | null>(null);
 
   const loadAllJobCards = useCallback(async () => {
@@ -1772,6 +1789,271 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       alert('Gagal membaca file Excel Hour Planner.');
     } finally {
       setIsImportingHour(false);
+      input.value = '';
+    }
+  };
+
+  // Impor 1 file terpadu (Hour Planner + Realisasi JO + Jobcard + Deskripsi):
+  // 1) Plan JO diambil dari nilai tertinggi (MAX Planned Hour) per Jobcard
+  // 2) Semua baris tetap dimasukkan untuk Real JO (Effective + Overtime)
+  // 3) Plan Start / Plan Finish diabaikan dulu (kosong)
+  // Otomatis menghapus data lama di job_cards & menggantinya dengan data baru.
+  const handleImportUnifiedData = async (e: ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (!window.confirm(`Apakah Anda yakin ingin mengimpor "${file.name}"?\n\nSemua data penugasan/Jobcard lama akan DIHAPUS otomatis dan digantikan dengan data baru dari file ini.`)) {
+      input.value = '';
+      return;
+    }
+    setIsImportingUnified(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+
+      const allMasterBiros = (departmentsData || []).flatMap(d => d.biros.map(b => b.name));
+      const resolveBiroName = (rawWc: string, memberBiro?: string): string => {
+        const stripWc = (s: string) => s.replace(/^[0-9A-Z]{3,10}\s*-\s*/i, '').trim();
+        const candidates = [memberBiro || '', stripWc(rawWc || ''), rawWc || ''].filter(Boolean);
+        for (const cand of candidates) {
+          const exact = allMasterBiros.find(b => cleanText(b) === cleanText(cand));
+          if (exact) return exact;
+          const fuzzy = allMasterBiros.find(b => isBiroMatch(b, cand));
+          if (fuzzy) return fuzzy;
+        }
+        return candidates[0] || 'Tanpa Biro';
+      };
+
+      const resolveIm4Member = (nip: string, rawName: string): ParsedMember | undefined => {
+        const nNip = normNip(nip);
+        if (nNip) {
+          const byNip = allParsedFromExcel.find(m => normNip(m.nip) === nNip);
+          if (byNip) return byNip;
+        }
+        const cName = cleanText(rawName);
+        if (!cName) return undefined;
+        const exact = allParsedFromExcel.find(m => cleanText(m.nama) === cName);
+        if (exact) return exact;
+        const fuzzy = allParsedFromExcel.filter(m => sameNameFuzzy(m.nama, rawName));
+        return fuzzy.length === 1 ? fuzzy[0] : undefined;
+      };
+
+      interface UnifiedTaskGroup {
+        biroName: string;
+        pic: string;
+        project: string;
+        taskName: string;
+        kodeJc: string;
+        maxPlanJo: number;
+        hasPlanJo: boolean;
+        realJo: number;
+        rev: string;
+      }
+
+      const taskGroups = new Map<string, UnifiedTaskGroup>();
+      const newHpMap: HourPlannerMap = {};
+      let totalRowsRead = 0;
+
+      wb.SheetNames.forEach(sheetName => {
+        const sheet = wb.Sheets[sheetName];
+        if (!sheet) return;
+        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        if (rows.length === 0) return;
+
+        let headerIdx = -1;
+        let cUser = -1, cJc = -1, cPlan = -1, cEff = -1, cOt = -1, cQty = -1, cProj = -1, cDesc = -1, cWc = -1;
+        for (let r = 0; r < Math.min(10, rows.length); r++) {
+          const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+          const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+          const us = h.findIndex(c => c === 'user' || c === 'employee/name' || c === 'nama' || c === 'name' || c === 'employee' || c === 'pegawai');
+          if (jc !== -1 && us !== -1) {
+            headerIdx = r;
+            cJc = jc;
+            cUser = us;
+            cPlan = h.findIndex(c => (c.includes('plan') && c.includes('hour')) || c === 'plan jo' || c === 'planned hour');
+            cEff = h.findIndex(c => c.includes('effective'));
+            cOt = h.findIndex(c => c.includes('overtime'));
+            cQty = h.findIndex(c => c === 'quantity' || c === 'qty');
+            cProj = h.findIndex(c => c === 'project' || c === 'project/code' || c === 'proyek');
+            cDesc = h.findIndex(c => c === 'description' || c === 'deskripsi' || c === 'jobcard/task name' || c === 'task name');
+            cWc = h.findIndex(c => c === 'work center' || c === 'biro' || c.includes('work center'));
+            break;
+          }
+        }
+        if (headerIdx === -1) return;
+
+        for (let r = headerIdx + 1; r < rows.length; r++) {
+          const row = rows[r];
+          if (!row) continue;
+          const userParsed = splitUserCell(row[cUser]);
+          if (!userParsed.nama) continue;
+          totalRowsRead++;
+
+          const jcRaw = String(row[cJc] ?? '').replace(/\s+/g, ' ').trim();
+          const kodeJc = (!jcRaw || jcRaw.toLowerCase() === 'nan' || jcRaw.toLowerCase().includes('jobcard')) ? '' : jcRaw.toUpperCase();
+          if (!kodeJc) continue; // baris tanpa kode Jobcard tetap dihitung di ringkasan "Realisasi tanpa Jobcard"
+
+          const matchedMember = resolveIm4Member(userParsed.nip, userParsed.nama);
+          const pic = matchedMember ? matchedMember.nama : userParsed.nama;
+          const rawWc = cWc !== -1 ? String(row[cWc] ?? '').trim() : '';
+          const biroName = resolveBiroName(rawWc, matchedMember?.biro);
+
+          const project = cProj !== -1 ? extractProjectCodeFromCell(row[cProj]) : '';
+          const desc = cDesc !== -1 ? String(row[cDesc] ?? '').trim() : '';
+          const detectedRev = revFromTaskName(desc);
+
+          const planValRaw = cPlan !== -1 ? String(row[cPlan] ?? '').trim().replace(',', '.') : '';
+          const planNum = planValRaw !== '' ? parseFloat(planValRaw) : NaN;
+          const hasValidPlan = !isNaN(planNum);
+
+          const eff = cEff !== -1 ? absNum(row[cEff]) : 0;
+          const ot = cOt !== -1 ? absNum(row[cOt]) : 0;
+          const qty = cQty !== -1 ? absNum(row[cQty]) : 0;
+          const hours = (eff + ot) > 0 ? (eff + ot) : qty;
+
+          // Simpan nilai tertinggi Planned Hour ke HourPlannerMap per kode Jobcard
+          const jcKey = cleanText(kodeJc);
+          if (jcKey && hasValidPlan) {
+            const prevHp = newHpMap[jcKey];
+            if (!prevHp || planNum > prevHp.hour) {
+              newHpMap[jcKey] = {
+                kode: kodeJc,
+                hour: planNum,
+                planner: prevHp?.planner || '',
+                start: '',
+                end: '',
+              };
+            }
+          }
+
+          // Kelompokkan per (PIC, Jobcard)
+          const groupKey = `${cleanText(pic)}|${jcKey}`;
+          const existing = taskGroups.get(groupKey);
+          if (!existing) {
+            taskGroups.set(groupKey, {
+              biroName,
+              pic,
+              project,
+              taskName: desc,
+              kodeJc,
+              maxPlanJo: hasValidPlan ? planNum : 0,
+              hasPlanJo: hasValidPlan,
+              realJo: hours,
+              rev: detectedRev !== null ? String(detectedRev) : '0',
+            });
+          } else {
+            if (hasValidPlan && (!existing.hasPlanJo || planNum > existing.maxPlanJo)) {
+              existing.maxPlanJo = planNum;
+              existing.hasPlanJo = true;
+            }
+            existing.realJo += hours;
+            if (!existing.project && project) existing.project = project;
+            if (desc && (!existing.taskName || (!extractDrawingNumber(existing.taskName) && extractDrawingNumber(desc)))) {
+              existing.taskName = desc;
+            }
+            if (detectedRev !== null) {
+              existing.rev = String(detectedRev);
+            }
+          }
+        }
+      });
+
+      if (totalRowsRead === 0 || taskGroups.size === 0) {
+        alert(`Tidak ditemukan baris data Jobcard terpadu yang valid di "${file.name}". Pastikan terdapat kolom User, Jobcard, Planned Hour, Effective Hours, Overtime Hours, Project, dan Description.`);
+        return;
+      }
+
+      // 1. Hapus semua data lama di tabel job_cards
+      const { data: oldRows, error: fetchOldErr } = await supabase.from('job_cards').select('id');
+      if (fetchOldErr) {
+        alert('Gagal membaca data lama untuk dihapus: ' + fetchOldErr.message);
+        return;
+      }
+      const oldIds = (oldRows || []).map((r: any) => r.id).filter(Boolean);
+      for (let i = 0; i < oldIds.length; i += 100) {
+        const chunk = oldIds.slice(i, i + 100);
+        const { error: delErr } = await supabase.from('job_cards').delete().in('id', chunk);
+        if (delErr) {
+          alert('Gagal menghapus data lama: ' + delErr.message);
+          return;
+        }
+      }
+      try {
+        localStorage.removeItem('task_rev_map');
+        localStorage.removeItem('task_release_map');
+      } catch {}
+
+      // 2. Petakan biro_id dari tabel biros di Supabase
+      const { data: biroList } = await supabase.from('biros').select('id, name');
+      const getBiroId = (bName: string): string | null => {
+        if (!biroList || biroList.length === 0) return null;
+        const found = biroList.find((b: any) => isBiroMatch(b.name, bName));
+        return found ? found.id : biroList[0].id;
+      };
+
+      // 3. Insert data baru ke job_cards
+      const payloads = Array.from(taskGroups.values()).map(g => {
+        const joStr = g.hasPlanJo && g.maxPlanJo > 0 ? String(fmtNum(g.maxPlanJo)) : (g.hasPlanJo ? String(fmtNum(g.maxPlanJo)) : '');
+        return {
+          biro_id: getBiroId(g.biroName),
+          biro_name: g.biroName,
+          personil_name: g.pic,
+          pic: g.pic,
+          project_code: g.project,
+          project: g.project,
+          task_name: g.taskName,
+          start_date: '',
+          end_date: '',
+          jo: joStr,
+          kode_jc: g.kodeJc,
+          status: 'approved',
+          rev: g.rev,
+          release: '',
+        };
+      });
+
+      let insertedCount = 0;
+      for (let i = 0; i < payloads.length; i += 50) {
+        const batch = payloads.slice(i, i + 50);
+        let { error: insErr } = await supabase.from('job_cards').insert(batch);
+        if (insErr && (insErr.message?.includes('rev') || insErr.message?.includes('release') || (insErr as any).details?.includes('rev') || (insErr as any).details?.includes('release'))) {
+          const stripped = batch.map(({ rev, release, ...rest }) => rest);
+          const retry = await supabase.from('job_cards').insert(stripped);
+          insErr = retry.error;
+        }
+        if (insErr) {
+          alert(`Gagal menyimpan sebagian data baru (batch ${Math.floor(i / 50) + 1}): ${insErr.message}`);
+          break;
+        }
+        insertedCount += batch.length;
+      }
+
+      // 4. Simpan Hour Planner baru & file Realisasi baru (menggantikan yang lama)
+      setHourPlannerMap(newHpMap);
+      await saveHourPlanner(newHpMap);
+
+      setRealisasiWorkbook(wb);
+      const xlsxOut = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const realisasiFile = new File([xlsxOut], 'realisasi.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      await saveMasterFile('realisasi', realisasiFile);
+
+      // 5. Muat ulang daftar job_cards
+      autoTried.current.clear();
+      await loadAllJobCards();
+
+      alert(
+        `Data Terpadu "${file.name}" berhasil diimpor!\n\n` +
+        `• Data lama dihapus: ${oldIds.length} tugas\n` +
+        `• Tugas Jobcard baru tersimpan: ${insertedCount} tugas\n` +
+        `• Plan JO (nilai tertinggi) tercatat untuk ${Object.keys(newHpMap).length} kode Jobcard\n` +
+        `• Real JO langsung terhitung dari seluruh baris (${totalRowsRead} baris log harian)`
+      );
+    } catch (err: any) {
+      alert('Gagal membaca atau memproses file Data Terpadu: ' + (err?.message || 'Error tidak diketahui'));
+    } finally {
+      setIsImportingUnified(false);
       input.value = '';
     }
   };
@@ -2813,6 +3095,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <Clock className="w-3.5 h-3.5" />
                   {isImportingHour ? 'Mengimpor...' : `Import Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}
                   <input type="file" accept=".xlsx, .xls" onChange={handleImportHourPlanner} disabled={isImportingHour} className="hidden" />
+                </label>
+                <label
+                  className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-sm"
+                  title="Impor 1 file gabungan (TARIKAN_TIMESHEET.xlsx: Hour Planner + Realisasi JO + Jobcard + Deskripsi). Otomatis menghapus data lama & mengganti dengan data baru."
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {isImportingUnified ? 'Memproses Data Terpadu...' : 'Import Data Terpadu (Reset)'}
+                  <input type="file" accept=".xlsx, .xls, .csv" onChange={handleImportUnifiedData} disabled={isImportingUnified} className="hidden" />
                 </label>
                 <input type="text" placeholder="Cari..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
