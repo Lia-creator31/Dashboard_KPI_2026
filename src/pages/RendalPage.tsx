@@ -1844,11 +1844,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         project: string;
         taskName: string;
         kodeJc: string;
+        startDate: string;
         maxPlanJo: number;
         hasPlanJo: boolean;
         realJo: number;
         rev: string;
       }
+
+      const dateFromJobcardCode = (jc: string): string => {
+        const m = (jc || '').match(/^JC(\d{2})(\d{2})(\d{2})\b/i);
+        if (!m) return '';
+        return `20${m[3]}-${m[2]}-${m[1]}`;
+      };
 
       const taskGroups = new Map<string, UnifiedTaskGroup>();
       const newHpMap: HourPlannerMap = {};
@@ -1861,7 +1868,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         if (rows.length === 0) return;
 
         let headerIdx = -1;
-        let cUser = -1, cJc = -1, cPlan = -1, cEff = -1, cOt = -1, cQty = -1, cProj = -1, cDesc = -1, cWc = -1;
+        let cDate = -1, cUser = -1, cJc = -1, cPlan = -1, cEff = -1, cOt = -1, cQty = -1, cProj = -1, cDesc = -1, cWc = -1;
         for (let r = 0; r < Math.min(10, rows.length); r++) {
           const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
           const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
@@ -1870,6 +1877,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             headerIdx = r;
             cJc = jc;
             cUser = us;
+            cDate = h.findIndex(c => c === 'date' || c === 'tanggal' || c.includes('start'));
             cPlan = h.findIndex(c => (c.includes('plan') && c.includes('hour')) || c === 'plan jo' || c === 'planned hour');
             cEff = h.findIndex(c => c.includes('effective'));
             cOt = h.findIndex(c => c.includes('overtime'));
@@ -1901,6 +1909,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           const project = cProj !== -1 ? extractProjectCodeFromCell(row[cProj]) : '';
           const desc = cDesc !== -1 ? String(row[cDesc] ?? '').trim() : '';
           const detectedRev = revFromTaskName(desc);
+          const parsedRowDate = cDate !== -1 ? parseToStandardDate(row[cDate]) : '';
+          const rowDate = /^\d{4}-\d{2}-\d{2}$/.test(parsedRowDate) ? parsedRowDate : dateFromJobcardCode(kodeJc);
 
           const planValRaw = cPlan !== -1 ? String(row[cPlan] ?? '').trim().replace(',', '.') : '';
           const planNum = planValRaw !== '' ? parseFloat(planValRaw) : NaN;
@@ -1915,14 +1925,17 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           const jcKey = cleanText(kodeJc);
           if (jcKey && hasValidPlan) {
             const prevHp = newHpMap[jcKey];
+            const bestStart = prevHp?.start && rowDate ? (rowDate < prevHp.start ? rowDate : prevHp.start) : (rowDate || prevHp?.start || '');
             if (!prevHp || planNum > prevHp.hour) {
               newHpMap[jcKey] = {
                 kode: kodeJc,
                 hour: planNum,
                 planner: prevHp?.planner || '',
-                start: '',
+                start: bestStart,
                 end: '',
               };
+            } else if (bestStart && bestStart !== prevHp.start) {
+              prevHp.start = bestStart;
             }
           }
 
@@ -1936,12 +1949,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               project,
               taskName: desc,
               kodeJc,
+              startDate: rowDate,
               maxPlanJo: hasValidPlan ? planNum : 0,
               hasPlanJo: hasValidPlan,
               realJo: hours,
               rev: detectedRev !== null ? String(detectedRev) : '0',
             });
           } else {
+            if (rowDate && (!existing.startDate || rowDate < existing.startDate)) {
+              existing.startDate = rowDate;
+            }
             if (hasValidPlan && (!existing.hasPlanJo || planNum > existing.maxPlanJo)) {
               existing.maxPlanJo = planNum;
               existing.hasPlanJo = true;
@@ -2002,7 +2019,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           project_code: g.project,
           project: g.project,
           task_name: g.taskName,
-          start_date: '',
+          start_date: g.startDate,
           end_date: '',
           jo: joStr,
           kode_jc: g.kodeJc,
@@ -3323,7 +3340,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
                                         <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
                                         <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
-                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate)}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate || (jcKey && hourPlannerMap[jcKey]?.start))}</td>
                                         <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate)}</td>
                                         <td className="py-2 px-2.5 font-mono text-violet-300">{displayPlanJo}</td>
                                         <td className="py-2 px-2.5 font-mono font-bold">
