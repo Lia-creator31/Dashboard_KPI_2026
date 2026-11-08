@@ -3745,4 +3745,19 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                               onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
                               placeholder="Jobcard (misal: JC020926 39833)..."
                               className="w-48 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none" />
- 
+                            <button onClick={() => handleSaveKodeJcForTask(task.id)}
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer">Simpan</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )) : <div className="py-8 text-center text-xs text-slate-500">Semua tugas sudah memiliki kode Jobcard</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
