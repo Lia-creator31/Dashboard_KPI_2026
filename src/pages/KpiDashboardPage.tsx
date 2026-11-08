@@ -34,6 +34,7 @@ interface JobCardRow {
   pic: string;
   project: string;
   taskName: string;
+  startDate: string;
   endDate: string;
   plannedJo: number;
   kodeJc: string;
@@ -280,7 +281,7 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
   return out;
 }
 
-async function loadHourPlanner(): Promise<Record<string, { hour: number; end?: string }>> {
+async function loadHourPlanner(): Promise<Record<string, { hour: number; start?: string; end?: string }>> {
   try {
     const { data, error } = await supabase.storage.from(MASTER_BUCKET).download(HOUR_PLANNER_FILE);
     if (error || !data) return {};
@@ -765,13 +766,15 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
         const member = resolveMember(rawPic);
         const pic = member ? member.nama : rawPic;
         const plannedJo = parseNumber(row.jo) || planFromHourPlanner(key);
+        const hp = key ? hourPlanner[key] : undefined;
         return {
           id: row.id,
           biro: row.biro_name || 'Tanpa Biro',
           pic,
           project: row.project || '',
           taskName: row.task_name || '',
-          endDate: normalizeDate(row.end_date),
+          startDate: normalizeDate(row.start_date || hp?.start),
+          endDate: normalizeDate(row.end_date || hp?.end),
           plannedJo,
           kodeJc,
           rev: rawRev.trim() || '0',
@@ -801,6 +804,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
             pic: m.nama,
             project: r.project,
             taskName: r.taskName,
+            startDate: normalizeDate(hp?.start),
             endDate: normalizeDate(hp?.end),
             plannedJo: planFromHourPlanner(jcKey),
             kodeJc: r.jobcard,
@@ -826,7 +830,10 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
 
   const periodOptions = useMemo(() => {
     const set = new Set<string>();
-    cards.forEach(c => { if (c.endDate) set.add(c.endDate.slice(0, 7)); });
+    cards.forEach(c => {
+      const refDate = c.endDate || c.startDate;
+      if (refDate) set.add(refDate.slice(0, 7));
+    });
     return Array.from(set).sort().reverse();
   }, [cards]);
 
@@ -838,7 +845,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
 
   // Struktur: Departemen -> Biro -> Individu
   const deptScores = useMemo<DeptScore[]>(() => {
-    const filtered = period === 'all' ? cards : cards.filter(c => c.endDate.startsWith(period));
+    const filtered = period === 'all' ? cards : cards.filter(c => (c.endDate || c.startDate).startsWith(period));
     const depts = departmentsData || [];
 
     // Setiap job card dipetakan ke SATU biro master (yang pertama cocok) agar tidak terhitung ganda
@@ -1337,6 +1344,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                       <th className="py-2 px-2.5 text-center">Rev</th>
                       <th className="py-2 px-2.5 text-right">Plan JO</th>
                       <th className="py-2 px-2.5 text-right">Real JO</th>
+                      <th className="py-2 px-2.5">Plan Start</th>
                       <th className="py-2 px-2.5">Plan Finish</th>
                       <th className="py-2 px-2.5">Release</th>
                       <th className="py-2 px-2.5">Status</th>
@@ -1344,7 +1352,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-300">
                     {activePerson.cards.length === 0 && (
-                      <tr><td colSpan={9} className="py-6 text-center text-slate-500 italic">Belum ada penugasan pada periode terpilih.</td></tr>
+                      <tr><td colSpan={10} className="py-6 text-center text-slate-500 italic">Belum ada penugasan pada periode terpilih.</td></tr>
                     )}
                     {activePerson.cards.map(c => {
                       const st = cardStatus(c);
@@ -1356,6 +1364,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                           <td className="py-2 px-2.5 text-center font-mono">{c.rev}</td>
                           <td className="py-2 px-2.5 text-right font-mono text-violet-300">{c.plannedJo || '-'}</td>
                           <td className="py-2 px-2.5 text-right font-mono text-emerald-400">{c.realJo ? Math.round(c.realJo * 100) / 100 : '-'}</td>
+                          <td className="py-2 px-2.5 font-mono">{formatDisplayDate(c.startDate)}</td>
                           <td className="py-2 px-2.5 font-mono">{formatDisplayDate(c.endDate)}</td>
                           <td className="py-2 px-2.5 font-mono text-cyan-300">{formatDisplayDate(c.release)}</td>
                           <td className={`py-2 px-2.5 font-semibold ${st.cls}`}>{st.text}</td>
