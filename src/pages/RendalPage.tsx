@@ -387,11 +387,20 @@ async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlR
   return dedupeRows(results.flat());
 }
 
+function normalizeDrawingSpacing(desc: string): string {
+  return (desc || '')
+    .replace(/(\b[A-Z]{1,4}\d{2,}[A-Z0-9]*)\s*\.\s*([A-Z0-9]+)/gi, '$1.$2')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function extractDrawingNumber(desc: string): string {
-  let s = (desc || '').replace(/\s+/g, ' ').trim();
+  let s = normalizeDrawingSpacing(desc);
   s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
   const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);
   if (m) return m[0].toUpperCase();
+  const mMid = s.match(/\b[A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+\b/i);
+  if (mMid) return mMid[0].toUpperCase();
   const first = s.split(/\s+-\s+|\s+/)[0] || '';
   return /\d/.test(first) && first.length >= 4 ? first.toUpperCase() : '';
 }
@@ -401,13 +410,19 @@ const drawingKey = (v: string) => cleanText(extractDrawingNumber(v) || v);
 function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
   if (!rows || rows.length === 0 || !taskName) return '';
   const wanted = drawingKey(taskName);
-  if (!wanted) return '';
+  const cleanTarget = cleanText(taskName);
+  if (!wanted && !cleanTarget) return '';
   const toNum = (v: any) => { const n = parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10); return isNaN(n) ? 0 : n; };
   const wantRev = toNum(rev);
-  const hit = rows.find(r =>
-    toNum(r.rev) === wantRev &&
-    drawingKey(r.noDwg) === wanted &&
-    /^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(r.finishDate)));
+  const hit = rows.find(r => {
+    if (toNum(r.rev) !== wantRev) return false;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(r.finishDate))) return false;
+    const rKey = drawingKey(r.noDwg);
+    if (wanted && rKey === wanted) return true;
+    const cDwg = cleanText(r.noDwg);
+    if (cDwg && cDwg.length >= 5 && cleanTarget.includes(cDwg)) return true;
+    return false;
+  });
   return hit ? parseToStandardDate(hit.finishDate) : '';
 }
 
@@ -1907,7 +1922,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           const biroName = resolveBiroName(rawWc, matchedMember?.biro);
 
           const project = cProj !== -1 ? extractProjectCodeFromCell(row[cProj]) : '';
-          const desc = cDesc !== -1 ? String(row[cDesc] ?? '').trim() : '';
+          const desc = cDesc !== -1 ? normalizeDrawingSpacing(String(row[cDesc] ?? '')) : '';
           const detectedRev = revFromTaskName(desc);
           const parsedRowDate = cDate !== -1 ? parseToStandardDate(row[cDate]) : '';
           const rowDate = /^\d{4}-\d{2}-\d{2}$/.test(parsedRowDate) ? parsedRowDate : dateFromJobcardCode(kodeJc);
@@ -3730,19 +3745,4 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                               onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
                               placeholder="Jobcard (misal: JC020926 39833)..."
                               className="w-48 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none" />
-                            <button onClick={() => handleSaveKodeJcForTask(task.id)}
-                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer">Simpan</button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )) : <div className="py-8 text-center text-xs text-slate-500">Semua tugas sudah memiliki kode Jobcard</div>}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+ 
