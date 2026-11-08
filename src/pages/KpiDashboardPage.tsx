@@ -228,6 +228,18 @@ interface RealisasiRow {
   hours: number;
 }
 
+function splitUserCell(raw: any): string {
+  const s = String(raw ?? '').trim();
+  const m = s.match(/^(\d[\d\s]*?)\s*-\s*(.+)$/);
+  return m ? m[2].trim() : s;
+}
+
+function extractProjectCodeFromCell(raw: any): string {
+  const s = String(raw ?? '').trim();
+  if (!s || s === '-' || s.toLowerCase() === 'nan') return '';
+  return (s.split(/[\s-]+/)[0] || s).trim().toUpperCase();
+}
+
 function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
   const out: RealisasiRow[] = [];
   if (!wb) return out;
@@ -236,29 +248,29 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     if (!rows.length) return;
     let headerIdx = -1, cName = -1, cProj = -1, cJc = -1, cEff = -1, cOt = -1, cTask = -1;
-    for (let r = 0; r < Math.min(5, rows.length); r++) {
+    for (let r = 0; r < Math.min(10, rows.length); r++) {
       const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
       const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
       const ef = h.findIndex(c => c.includes('effective'));
       const ot = h.findIndex(c => c.includes('overtime'));
       if (jc !== -1 && (ef !== -1 || ot !== -1)) {
         headerIdx = r; cJc = jc; cEff = ef; cOt = ot;
-        cName = h.findIndex(c => c === 'employee/name' || c === 'nama' || c === 'name');
-        cProj = h.findIndex(c => c === 'project/code');
-        cTask = h.findIndex(c => c === 'jobcard/task name');
+        cName = h.findIndex(c => c === 'employee/name' || c === 'nama' || c === 'name' || c === 'user' || c === 'employee' || c === 'pegawai');
+        cProj = h.findIndex(c => c === 'project/code' || c === 'project' || c === 'proyek');
+        cTask = h.findIndex(c => c === 'jobcard/task name' || c === 'description' || c === 'deskripsi' || c === 'task name');
         break;
       }
     }
     if (headerIdx === -1 || cName === -1) return;   // tanpa kolom nama -> tidak bisa per pegawai
     for (let r = headerIdx + 1; r < rows.length; r++) {
       const row = rows[r]; if (!row) continue;
-      const nama = String(row[cName] ?? '').trim();
+      const nama = splitUserCell(row[cName]);
       if (!nama) continue;
       const jcRaw = String(row[cJc] ?? '').trim();
       if (!jcRaw || jcRaw.toLowerCase() === 'nan' || jcRaw.toLowerCase().includes('jobcard')) continue;
       out.push({
         nama,
-        project: cProj !== -1 ? String(row[cProj] ?? '').trim() : '',
+        project: cProj !== -1 ? extractProjectCodeFromCell(row[cProj]) : '',
         jobcard: jcRaw.replace(/\s+/g, ' ').toUpperCase(),
         taskName: cTask !== -1 ? String(row[cTask] ?? '').trim() : '',
         hours: (cEff !== -1 ? Math.abs(parseNumber(row[cEff])) : 0) + (cOt !== -1 ? Math.abs(parseNumber(row[cOt])) : 0),
