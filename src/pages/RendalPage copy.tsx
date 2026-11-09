@@ -380,18 +380,45 @@ async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlR
   return [];
 }
 
+const drawingRowsCache = new Map<string, DrawingControlRow[]>();
+
+function isKnownDriveProject(projectCode: string): boolean {
+  const cands = projectCandidates(projectCode);
+  if (!cands.length) cands.push(projectCode);
+  return cands.some(c => {
+    const cp = cleanText(c);
+    return cp && GOOGLE_DRIVE_SHEETS.some(s => cleanText(s.projectKey) === cp || cp.includes(cleanText(s.projectKey)));
+  });
+}
+
 async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlRow[]> {
+  const cacheKey = cleanText(projectCode);
+  if (cacheKey && drawingRowsCache.has(cacheKey)) {
+    const cached = drawingRowsCache.get(cacheKey)!;
+    if (cached.length > 0) return cached;
+  }
   const cands = projectCandidates(projectCode);
   if (!cands.length) cands.push(projectCode);
   const results = await Promise.all(cands.map(c => fetchDrawingRowsRaw(c).catch(() => [] as DrawingControlRow[])));
-  return dedupeRows(results.flat());
+  const deduped = dedupeRows(results.flat());
+  if (cacheKey && deduped.length > 0) drawingRowsCache.set(cacheKey, deduped);
+  return deduped;
+}
+
+function normalizeDrawingSpacing(desc: string): string {
+  return (desc || '')
+    .replace(/(\b[A-Z]{1,4}\d{2,}[A-Z0-9]*)\s*\.\s*([A-Z0-9]+)/gi, '$1.$2')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function extractDrawingNumber(desc: string): string {
-  let s = (desc || '').replace(/\s+/g, ' ').trim();
+  let s = normalizeDrawingSpacing(desc);
   s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
   const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);
   if (m) return m[0].toUpperCase();
+  const mMid = s.match(/\b[A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+\b/i);
+  if (mMid) return mMid[0].toUpperCase();
   const first = s.split(/\s+-\s+|\s+/)[0] || '';
   return /\d/.test(first) && first.length >= 4 ? first.toUpperCase() : '';
 }
@@ -401,13 +428,19 @@ const drawingKey = (v: string) => cleanText(extractDrawingNumber(v) || v);
 function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
   if (!rows || rows.length === 0 || !taskName) return '';
   const wanted = drawingKey(taskName);
-  if (!wanted) return '';
+  const cleanTarget = cleanText(taskName);
+  if (!wanted && !cleanTarget) return '';
   const toNum = (v: any) => { const n = parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10); return isNaN(n) ? 0 : n; };
   const wantRev = toNum(rev);
-  const hit = rows.find(r =>
-    toNum(r.rev) === wantRev &&
-    drawingKey(r.noDwg) === wanted &&
-    /^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(r.finishDate)));
+  const hit = rows.find(r => {
+    if (toNum(r.rev) !== wantRev) return false;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(r.finishDate))) return false;
+    const rKey = drawingKey(r.noDwg);
+    if (wanted && rKey === wanted) return true;
+    const cDwg = cleanText(r.noDwg);
+    if (cDwg && cDwg.length >= 5 && cleanTarget.includes(cDwg)) return true;
+    return false;
+  });
   return hit ? parseToStandardDate(hit.finishDate) : '';
 }
 
@@ -939,6 +972,20 @@ interface RealisasiRow {
   hours: number;     // Effective + Overtime
 }
 
+function splitUserCell(raw: any): { nip: string; nama: string } {
+  const s = String(raw ?? '').trim();
+  const m = s.match(/^(\d[\d\s]*?)\s*-\s*(.+)$/);
+  if (m) return { nip: m[1].trim(), nama: m[2].trim() };
+  return { nip: '', nama: s };
+}
+
+function extractProjectCodeFromCell(raw: any): string {
+  const s = String(raw ?? '').trim();
+  if (!s || s === '-' || s.toLowerCase() === 'nan') return '';
+  const firstToken = s.split(/[\s-]+/)[0] || '';
+  return cleanProjectString(firstToken || s);
+}
+
 // Baca file Realisasi per BARIS (tidak membuang baris tanpa Jobcard).
 function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
   const out: RealisasiRow[] = [];
@@ -948,18 +995,18 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     if (rows.length === 0) return;
     let headerIdx = -1;
-    let cNip = 0, cName = 1, cProj = 5, cJc = 16, cEff = 11, cOt = 12, cTask = 22;
-    for (let r = 0; r < Math.min(5, rows.length); r++) {
+    let cNip = -1, cName = 1, cProj = 5, cJc = 16, cEff = 11, cOt = 12, cTask = 22;
+    for (let r = 0; r < Math.min(10, rows.length); r++) {
       const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
       const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
       const ef = h.findIndex(c => c.includes('effective'));
       const ot = h.findIndex(c => c.includes('overtime'));
       if (jc !== -1 && (ef !== -1 || ot !== -1)) {
         headerIdx = r; cJc = jc; cEff = ef; cOt = ot;
-        const nm = h.findIndex(c => c === 'employee/name' || c === 'nama' || c === 'name');
+        const nm = h.findIndex(c => c === 'employee/name' || c === 'nama' || c === 'name' || c === 'user' || c === 'employee' || c === 'pegawai');
         const np = h.findIndex(c => c === 'employee/nip' || c === 'nip');
-        const pj = h.findIndex(c => c === 'project/code');
-        const tk = h.findIndex(c => c === 'jobcard/task name');
+        const pj = h.findIndex(c => c === 'project/code' || c === 'project' || c === 'proyek');
+        const tk = h.findIndex(c => c === 'jobcard/task name' || c === 'description' || c === 'deskripsi' || c === 'task name');
         if (nm !== -1) cName = nm;
         if (np !== -1) cNip = np;
         if (pj !== -1) cProj = pj;
@@ -970,15 +1017,17 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
     if (headerIdx === -1) return;
     for (let r = headerIdx + 1; r < rows.length; r++) {
       const row = rows[r]; if (!row) continue;
-      const nama = String(row[cName] ?? '').trim();
+      const userParsed = splitUserCell(row[cName]);
+      const nama = userParsed.nama;
       if (!nama) continue;
+      const nip = cNip !== -1 ? String(row[cNip] ?? '').trim() : userParsed.nip;
       const jcRaw = String(row[cJc] ?? '').trim();
       const jobcard = (jcRaw.toLowerCase() === 'nan' || jcRaw.toLowerCase().includes('jobcard')) ? '' : jcRaw;
       const hours = (cEff !== -1 ? absNum(row[cEff]) : 0) + (cOt !== -1 ? absNum(row[cOt]) : 0);
       out.push({
-        nip: String(row[cNip] ?? '').trim(),
+        nip,
         nama,
-        project: String(row[cProj] ?? '').trim(),
+        project: extractProjectCodeFromCell(row[cProj]),
         jobcard,
         taskName: String(row[cTask] ?? '').trim(),
         hours,
@@ -1530,6 +1579,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [isFetchingDrawing, setIsFetchingDrawing] = useState<boolean>(false);
   const [hourPlannerMap, setHourPlannerMap] = useState<HourPlannerMap>({});
   const [isImportingHour, setIsImportingHour] = useState(false);
+  const [isImportingUnified, setIsImportingUnified] = useState(false);
   const [sisaCuti, setSisaCuti] = useState<SisaCutiData | null>(null);
 
   const loadAllJobCards = useCallback(async () => {
@@ -1607,10 +1657,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   const autoTried = useRef<Set<string>>(new Set());
   const autoRunning = useRef(false);
+  const autoPending = useRef(false);
   const [autoSyncMsg, setAutoSyncMsg] = useState('');
 
   const autoSyncReleases = useCallback(async (retryAll: boolean) => {
-    if (autoRunning.current) return;
+    if (autoRunning.current) {
+      autoPending.current = true;
+      return;
+    }
     const all = ([] as TaskItem[]).concat(...Object.values(manualTasks));
     const todo = all.filter(t =>
       t.project && t.taskName &&
@@ -1618,40 +1672,52 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       (retryAll || !autoTried.current.has(`${t.id}|${t.rev || '0'}`)));
     if (todo.length === 0) return;
     autoRunning.current = true;
+    let totalFound = 0;
     try {
-      const projects = Array.from(new Set(todo.map(t => t.project)));
-      const rowsByProject = new Map<string, DrawingControlRow[]>();
+      const projects = Array.from(new Set(todo.map(t => t.project))).sort((a, b) =>
+        (isKnownDriveProject(b) ? 1 : 0) - (isKnownDriveProject(a) ? 1 : 0)
+      );
       for (let i = 0; i < projects.length; i += 4) {
-        await Promise.all(projects.slice(i, i + 4).map(async p => {
+        const batchProjs = projects.slice(i, i + 4);
+        const rowsByProject = new Map<string, DrawingControlRow[]>();
+        await Promise.all(batchProjs.map(async p => {
           try { rowsByProject.set(p, await fetchDrawingRowsFor(p)); } catch { rowsByProject.set(p, []); }
         }));
-      }
-      const found = new Map<string, string>();
-      todo.forEach(t => {
-        autoTried.current.add(`${t.id}|${t.rev || '0'}`);
-        const rel = findReleaseInRows(rowsByProject.get(t.project) || [], t.taskName, t.rev || '0');
-        if (rel) found.set(t.id, rel);
-      });
-      if (found.size === 0) return;
-      const ids = Array.from(found.keys());
-      for (let i = 0; i < ids.length; i += 10) {
-        await Promise.all(ids.slice(i, i + 10).map(async id => {
-          const rel = found.get(id)!;
-          saveLocalRelease(id, rel);
-          try { await supabase.from('job_cards').update({ release: rel }).eq('id', id); } catch {}
-        }));
-      }
-      setManualTasks(prev => {
-        const updated = { ...prev };
-        Object.keys(updated).forEach(k => {
-          updated[k] = updated[k].map(t => found.has(t.id) ? { ...t, release: found.get(t.id)! } : t);
+        const batchFound = new Map<string, string>();
+        todo.filter(t => batchProjs.includes(t.project)).forEach(t => {
+          autoTried.current.add(`${t.id}|${t.rev || '0'}`);
+          const rel = findReleaseInRows(rowsByProject.get(t.project) || [], t.taskName, t.rev || '0');
+          if (rel) batchFound.set(t.id, rel);
         });
-        return updated;
-      });
-      setAutoSyncMsg(`${found.size} tanggal Release terisi otomatis dari Drawing Control`);
-      setTimeout(() => setAutoSyncMsg(''), 8000);
+        if (batchFound.size > 0) {
+          totalFound += batchFound.size;
+          const ids = Array.from(batchFound.keys());
+          for (let j = 0; j < ids.length; j += 10) {
+            await Promise.all(ids.slice(j, j + 10).map(async id => {
+              const rel = batchFound.get(id)!;
+              saveLocalRelease(id, rel);
+              try { await supabase.from('job_cards').update({ release: rel }).eq('id', id); } catch {}
+            }));
+          }
+          setManualTasks(prev => {
+            const updated = { ...prev };
+            Object.keys(updated).forEach(k => {
+              updated[k] = updated[k].map(t => batchFound.has(t.id) ? { ...t, release: batchFound.get(t.id)! } : t);
+            });
+            return updated;
+          });
+        }
+      }
+      if (totalFound > 0) {
+        setAutoSyncMsg(`${totalFound} tanggal Release terisi otomatis dari Drawing Control`);
+        setTimeout(() => setAutoSyncMsg(''), 8000);
+      }
     } finally {
       autoRunning.current = false;
+      if (autoPending.current) {
+        autoPending.current = false;
+        setTimeout(() => autoSyncReleases(false), 150);
+      }
     }
   }, [manualTasks]);
 
@@ -1772,6 +1838,320 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       alert('Gagal membaca file Excel Hour Planner.');
     } finally {
       setIsImportingHour(false);
+      input.value = '';
+    }
+  };
+
+  // Impor 1 file terpadu (Hour Planner + Realisasi JO + Jobcard + Deskripsi):
+  // 1) Plan JO diambil dari nilai tertinggi (MAX Planned Hour) per Jobcard
+  // 2) Semua baris tetap dimasukkan untuk Real JO (Effective + Overtime)
+  // 3) Plan Start / Plan Finish diabaikan dulu (kosong)
+  // Otomatis menghapus data lama di job_cards & menggantinya dengan data baru.
+  const handleImportUnifiedData = async (e: ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (!window.confirm(`Apakah Anda yakin ingin mengimpor "${file.name}"?\n\nSemua data penugasan/Jobcard lama akan DIHAPUS otomatis dan digantikan dengan data baru dari file ini.`)) {
+      input.value = '';
+      return;
+    }
+    setIsImportingUnified(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+
+      const allMasterBiros = (departmentsData || []).flatMap(d => d.biros.map(b => b.name));
+      const resolveBiroName = (rawWc: string, memberBiro?: string): string => {
+        const stripWc = (s: string) => s.replace(/^[0-9A-Z]{3,10}\s*-\s*/i, '').trim();
+        const candidates = [memberBiro || '', stripWc(rawWc || ''), rawWc || ''].filter(Boolean);
+        for (const cand of candidates) {
+          const exact = allMasterBiros.find(b => cleanText(b) === cleanText(cand));
+          if (exact) return exact;
+          const fuzzy = allMasterBiros.find(b => isBiroMatch(b, cand));
+          if (fuzzy) return fuzzy;
+        }
+        return candidates[0] || 'Tanpa Biro';
+      };
+
+      const resolveIm4Member = (nip: string, rawName: string): ParsedMember | undefined => {
+        const nNip = normNip(nip);
+        if (nNip) {
+          const byNip = allParsedFromExcel.find(m => normNip(m.nip) === nNip);
+          if (byNip) return byNip;
+        }
+        const cName = cleanText(rawName);
+        if (!cName) return undefined;
+        const exact = allParsedFromExcel.find(m => cleanText(m.nama) === cName);
+        if (exact) return exact;
+        const fuzzy = allParsedFromExcel.filter(m => sameNameFuzzy(m.nama, rawName));
+        return fuzzy.length === 1 ? fuzzy[0] : undefined;
+      };
+
+      interface UnifiedTaskGroup {
+        biroName: string;
+        pic: string;
+        project: string;
+        taskName: string;
+        kodeJc: string;
+        startDate: string;
+        maxPlanJo: number;
+        hasPlanJo: boolean;
+        realJo: number;
+        rev: string;
+      }
+
+      const dateFromJobcardCode = (jc: string): string => {
+        const m = (jc || '').match(/^JC(\d{2})(\d{2})(\d{2})\b/i);
+        if (!m) return '';
+        return `20${m[3]}-${m[2]}-${m[1]}`;
+      };
+
+      const taskGroups = new Map<string, UnifiedTaskGroup>();
+      const newHpMap: HourPlannerMap = {};
+      let totalRowsRead = 0;
+
+      wb.SheetNames.forEach(sheetName => {
+        const sheet = wb.Sheets[sheetName];
+        if (!sheet) return;
+        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        if (rows.length === 0) return;
+
+        let headerIdx = -1;
+        let cDate = -1, cUser = -1, cJc = -1, cPlan = -1, cEff = -1, cOt = -1, cQty = -1, cProj = -1, cDesc = -1, cWc = -1;
+        for (let r = 0; r < Math.min(10, rows.length); r++) {
+          const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+          const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+          const us = h.findIndex(c => c === 'user' || c === 'employee/name' || c === 'nama' || c === 'name' || c === 'employee' || c === 'pegawai');
+          if (jc !== -1 && us !== -1) {
+            headerIdx = r;
+            cJc = jc;
+            cUser = us;
+            cDate = h.findIndex(c => c === 'date' || c === 'tanggal' || c.includes('start'));
+            cPlan = h.findIndex(c => (c.includes('plan') && c.includes('hour')) || c === 'plan jo' || c === 'planned hour');
+            cEff = h.findIndex(c => c.includes('effective'));
+            cOt = h.findIndex(c => c.includes('overtime'));
+            cQty = h.findIndex(c => c === 'quantity' || c === 'qty');
+            cProj = h.findIndex(c => c === 'project' || c === 'project/code' || c === 'proyek');
+            cDesc = h.findIndex(c => c === 'description' || c === 'deskripsi' || c === 'jobcard/task name' || c === 'task name');
+            cWc = h.findIndex(c => c === 'work center' || c === 'biro' || c.includes('work center'));
+            break;
+          }
+        }
+        if (headerIdx === -1) return;
+
+        for (let r = headerIdx + 1; r < rows.length; r++) {
+          const row = rows[r];
+          if (!row) continue;
+          const userParsed = splitUserCell(row[cUser]);
+          if (!userParsed.nama) continue;
+          totalRowsRead++;
+
+          const jcRaw = String(row[cJc] ?? '').replace(/\s+/g, ' ').trim();
+          const kodeJc = (!jcRaw || jcRaw.toLowerCase() === 'nan' || jcRaw.toLowerCase().includes('jobcard')) ? '' : jcRaw.toUpperCase();
+          if (!kodeJc) continue; // baris tanpa kode Jobcard tetap dihitung di ringkasan "Realisasi tanpa Jobcard"
+
+          const matchedMember = resolveIm4Member(userParsed.nip, userParsed.nama);
+          const pic = matchedMember ? matchedMember.nama : userParsed.nama;
+          const rawWc = cWc !== -1 ? String(row[cWc] ?? '').trim() : '';
+          const biroName = resolveBiroName(rawWc, matchedMember?.biro);
+
+          const project = cProj !== -1 ? extractProjectCodeFromCell(row[cProj]) : '';
+          const desc = cDesc !== -1 ? normalizeDrawingSpacing(String(row[cDesc] ?? '')) : '';
+          const detectedRev = revFromTaskName(desc);
+          const parsedRowDate = cDate !== -1 ? parseToStandardDate(row[cDate]) : '';
+          const rowDate = /^\d{4}-\d{2}-\d{2}$/.test(parsedRowDate) ? parsedRowDate : dateFromJobcardCode(kodeJc);
+
+          const planValRaw = cPlan !== -1 ? String(row[cPlan] ?? '').trim().replace(',', '.') : '';
+          const planNum = planValRaw !== '' ? parseFloat(planValRaw) : NaN;
+          const hasValidPlan = !isNaN(planNum);
+
+          const eff = cEff !== -1 ? absNum(row[cEff]) : 0;
+          const ot = cOt !== -1 ? absNum(row[cOt]) : 0;
+          const qty = cQty !== -1 ? absNum(row[cQty]) : 0;
+          const hours = (eff + ot) > 0 ? (eff + ot) : qty;
+
+          // Simpan nilai tertinggi Planned Hour ke HourPlannerMap per kode Jobcard
+          const jcKey = cleanText(kodeJc);
+          if (jcKey && hasValidPlan) {
+            const prevHp = newHpMap[jcKey];
+            const bestStart = prevHp?.start && rowDate ? (rowDate < prevHp.start ? rowDate : prevHp.start) : (rowDate || prevHp?.start || '');
+            if (!prevHp || planNum > prevHp.hour) {
+              newHpMap[jcKey] = {
+                kode: kodeJc,
+                hour: planNum,
+                planner: prevHp?.planner || '',
+                start: bestStart,
+                end: '',
+              };
+            } else if (bestStart && bestStart !== prevHp.start) {
+              prevHp.start = bestStart;
+            }
+          }
+
+          // Kelompokkan per (PIC, Jobcard)
+          const groupKey = `${cleanText(pic)}|${jcKey}`;
+          const existing = taskGroups.get(groupKey);
+          if (!existing) {
+            taskGroups.set(groupKey, {
+              biroName,
+              pic,
+              project,
+              taskName: desc,
+              kodeJc,
+              startDate: rowDate,
+              maxPlanJo: hasValidPlan ? planNum : 0,
+              hasPlanJo: hasValidPlan,
+              realJo: hours,
+              rev: detectedRev !== null ? String(detectedRev) : '0',
+            });
+          } else {
+            if (rowDate && (!existing.startDate || rowDate < existing.startDate)) {
+              existing.startDate = rowDate;
+            }
+            if (hasValidPlan && (!existing.hasPlanJo || planNum > existing.maxPlanJo)) {
+              existing.maxPlanJo = planNum;
+              existing.hasPlanJo = true;
+            }
+            existing.realJo += hours;
+            if (!existing.project && project) existing.project = project;
+            if (desc && (!existing.taskName || (!extractDrawingNumber(existing.taskName) && extractDrawingNumber(desc)))) {
+              existing.taskName = desc;
+            }
+            if (detectedRev !== null) {
+              existing.rev = String(detectedRev);
+            }
+          }
+        }
+      });
+
+      if (totalRowsRead === 0 || taskGroups.size === 0) {
+        alert(`Tidak ditemukan baris data Jobcard terpadu yang valid di "${file.name}". Pastikan terdapat kolom User, Jobcard, Planned Hour, Effective Hours, Overtime Hours, Project, dan Description.`);
+        return;
+      }
+
+      // 1. Baca data lama di tabel job_cards (simpan release yang sudah pernah terisi agar tidak hilang) lalu hapus
+      const { data: oldRows, error: fetchOldErr } = await supabase.from('job_cards').select('*');
+      if (fetchOldErr) {
+        alert('Gagal membaca data lama untuk dihapus: ' + fetchOldErr.message);
+        return;
+      }
+      const prevReleaseByJc = new Map<string, string>();
+      const prevReleaseByDwg = new Map<string, string>();
+      (oldRows || []).forEach((r: any) => {
+        const rel = parseToStandardDate(r.release || getLocalRelease(r.id, ''));
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(rel)) return;
+        const jcKey = cleanText(r.kode_jc || '');
+        if (jcKey) prevReleaseByJc.set(jcKey, rel);
+        const dKey = drawingKey(r.task_name || '');
+        const pKey = cleanText(r.project || '');
+        const rv = String(r.rev ?? '0').trim() || '0';
+        if (pKey && dKey) prevReleaseByDwg.set(`${pKey}|${dKey}|${rv}`, rel);
+      });
+
+      // Ambil juga Release dari Drawing Control (Google Drive) untuk proyek yang ada
+      const uniqueProjs = Array.from(new Set(Array.from(taskGroups.values()).map(g => g.project).filter(Boolean))).sort((a, b) =>
+        (isKnownDriveProject(b) ? 1 : 0) - (isKnownDriveProject(a) ? 1 : 0)
+      );
+      const driveRowsByProj = new Map<string, DrawingControlRow[]>();
+      for (let i = 0; i < uniqueProjs.length; i += 4) {
+        await Promise.all(uniqueProjs.slice(i, i + 4).map(async p => {
+          try { driveRowsByProj.set(p, await fetchDrawingRowsFor(p)); } catch { driveRowsByProj.set(p, []); }
+        }));
+      }
+
+      const oldIds = (oldRows || []).map((r: any) => r.id).filter(Boolean);
+      for (let i = 0; i < oldIds.length; i += 100) {
+        const chunk = oldIds.slice(i, i + 100);
+        const { error: delErr } = await supabase.from('job_cards').delete().in('id', chunk);
+        if (delErr) {
+          alert('Gagal menghapus data lama: ' + delErr.message);
+          return;
+        }
+      }
+      try {
+        localStorage.removeItem('task_rev_map');
+        localStorage.removeItem('task_release_map');
+      } catch {}
+
+      // 2. Petakan biro_id dari tabel biros di Supabase
+      const { data: biroList } = await supabase.from('biros').select('id, name');
+      const getBiroId = (bName: string): string | null => {
+        if (!biroList || biroList.length === 0) return null;
+        const found = biroList.find((b: any) => isBiroMatch(b.name, bName));
+        return found ? found.id : biroList[0].id;
+      };
+
+      // 3. Insert data baru ke job_cards (beserta tanggal Release dari Drive / data sebelumnya)
+      const payloads = Array.from(taskGroups.values()).map(g => {
+        const joStr = g.hasPlanJo && g.maxPlanJo > 0 ? String(fmtNum(g.maxPlanJo)) : (g.hasPlanJo ? String(fmtNum(g.maxPlanJo)) : '');
+        const driveRel = findReleaseInRows(driveRowsByProj.get(g.project) || [], g.taskName, g.rev);
+        const fallbackRel = prevReleaseByJc.get(cleanText(g.kodeJc)) || prevReleaseByDwg.get(`${cleanText(g.project)}|${drawingKey(g.taskName)}|${g.rev}`) || '';
+        const releaseVal = driveRel || fallbackRel;
+        return {
+          biro_id: getBiroId(g.biroName),
+          biro_name: g.biroName,
+          personil_name: g.pic,
+          pic: g.pic,
+          project_code: g.project,
+          project: g.project,
+          task_name: g.taskName,
+          start_date: g.startDate,
+          end_date: '',
+          jo: joStr,
+          kode_jc: g.kodeJc,
+          status: 'approved',
+          rev: g.rev,
+          release: releaseVal,
+        };
+      });
+
+      let insertedCount = 0;
+      for (let i = 0; i < payloads.length; i += 50) {
+        const batch = payloads.slice(i, i + 50);
+        let { data: insRows, error: insErr } = await supabase.from('job_cards').insert(batch).select('id, kode_jc, pic');
+        if (insErr && (insErr.message?.includes('rev') || insErr.message?.includes('release') || (insErr as any).details?.includes('rev') || (insErr as any).details?.includes('release'))) {
+          const stripped = batch.map(({ rev, release, ...rest }) => rest);
+          const retry = await supabase.from('job_cards').insert(stripped).select('id, kode_jc, pic');
+          insRows = retry.data;
+          insErr = retry.error;
+        }
+        if (insErr) {
+          alert(`Gagal menyimpan sebagian data baru (batch ${Math.floor(i / 50) + 1}): ${insErr.message}`);
+          break;
+        }
+        (insRows || []).forEach((ir: any, idx: number) => {
+          const rel = batch[idx]?.release;
+          if (ir?.id && rel) saveLocalRelease(ir.id, rel);
+        });
+        insertedCount += batch.length;
+      }
+
+      // 4. Simpan Hour Planner baru & file Realisasi baru (menggantikan yang lama)
+      setHourPlannerMap(newHpMap);
+      await saveHourPlanner(newHpMap);
+
+      setRealisasiWorkbook(wb);
+      const xlsxOut = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const realisasiFile = new File([xlsxOut], 'realisasi.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      await saveMasterFile('realisasi', realisasiFile);
+
+      // 5. Muat ulang daftar job_cards
+      autoTried.current.clear();
+      await loadAllJobCards();
+
+      alert(
+        `Data Terpadu "${file.name}" berhasil diimpor!\n\n` +
+        `• Data lama dihapus: ${oldIds.length} tugas\n` +
+        `• Tugas Jobcard baru tersimpan: ${insertedCount} tugas\n` +
+        `• Plan JO (nilai tertinggi) tercatat untuk ${Object.keys(newHpMap).length} kode Jobcard\n` +
+        `• Real JO langsung terhitung dari seluruh baris (${totalRowsRead} baris log harian)`
+      );
+    } catch (err: any) {
+      alert('Gagal membaca atau memproses file Data Terpadu: ' + (err?.message || 'Error tidak diketahui'));
+    } finally {
+      setIsImportingUnified(false);
       input.value = '';
     }
   };
@@ -2814,6 +3194,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   {isImportingHour ? 'Mengimpor...' : `Import Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}
                   <input type="file" accept=".xlsx, .xls" onChange={handleImportHourPlanner} disabled={isImportingHour} className="hidden" />
                 </label>
+                <label
+                  className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-sm"
+                  title="Impor 1 file gabungan (TARIKAN_TIMESHEET.xlsx: Hour Planner + Realisasi JO + Jobcard + Deskripsi). Otomatis menghapus data lama & mengganti dengan data baru."
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {isImportingUnified ? 'Memproses Data Terpadu...' : 'Import Data Terpadu (Reset)'}
+                  <input type="file" accept=".xlsx, .xls, .csv" onChange={handleImportUnifiedData} disabled={isImportingUnified} className="hidden" />
+                </label>
                 <input type="text" placeholder="Cari..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
               </div>
@@ -3033,7 +3421,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
                                         <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
                                         <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
-                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate)}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate || (jcKey && hourPlannerMap[jcKey]?.start))}</td>
                                         <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate)}</td>
                                         <td className="py-2 px-2.5 font-mono text-violet-300">{displayPlanJo}</td>
                                         <td className="py-2 px-2.5 font-mono font-bold">
