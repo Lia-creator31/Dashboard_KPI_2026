@@ -744,35 +744,51 @@ function classifyTimeOff(type: string): TimeOffEntry['kind'] {
 
 export function parseTimeOff(wb: XLSX.WorkBook | null): TimeOffEntry[] {
   if (!wb) return [];
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) return [];
-  const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-  const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
-  const col = (name: string) => head.findIndex(h => h === name);
-  const cEmp = col('employee'), cType = col('time off type'), cStart = col('start date'),
-    cEnd = col('end date'), cDur = col('duration'), cStatus = col('status');
-  if (cEmp < 0 || cType < 0 || cStart < 0 || cEnd < 0) return [];
-  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
   const out: TimeOffEntry[] = [];
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i]; if (!r) continue;
-    const emp = String(r[cEmp] || '').trim(); if (!emp) continue;
-    const dash = emp.indexOf('-');
-    const start = parseToStandardDate(r[cStart]);
-    if (!isoRe.test(start)) continue;
-    const endRaw = parseToStandardDate(r[cEnd]);
-    const type = String(r[cType] || '').trim();
-    out.push({
-      nip: dash > 0 ? emp.slice(0, dash).trim() : '',
-      nama: dash > 0 ? emp.slice(dash + 1).trim() : emp,
-      type,
-      kind: classifyTimeOff(type),
-      start,
-      end: isoRe.test(endRaw) ? endRaw : start,
-      days: parseInt(String(r[cDur] || '').replace(/[^0-9]/g, ''), 10) || 1,
-      status: String(r[cStatus] || '').trim(),
-    });
-  }
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+  wb.SheetNames.forEach(sheetName => {
+    const sheet = wb.Sheets[sheetName];
+    if (!sheet) return;
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (rows.length === 0) return;
+    let headerIdx = -1, cEmp = -1, cType = -1, cStart = -1, cEnd = -1, cDur = -1, cStatus = -1;
+    for (let r = 0; r < Math.min(10, rows.length); r++) {
+      const head = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+      const emp = head.findIndex(h => h === 'employee' || h === 'pegawai' || h === 'nama' || h.includes('employee'));
+      const typ = head.findIndex(h => h === 'time off type' || h.includes('time off') || h === 'tipe' || h === 'jenis cuti');
+      const st = head.findIndex(h => h === 'start date' || h.includes('start'));
+      const en = head.findIndex(h => h === 'end date' || h.includes('end'));
+      if (emp >= 0 && typ >= 0 && st >= 0 && en >= 0) {
+        headerIdx = r;
+        cEmp = emp; cType = typ; cStart = st; cEnd = en;
+        cDur = head.findIndex(h => h === 'duration' || h.includes('duration') || h.includes('durasi'));
+        cStatus = head.findIndex(h => h === 'status' || h.includes('state'));
+        break;
+      }
+    }
+    if (headerIdx < 0) return;
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const r = rows[i]; if (!r) continue;
+      const emp = String(r[cEmp] || '').trim(); if (!emp) continue;
+      const dash = emp.indexOf('-');
+      const start = parseToStandardDate(r[cStart]);
+      if (!isoRe.test(start)) continue;
+      const endRaw = parseToStandardDate(r[cEnd]);
+      const type = String(r[cType] || '').trim();
+      const rawStatus = cStatus >= 0 ? String(r[cStatus] || '').trim() : 'Approved';
+      const normStatus = /^approved|disetujui|validate|confirm$/i.test(rawStatus) ? 'Approved' : rawStatus;
+      out.push({
+        nip: dash > 0 ? emp.slice(0, dash).trim() : '',
+        nama: dash > 0 ? emp.slice(dash + 1).trim() : emp,
+        type,
+        kind: classifyTimeOff(type),
+        start,
+        end: isoRe.test(endRaw) ? endRaw : start,
+        days: (cDur >= 0 ? parseInt(String(r[cDur] || '').replace(/[^0-9]/g, ''), 10) : 0) || 1,
+        status: normStatus,
+      });
+    }
+  });
   return out;
 }
 
@@ -792,6 +808,7 @@ export interface SisaCutiInfo {
   sisa: number;
   filledAt: string;
   rencana: Record<string, string>; // Rencana 1, Rencana 2, dst. dari Google Sheet
+  rowIdx?: number;
 }
 
 export interface SisaCutiData {
@@ -805,9 +822,16 @@ function parseSheetTimestamp(val: any, order: 'dmy' | 'mdy'): string {
   const a = parseInt(m[1], 10), b = parseInt(m[2], 10), c = parseInt(m[3], 10);
   const pad = (n: number) => String(n).padStart(2, '0');
   if (a > 31) return `${a}-${pad(b)}-${pad(c)}`;
-  const day = order === 'dmy' ? a : b;
-  const mon = order === 'dmy' ? b : a;
-  return `${c}-${pad(mon)}-${pad(day)}`;
+  let day = order === 'dmy' ? a : b;
+  let mon = order === 'dmy' ? b : a;
+  if (mon > 12 && day <= 12) { const tmp = day; day = mon; mon = tmp; }
+  const res = `${c}-${pad(mon)}-${pad(day)}`;
+  const todayIso = isoLocal(new Date());
+  if (res > todayIso && day <= 12 && mon <= 12) {
+    const swapped = `${c}-${pad(day)}-${pad(mon)}`;
+    if (swapped <= todayIso) return swapped;
+  }
+  return res;
 }
 
 export function countDaysAfter(e: TimeOffEntry, filledAt: string): number {
@@ -826,18 +850,82 @@ export function countDaysAfter(e: TimeOffEntry, filledAt: string): number {
   return Math.min(n, e.days);
 }
 
+// Batas awal perhitungan pengurang Sisa Cuti dari file Excel Time Off yang diupload:
+// Dihitung mulai dari awal bulan berjalan (tanggal 1 bulan ini).
+// Jika saat ini masih berada di minggu awal bulan berjalan (Senin minggu kemarin jatuh sebelum tanggal 1 bulan ini),
+// maka dihitung mulai dari Senin minggu kemarin.
+export function getTimeOffCutoffStart(base: Date = new Date()): string {
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  const firstOfMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+  const monThisWeek = new Date(d);
+  monThisWeek.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  const monPrevWeek = new Date(monThisWeek);
+  monPrevWeek.setDate(monThisWeek.getDate() - 7);
+  const start = monPrevWeek < firstOfMonth ? monPrevWeek : firstOfMonth;
+  return isoLocal(start);
+}
+
+export function countDaysFrom(e: TimeOffEntry, startDate: string): number {
+  if (!startDate) return e.days;
+  if (e.end < startDate) return 0;
+  if (e.start >= startDate) return e.days;
+  let n = 0;
+  const d = new Date(startDate + 'T00:00:00');
+  const endD = new Date(e.end + 'T00:00:00');
+  while (d <= endD) {
+    const w = d.getDay();
+    if (w !== 0 && w !== 6) n++;
+    d.setDate(d.getDate() + 1);
+  }
+  return Math.min(n, e.days);
+}
+
+// Filter entri cuti/izin/sakit untuk tahun tertentu (misal 2026).
+// Jika pegawai sudah memiliki transaksi cuti tahun berjalan (misal "Cuti Tahunan PKWT November 2026"),
+// maka sisa cuti periode kontrak tahun sebelumnya ("Cuti PKWT November 2025") tidak dihitung sebagai realisasi tahun berjalan.
+export function filterLeavesForYear(mine: TimeOffEntry[], targetYear: number = new Date().getFullYear()): TimeOffEntry[] {
+  const targetYearStr = String(targetYear);
+  const prevYearStr = String(targetYear - 1);
+  const hasTargetYearLeave = mine.some(x => x.type.includes(targetYearStr));
+
+  return mine.filter(e => {
+    if (targetYear === 2026) {
+      const [y, mm] = e.start.split('-');
+      const n = parseInt(mm, 10);
+      if (y !== '2026' || n < 8 || n > 12) return false;
+    } else {
+      if (!e.start.startsWith(targetYearStr)) return false;
+    }
+
+    if (hasTargetYearLeave && e.type.includes(prevYearStr) && !e.type.includes(targetYearStr)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 async function fetchSisaCutiCsv(): Promise<{ text: string; order: 'dmy' | 'mdy' } | null> {
+  const cb = Date.now();
   const sources: { url: string; order: 'dmy' | 'mdy' }[] = [
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/pub?gid=${SISA_CUTI_GID}&single=true&output=csv`, order: 'dmy' },
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/export?format=csv&gid=${SISA_CUTI_GID}`, order: 'dmy' },
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}`, order: 'mdy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}&headers=1&_t=${cb}`, order: 'dmy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/export?format=csv&gid=${SISA_CUTI_GID}&_t=${cb}`, order: 'dmy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/pub?gid=${SISA_CUTI_GID}&single=true&output=csv&_t=${cb}`, order: 'dmy' },
   ];
   for (const s of sources) {
     try {
-      const res = await fetch(s.url);
+      const res = await fetch(s.url, { cache: 'no-store' });
       if (res.ok) {
-        console.log('Sisa cuti diambil dari:', s.url);
-        return { text: await res.text(), order: s.order };
+        const text = await res.text();
+        const low = (text || '').trim().toLowerCase();
+        if (
+          low &&
+          !low.startsWith('<!doctype') &&
+          !low.startsWith('<html') &&
+          (low.includes('nama personel') || low.includes('sisa cuti') || low.includes('timestamp') || low.includes('cap waktu'))
+        ) {
+          return { text, order: s.order };
+        }
       }
     } catch (err) {
       console.warn('Gagal fetch:', s.url, err);
@@ -892,6 +980,19 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
     if (cName < 0) cName = 2;
     if (cSisa < 0) cSisa = 5;
 
+    // Deteksi otomatis urutan tanggal (dmy vs mdy) dari seluruh baris Timestamp
+    let dmyHits = 0, mdyHits = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const s = String(rows[i]?.[cTs] ?? '').trim();
+      const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if (m) {
+        const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+        if (a > 12 && b <= 12) dmyHits++;
+        else if (b > 12 && a <= 12) mdyHits++;
+      }
+    }
+    const detectedOrder: 'dmy' | 'mdy' = mdyHits > dmyHits ? 'mdy' : dmyHits > mdyHits ? 'dmy' : src.order;
+
     const byName = new Map<string, SisaCutiInfo>();
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
@@ -908,12 +1009,17 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
       const info: SisaCutiInfo = {
         nama: String(r[cName] ?? '').trim(),
         sisa: sisaNum,
-        filledAt: parseSheetTimestamp(r[cTs], src.order),
-        rencana: rencanaData
+        filledAt: parseSheetTimestamp(r[cTs], detectedOrder),
+        rencana: rencanaData,
+        rowIdx: i,
       };
 
       const old = byName.get(nm);
-      if (!old || info.filledAt >= old.filledAt) byName.set(nm, info);
+      // Di Google Sheets, baris yang berada di bawah (i lebih besar)
+      // adalah respons formulir / inputan update terbaru dari personel tersebut.
+      if (!old || i >= (old.rowIdx ?? 0) || (info.filledAt && old.filledAt && info.filledAt >= old.filledAt)) {
+        byName.set(nm, info);
+      }
     }
     return { byName };
   } catch { return null; }
@@ -950,14 +1056,27 @@ function sameNameFuzzy(a: string, b: string): boolean {
 
 export function findSisaCuti(data: SisaCutiData | null, nama: string, allNames: string[] = []): SisaCutiInfo | undefined {
   if (!data) return undefined;
+  const targetTokens = nameTokens(nama);
   let best: SisaCutiInfo | undefined;
+  let bestExactLen = false;
   data.byName.forEach(info => {
     if (!sameNameFuzzy(info.nama, nama)) return;
-    if (nameTokens(info.nama).length === 1) {
+    const infoTokens = nameTokens(info.nama);
+    if (infoTokens.length === 1 && targetTokens.length > 1) {
       const kandidat = allNames.filter(n => sameNameFuzzy(info.nama, n));
       if (kandidat.length > 1) return;
     }
-    if (!best || info.filledAt > best.filledAt) best = info;
+    const isExactLen = infoTokens.length === targetTokens.length;
+    const isNewer = !best ||
+      (isExactLen && !bestExactLen) ||
+      (isExactLen === bestExactLen && (
+        (info.rowIdx !== undefined && best.rowIdx !== undefined && info.rowIdx > best.rowIdx) ||
+        info.filledAt >= best.filledAt
+      ));
+    if (isNewer) {
+      best = info;
+      bestExactLen = isExactLen;
+    }
   });
   return best;
 }
@@ -1208,30 +1327,28 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
 
   const data = useMemo(() => {
     const currentYear = new Date().getFullYear();
+    const cutoffStart = getTimeOffCutoffStart();
     return members.map(m => {
       const nip = normNip(m.nip), nm = cleanText(m.nama);
       const mine = entries.filter(e =>
         e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm)
       );
-      let inYear: TimeOffEntry[] = [];
-      if (currentYear === 2026) {
-        inYear = mine.filter(e => {
-          const [y, mStr] = e.start.split('-');
-          const monthNum = parseInt(mStr, 10);
-          return y === '2026' && monthNum >= 8 && monthNum <= 12;
-        });
-      } else {
-        inYear = mine.filter(e => e.start.startsWith(String(currentYear)));
-      }
+      const inYear = filterLeavesForYear(mine, currentYear);
       const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
-      const realisasiCuti = sum('cuti');
       const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
       const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama, members.map(x => x.nama));
       const cutiSetelahIsi = info
         ? inYear.filter(e => e.kind === 'cuti')
-            .reduce((s, e) => s + countDaysAfter(e, info.filledAt), 0)
+            .reduce((s, e) => s + countDaysFrom(e, cutoffStart), 0)
         : 0;
       const sisa = info ? info.sisa - cutiSetelahIsi : undefined;
+
+      const isPkwt = (m.nip && normNip(m.nip).startsWith('02')) || mine.some(x => x.type.toLowerCase().includes('pkwt'));
+      let realisasiCuti = sum('cuti');
+      if (isPkwt && info && info.sisa >= 12) {
+        realisasiCuti = cutiSetelahIsi;
+      }
+
       return {
         m,
         sisa,
@@ -1404,7 +1521,7 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
             <b className="text-orange-300">cuti khusus</b> (umroh, menikah, istri melahirkan, keluarga inti sakit/rawat inap)
             tidak masuk realisasi cuti.{' '}
             Sisa Cuti diambil dari Google Sheet "Form Pengisian Alokasi Cuti 2026" (isian terakhir bila nama ganda),
-            lalu dikurangi cuti biasa yang tanggalnya <b>setelah</b> tanggal pengisian form. Tanda "-" berarti belum mengisi form.
+            lalu dikurangi cuti biasa pada file Time Off mulai dari <b>awal bulan berjalan</b> (atau mulai dari <b>minggu kemarin</b> jika saat ini berada di minggu awal bulan). Tanda "-" berarti belum mengisi form.
           </div>
         </>
       )}
@@ -1644,6 +1761,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
+  const refreshSisaCuti = useCallback(async () => {
+    const data = await fetchSisaCuti();
+    if (data) setSisaCuti(data);
+    return data;
+  }, []);
+
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -1651,7 +1774,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       if (alive && data) setSisaCuti(data);
     };
     load();
-    const timer = setInterval(load, 10 * 60 * 1000);
+    const timer = setInterval(load, 2 * 60 * 1000);
     return () => { alive = false; clearInterval(timer); };
   }, []);
 
@@ -2820,6 +2943,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         sisaCuti={sisaCuti}
         onBack={() => (user.role === 'rekap' ? onLogout() : setShowRekapDivisi(false))}
         onUploadTimeOff={handleUploadTimeOffExcel}
+        onRefreshSisaCuti={refreshSisaCuti}
       />
     );
   }
