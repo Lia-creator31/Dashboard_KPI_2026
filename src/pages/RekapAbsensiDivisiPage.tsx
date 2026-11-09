@@ -91,10 +91,20 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
           const cutiSetelahIsi = info
             ? inYear.filter(e => e.kind === 'cuti').reduce((a, e) => a + countDaysFrom(e, cutoffStart), 0)
             : 0;
+
+          const isPkwt = (m.nip && normNip(m.nip).startsWith('02')) || mine.some(x => x.type.toLowerCase().includes('pkwt'));
+          let realisasiCuti = sum('cuti');
+          // Khusus status PKWT: jika sisa cuti di form spreadsheet adalah 12 (baru diperbarui/kontrak baru),
+          // realisasi cutinya otomatis 0 bila belum dipakai pada periode/bulan tersebut,
+          // atau dihitung dari cuti yang sudah dipakai pada periode kontrak baru tersebut.
+          if (isPkwt && info && info.sisa >= 12) {
+            realisasiCuti = cutiSetelahIsi;
+          }
+
           return {
             m,
             isKadep: kadepIds.has(idOf(m)),
-            cuti: sum('cuti'),
+            cuti: realisasiCuti,
             panjang: inYear.filter(e => e.kind === 'panjang'),
             khusus: inYear.filter(e => e.kind === 'khusus'),
             sakit: sum('sakit'),
