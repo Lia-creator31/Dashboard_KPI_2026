@@ -4,7 +4,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { ArrowLeft, Search, FileSpreadsheet, FileDown, FileText, RefreshCw } from 'lucide-react';
 import {
-  parseTimeOff, findSisaCuti, countDaysFrom, getTimeOffCutoffStart, normNip, cleanText, shortType, formatDisplayDate,
+  parseTimeOff, findSisaCuti, countDaysFrom, getTimeOffCutoffStart, filterLeavesForYear, normNip, cleanText, shortType, formatDisplayDate,
 } from './RendalPage';
 import type { ParsedMember, SisaCutiData, SisaCutiInfo, TimeOffEntry } from './RendalPage';
 
@@ -84,13 +84,7 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
           const nip = normNip(m.nip), nm = cleanText(m.nama);
           const mine = entries.filter(e =>
             e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm));
-          const inYear = currentYear === 2026
-            ? mine.filter(e => {
-                const [y, mm] = e.start.split('-');
-                const n = parseInt(mm, 10);
-                return y === '2026' && n >= 8 && n <= 12;
-              })
-            : mine.filter(e => e.start.startsWith(String(currentYear)));
+          const inYear = filterLeavesForYear(mine, currentYear);
           const sum = (k: TimeOffEntry['kind']) =>
             inYear.filter(e => e.kind === k).reduce((a, e) => a + e.days, 0);
           const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama, globalAllNames);
