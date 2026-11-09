@@ -4,7 +4,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { ArrowLeft, Search, FileSpreadsheet, FileDown, FileText, RefreshCw } from 'lucide-react';
 import {
-  parseTimeOff, findSisaCuti, countDaysAfter, normNip, cleanText, shortType, formatDisplayDate,
+  parseTimeOff, findSisaCuti, countDaysFrom, getTimeOffCutoffStart, normNip, cleanText, shortType, formatDisplayDate,
 } from './RendalPage';
 import type { ParsedMember, SisaCutiData, SisaCutiInfo, TimeOffEntry } from './RendalPage';
 
@@ -73,12 +73,13 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
     const match = (m: ParsedMember) =>
       !s || m.nama.toLowerCase().includes(s) || (m.nip || '').toLowerCase().includes(s);
     const currentYear = new Date().getFullYear();
+    const cutoffStart = getTimeOffCutoffStart();
+    const globalAllNames = groups.flatMap(g => [...g.kadep, ...g.staf]).map(x => x.nama);
 
     return groups
       .map(g => {
         const kadepIds = new Set(g.kadep.map(idOf));
         const allMembers = [...g.kadep, ...g.staf];
-        const allNames = allMembers.map(x => x.nama);
         const rows: Row[] = allMembers.filter(match).map(m => {
           const nip = normNip(m.nip), nm = cleanText(m.nama);
           const mine = entries.filter(e =>
@@ -92,9 +93,9 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
             : mine.filter(e => e.start.startsWith(String(currentYear)));
           const sum = (k: TimeOffEntry['kind']) =>
             inYear.filter(e => e.kind === k).reduce((a, e) => a + e.days, 0);
-          const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama, allNames);
+          const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama, globalAllNames);
           const cutiSetelahIsi = info
-            ? inYear.filter(e => e.kind === 'cuti').reduce((a, e) => a + countDaysAfter(e, info.filledAt), 0)
+            ? inYear.filter(e => e.kind === 'cuti').reduce((a, e) => a + countDaysFrom(e, cutoffStart), 0)
             : 0;
           return {
             m,
