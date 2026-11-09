@@ -15,8 +15,8 @@ interface KpiDashboardPageProps {
 /* ============================================================
    PENGATURAN ATURAN HITUNG (ubah di sini bila aturan berubah)
    ============================================================ */
-const WEIGHT_A = 0.6;                 // bobot Efisiensi JO
-const WEIGHT_B = 0.4;                 // bobot Release Drawing (semua revisi)
+const WEIGHT_A = 0.5;                 // bobot Efisiensi JO (50%)
+const WEIGHT_B = 0.5;                 // bobot Release Drawing (50% - semua revisi)
 const CAP_EFFICIENCY = Infinity;      // tanpa batas: A tampil apa adanya
 const A_ONLY_FROM_RELEASED = false;   // false = A tetap dihitung walau drawing belum release
 const A_ONLY_REV0 = false;            // true = jam kerja hanya dari drawing Rev.0
