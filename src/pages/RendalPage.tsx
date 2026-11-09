@@ -1335,7 +1335,6 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
       );
       const inYear = filterLeavesForYear(mine, currentYear);
       const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
-      const realisasiCuti = sum('cuti');
       const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
       const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama, members.map(x => x.nama));
       const cutiSetelahIsi = info
@@ -1343,6 +1342,13 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
             .reduce((s, e) => s + countDaysFrom(e, cutoffStart), 0)
         : 0;
       const sisa = info ? info.sisa - cutiSetelahIsi : undefined;
+
+      const isPkwt = (m.nip && normNip(m.nip).startsWith('02')) || mine.some(x => x.type.toLowerCase().includes('pkwt'));
+      let realisasiCuti = sum('cuti');
+      if (isPkwt && info && info.sisa >= 12) {
+        realisasiCuti = cutiSetelahIsi;
+      }
+
       return {
         m,
         sisa,
