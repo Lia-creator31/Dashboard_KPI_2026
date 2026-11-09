@@ -380,11 +380,29 @@ async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlR
   return [];
 }
 
+const drawingRowsCache = new Map<string, DrawingControlRow[]>();
+
+function isKnownDriveProject(projectCode: string): boolean {
+  const cands = projectCandidates(projectCode);
+  if (!cands.length) cands.push(projectCode);
+  return cands.some(c => {
+    const cp = cleanText(c);
+    return cp && GOOGLE_DRIVE_SHEETS.some(s => cleanText(s.projectKey) === cp || cp.includes(cleanText(s.projectKey)));
+  });
+}
+
 async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlRow[]> {
+  const cacheKey = cleanText(projectCode);
+  if (cacheKey && drawingRowsCache.has(cacheKey)) {
+    const cached = drawingRowsCache.get(cacheKey)!;
+    if (cached.length > 0) return cached;
+  }
   const cands = projectCandidates(projectCode);
   if (!cands.length) cands.push(projectCode);
   const results = await Promise.all(cands.map(c => fetchDrawingRowsRaw(c).catch(() => [] as DrawingControlRow[])));
-  return dedupeRows(results.flat());
+  const deduped = dedupeRows(results.flat());
+  if (cacheKey && deduped.length > 0) drawingRowsCache.set(cacheKey, deduped);
+  return deduped;
 }
 
 function normalizeDrawingSpacing(desc: string): string {
@@ -1639,10 +1657,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   const autoTried = useRef<Set<string>>(new Set());
   const autoRunning = useRef(false);
+  const autoPending = useRef(false);
   const [autoSyncMsg, setAutoSyncMsg] = useState('');
 
   const autoSyncReleases = useCallback(async (retryAll: boolean) => {
-    if (autoRunning.current) return;
+    if (autoRunning.current) {
+      autoPending.current = true;
+      return;
+    }
     const all = ([] as TaskItem[]).concat(...Object.values(manualTasks));
     const todo = all.filter(t =>
       t.project && t.taskName &&
@@ -1650,40 +1672,52 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       (retryAll || !autoTried.current.has(`${t.id}|${t.rev || '0'}`)));
     if (todo.length === 0) return;
     autoRunning.current = true;
+    let totalFound = 0;
     try {
-      const projects = Array.from(new Set(todo.map(t => t.project)));
-      const rowsByProject = new Map<string, DrawingControlRow[]>();
+      const projects = Array.from(new Set(todo.map(t => t.project))).sort((a, b) =>
+        (isKnownDriveProject(b) ? 1 : 0) - (isKnownDriveProject(a) ? 1 : 0)
+      );
       for (let i = 0; i < projects.length; i += 4) {
-        await Promise.all(projects.slice(i, i + 4).map(async p => {
+        const batchProjs = projects.slice(i, i + 4);
+        const rowsByProject = new Map<string, DrawingControlRow[]>();
+        await Promise.all(batchProjs.map(async p => {
           try { rowsByProject.set(p, await fetchDrawingRowsFor(p)); } catch { rowsByProject.set(p, []); }
         }));
-      }
-      const found = new Map<string, string>();
-      todo.forEach(t => {
-        autoTried.current.add(`${t.id}|${t.rev || '0'}`);
-        const rel = findReleaseInRows(rowsByProject.get(t.project) || [], t.taskName, t.rev || '0');
-        if (rel) found.set(t.id, rel);
-      });
-      if (found.size === 0) return;
-      const ids = Array.from(found.keys());
-      for (let i = 0; i < ids.length; i += 10) {
-        await Promise.all(ids.slice(i, i + 10).map(async id => {
-          const rel = found.get(id)!;
-          saveLocalRelease(id, rel);
-          try { await supabase.from('job_cards').update({ release: rel }).eq('id', id); } catch {}
-        }));
-      }
-      setManualTasks(prev => {
-        const updated = { ...prev };
-        Object.keys(updated).forEach(k => {
-          updated[k] = updated[k].map(t => found.has(t.id) ? { ...t, release: found.get(t.id)! } : t);
+        const batchFound = new Map<string, string>();
+        todo.filter(t => batchProjs.includes(t.project)).forEach(t => {
+          autoTried.current.add(`${t.id}|${t.rev || '0'}`);
+          const rel = findReleaseInRows(rowsByProject.get(t.project) || [], t.taskName, t.rev || '0');
+          if (rel) batchFound.set(t.id, rel);
         });
-        return updated;
-      });
-      setAutoSyncMsg(`${found.size} tanggal Release terisi otomatis dari Drawing Control`);
-      setTimeout(() => setAutoSyncMsg(''), 8000);
+        if (batchFound.size > 0) {
+          totalFound += batchFound.size;
+          const ids = Array.from(batchFound.keys());
+          for (let j = 0; j < ids.length; j += 10) {
+            await Promise.all(ids.slice(j, j + 10).map(async id => {
+              const rel = batchFound.get(id)!;
+              saveLocalRelease(id, rel);
+              try { await supabase.from('job_cards').update({ release: rel }).eq('id', id); } catch {}
+            }));
+          }
+          setManualTasks(prev => {
+            const updated = { ...prev };
+            Object.keys(updated).forEach(k => {
+              updated[k] = updated[k].map(t => batchFound.has(t.id) ? { ...t, release: batchFound.get(t.id)! } : t);
+            });
+            return updated;
+          });
+        }
+      }
+      if (totalFound > 0) {
+        setAutoSyncMsg(`${totalFound} tanggal Release terisi otomatis dari Drawing Control`);
+        setTimeout(() => setAutoSyncMsg(''), 8000);
+      }
     } finally {
       autoRunning.current = false;
+      if (autoPending.current) {
+        autoPending.current = false;
+        setTimeout(() => autoSyncReleases(false), 150);
+      }
     }
   }, [manualTasks]);
 
@@ -1995,12 +2029,36 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         return;
       }
 
-      // 1. Hapus semua data lama di tabel job_cards
-      const { data: oldRows, error: fetchOldErr } = await supabase.from('job_cards').select('id');
+      // 1. Baca data lama di tabel job_cards (simpan release yang sudah pernah terisi agar tidak hilang) lalu hapus
+      const { data: oldRows, error: fetchOldErr } = await supabase.from('job_cards').select('*');
       if (fetchOldErr) {
         alert('Gagal membaca data lama untuk dihapus: ' + fetchOldErr.message);
         return;
       }
+      const prevReleaseByJc = new Map<string, string>();
+      const prevReleaseByDwg = new Map<string, string>();
+      (oldRows || []).forEach((r: any) => {
+        const rel = parseToStandardDate(r.release || getLocalRelease(r.id, ''));
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(rel)) return;
+        const jcKey = cleanText(r.kode_jc || '');
+        if (jcKey) prevReleaseByJc.set(jcKey, rel);
+        const dKey = drawingKey(r.task_name || '');
+        const pKey = cleanText(r.project || '');
+        const rv = String(r.rev ?? '0').trim() || '0';
+        if (pKey && dKey) prevReleaseByDwg.set(`${pKey}|${dKey}|${rv}`, rel);
+      });
+
+      // Ambil juga Release dari Drawing Control (Google Drive) untuk proyek yang ada
+      const uniqueProjs = Array.from(new Set(Array.from(taskGroups.values()).map(g => g.project).filter(Boolean))).sort((a, b) =>
+        (isKnownDriveProject(b) ? 1 : 0) - (isKnownDriveProject(a) ? 1 : 0)
+      );
+      const driveRowsByProj = new Map<string, DrawingControlRow[]>();
+      for (let i = 0; i < uniqueProjs.length; i += 4) {
+        await Promise.all(uniqueProjs.slice(i, i + 4).map(async p => {
+          try { driveRowsByProj.set(p, await fetchDrawingRowsFor(p)); } catch { driveRowsByProj.set(p, []); }
+        }));
+      }
+
       const oldIds = (oldRows || []).map((r: any) => r.id).filter(Boolean);
       for (let i = 0; i < oldIds.length; i += 100) {
         const chunk = oldIds.slice(i, i + 100);
@@ -2023,9 +2081,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         return found ? found.id : biroList[0].id;
       };
 
-      // 3. Insert data baru ke job_cards
+      // 3. Insert data baru ke job_cards (beserta tanggal Release dari Drive / data sebelumnya)
       const payloads = Array.from(taskGroups.values()).map(g => {
         const joStr = g.hasPlanJo && g.maxPlanJo > 0 ? String(fmtNum(g.maxPlanJo)) : (g.hasPlanJo ? String(fmtNum(g.maxPlanJo)) : '');
+        const driveRel = findReleaseInRows(driveRowsByProj.get(g.project) || [], g.taskName, g.rev);
+        const fallbackRel = prevReleaseByJc.get(cleanText(g.kodeJc)) || prevReleaseByDwg.get(`${cleanText(g.project)}|${drawingKey(g.taskName)}|${g.rev}`) || '';
+        const releaseVal = driveRel || fallbackRel;
         return {
           biro_id: getBiroId(g.biroName),
           biro_name: g.biroName,
@@ -2040,23 +2101,28 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           kode_jc: g.kodeJc,
           status: 'approved',
           rev: g.rev,
-          release: '',
+          release: releaseVal,
         };
       });
 
       let insertedCount = 0;
       for (let i = 0; i < payloads.length; i += 50) {
         const batch = payloads.slice(i, i + 50);
-        let { error: insErr } = await supabase.from('job_cards').insert(batch);
+        let { data: insRows, error: insErr } = await supabase.from('job_cards').insert(batch).select('id, kode_jc, pic');
         if (insErr && (insErr.message?.includes('rev') || insErr.message?.includes('release') || (insErr as any).details?.includes('rev') || (insErr as any).details?.includes('release'))) {
           const stripped = batch.map(({ rev, release, ...rest }) => rest);
-          const retry = await supabase.from('job_cards').insert(stripped);
+          const retry = await supabase.from('job_cards').insert(stripped).select('id, kode_jc, pic');
+          insRows = retry.data;
           insErr = retry.error;
         }
         if (insErr) {
           alert(`Gagal menyimpan sebagian data baru (batch ${Math.floor(i / 50) + 1}): ${insErr.message}`);
           break;
         }
+        (insRows || []).forEach((ir: any, idx: number) => {
+          const rel = batch[idx]?.release;
+          if (ir?.id && rel) saveLocalRelease(ir.id, rel);
+        });
         insertedCount += batch.length;
       }
 
