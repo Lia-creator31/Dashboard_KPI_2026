@@ -824,7 +824,13 @@ function parseSheetTimestamp(val: any, order: 'dmy' | 'mdy'): string {
   let day = order === 'dmy' ? a : b;
   let mon = order === 'dmy' ? b : a;
   if (mon > 12 && day <= 12) { const tmp = day; day = mon; mon = tmp; }
-  return `${c}-${pad(mon)}-${pad(day)}`;
+  const res = `${c}-${pad(mon)}-${pad(day)}`;
+  const todayIso = isoLocal(new Date());
+  if (res > todayIso && day <= 12 && mon <= 12) {
+    const swapped = `${c}-${pad(day)}-${pad(mon)}`;
+    if (swapped <= todayIso) return swapped;
+  }
+  return res;
 }
 
 export function countDaysAfter(e: TimeOffEntry, filledAt: string): number {
@@ -843,19 +849,55 @@ export function countDaysAfter(e: TimeOffEntry, filledAt: string): number {
   return Math.min(n, e.days);
 }
 
+// Batas awal perhitungan pengurang Sisa Cuti dari file Excel Time Off yang diupload:
+// Dihitung mulai dari awal bulan berjalan (tanggal 1 bulan ini).
+// Jika saat ini masih berada di minggu awal bulan berjalan (Senin minggu kemarin jatuh sebelum tanggal 1 bulan ini),
+// maka dihitung mulai dari Senin minggu kemarin.
+export function getTimeOffCutoffStart(base: Date = new Date()): string {
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  const firstOfMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+  const monThisWeek = new Date(d);
+  monThisWeek.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  const monPrevWeek = new Date(monThisWeek);
+  monPrevWeek.setDate(monThisWeek.getDate() - 7);
+  const start = monPrevWeek < firstOfMonth ? monPrevWeek : firstOfMonth;
+  return isoLocal(start);
+}
+
+export function countDaysFrom(e: TimeOffEntry, startDate: string): number {
+  if (!startDate) return e.days;
+  if (e.end < startDate) return 0;
+  if (e.start >= startDate) return e.days;
+  let n = 0;
+  const d = new Date(startDate + 'T00:00:00');
+  const endD = new Date(e.end + 'T00:00:00');
+  while (d <= endD) {
+    const w = d.getDay();
+    if (w !== 0 && w !== 6) n++;
+    d.setDate(d.getDate() + 1);
+  }
+  return Math.min(n, e.days);
+}
+
 async function fetchSisaCutiCsv(): Promise<{ text: string; order: 'dmy' | 'mdy' } | null> {
   const cb = Date.now();
   const sources: { url: string; order: 'dmy' | 'mdy' }[] = [
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}&_t=${cb}`, order: 'dmy' },
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/export?format=csv&gid=${SISA_CUTI_GID}&_t=${cb}`, order: 'dmy' },
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/pub?gid=${SISA_CUTI_GID}&single=true&output=csv&_t=${cb}`, order: 'dmy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}&headers=1&_t=${cb}`, order: 'mdy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/export?format=csv&gid=${SISA_CUTI_GID}&_t=${cb}`, order: 'mdy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/pub?gid=${SISA_CUTI_GID}&single=true&output=csv&_t=${cb}`, order: 'mdy' },
   ];
   for (const s of sources) {
     try {
       const res = await fetch(s.url, { cache: 'no-store' });
       if (res.ok) {
         const text = await res.text();
-        if (text && !text.trim().startsWith('<!DOCTYPE') && !text.trim().startsWith('<html')) {
+        const low = (text || '').trim().toLowerCase();
+        if (
+          low &&
+          !low.startsWith('<!doctype') &&
+          !low.startsWith('<html') &&
+          (low.includes('nama personel') || low.includes('sisa cuti') || low.includes('timestamp') || low.includes('cap waktu'))
+        ) {
           return { text, order: s.order };
         }
       }
@@ -912,6 +954,19 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
     if (cName < 0) cName = 2;
     if (cSisa < 0) cSisa = 5;
 
+    // Deteksi otomatis urutan tanggal (dmy vs mdy) dari seluruh baris Timestamp
+    let dmyHits = 0, mdyHits = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const s = String(rows[i]?.[cTs] ?? '').trim();
+      const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if (m) {
+        const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+        if (a > 12 && b <= 12) dmyHits++;
+        else if (b > 12 && a <= 12) mdyHits++;
+      }
+    }
+    const detectedOrder: 'dmy' | 'mdy' = mdyHits > dmyHits ? 'mdy' : dmyHits > mdyHits ? 'dmy' : src.order;
+
     const byName = new Map<string, SisaCutiInfo>();
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
@@ -928,7 +983,7 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
       const info: SisaCutiInfo = {
         nama: String(r[cName] ?? '').trim(),
         sisa: sisaNum,
-        filledAt: parseSheetTimestamp(r[cTs], src.order),
+        filledAt: parseSheetTimestamp(r[cTs], detectedOrder),
         rencana: rencanaData
       };
 
@@ -970,14 +1025,21 @@ function sameNameFuzzy(a: string, b: string): boolean {
 
 export function findSisaCuti(data: SisaCutiData | null, nama: string, allNames: string[] = []): SisaCutiInfo | undefined {
   if (!data) return undefined;
+  const targetTokens = nameTokens(nama);
   let best: SisaCutiInfo | undefined;
+  let bestExactLen = false;
   data.byName.forEach(info => {
     if (!sameNameFuzzy(info.nama, nama)) return;
-    if (nameTokens(info.nama).length === 1) {
+    const infoTokens = nameTokens(info.nama);
+    if (infoTokens.length === 1 && targetTokens.length > 1) {
       const kandidat = allNames.filter(n => sameNameFuzzy(info.nama, n));
       if (kandidat.length > 1) return;
     }
-    if (!best || info.filledAt > best.filledAt) best = info;
+    const isExactLen = infoTokens.length === targetTokens.length;
+    if (!best || (isExactLen && !bestExactLen) || (isExactLen === bestExactLen && info.filledAt >= best.filledAt)) {
+      best = info;
+      bestExactLen = isExactLen;
+    }
   });
   return best;
 }
@@ -1228,6 +1290,7 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
 
   const data = useMemo(() => {
     const currentYear = new Date().getFullYear();
+    const cutoffStart = getTimeOffCutoffStart();
     return members.map(m => {
       const nip = normNip(m.nip), nm = cleanText(m.nama);
       const mine = entries.filter(e =>
@@ -1249,7 +1312,7 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
       const info: SisaCutiInfo | undefined = findSisaCuti(sisaCuti, m.nama, members.map(x => x.nama));
       const cutiSetelahIsi = info
         ? inYear.filter(e => e.kind === 'cuti')
-            .reduce((s, e) => s + countDaysAfter(e, info.filledAt), 0)
+            .reduce((s, e) => s + countDaysFrom(e, cutoffStart), 0)
         : 0;
       const sisa = info ? info.sisa - cutiSetelahIsi : undefined;
       return {
@@ -1424,7 +1487,7 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
             <b className="text-orange-300">cuti khusus</b> (umroh, menikah, istri melahirkan, keluarga inti sakit/rawat inap)
             tidak masuk realisasi cuti.{' '}
             Sisa Cuti diambil dari Google Sheet "Form Pengisian Alokasi Cuti 2026" (isian terakhir bila nama ganda),
-            lalu dikurangi cuti biasa yang tanggalnya <b>setelah</b> tanggal pengisian form. Tanda "-" berarti belum mengisi form.
+            lalu dikurangi cuti biasa pada file Time Off mulai dari <b>awal bulan berjalan</b> (atau mulai dari <b>minggu kemarin</b> jika saat ini berada di minggu awal bulan). Tanda "-" berarti belum mengisi form.
           </div>
         </>
       )}
