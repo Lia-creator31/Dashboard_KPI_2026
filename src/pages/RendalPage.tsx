@@ -808,6 +808,7 @@ export interface SisaCutiInfo {
   sisa: number;
   filledAt: string;
   rencana: Record<string, string>; // Rencana 1, Rencana 2, dst. dari Google Sheet
+  rowIdx?: number;
 }
 
 export interface SisaCutiData {
@@ -907,9 +908,9 @@ export function filterLeavesForYear(mine: TimeOffEntry[], targetYear: number = n
 async function fetchSisaCutiCsv(): Promise<{ text: string; order: 'dmy' | 'mdy' } | null> {
   const cb = Date.now();
   const sources: { url: string; order: 'dmy' | 'mdy' }[] = [
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}&headers=1&_t=${cb}`, order: 'mdy' },
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/export?format=csv&gid=${SISA_CUTI_GID}&_t=${cb}`, order: 'mdy' },
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/pub?gid=${SISA_CUTI_GID}&single=true&output=csv&_t=${cb}`, order: 'mdy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}&headers=1&_t=${cb}`, order: 'dmy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/export?format=csv&gid=${SISA_CUTI_GID}&_t=${cb}`, order: 'dmy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/pub?gid=${SISA_CUTI_GID}&single=true&output=csv&_t=${cb}`, order: 'dmy' },
   ];
   for (const s of sources) {
     try {
@@ -1009,11 +1010,16 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
         nama: String(r[cName] ?? '').trim(),
         sisa: sisaNum,
         filledAt: parseSheetTimestamp(r[cTs], detectedOrder),
-        rencana: rencanaData
+        rencana: rencanaData,
+        rowIdx: i,
       };
 
       const old = byName.get(nm);
-      if (!old || !old.filledAt || !info.filledAt || info.filledAt >= old.filledAt) byName.set(nm, info);
+      // Di Google Sheets, baris yang berada di bawah (i lebih besar)
+      // adalah respons formulir / inputan update terbaru dari personel tersebut.
+      if (!old || i >= (old.rowIdx ?? 0) || (info.filledAt && old.filledAt && info.filledAt >= old.filledAt)) {
+        byName.set(nm, info);
+      }
     }
     return { byName };
   } catch { return null; }
@@ -1061,7 +1067,13 @@ export function findSisaCuti(data: SisaCutiData | null, nama: string, allNames: 
       if (kandidat.length > 1) return;
     }
     const isExactLen = infoTokens.length === targetTokens.length;
-    if (!best || (isExactLen && !bestExactLen) || (isExactLen === bestExactLen && info.filledAt >= best.filledAt)) {
+    const isNewer = !best ||
+      (isExactLen && !bestExactLen) ||
+      (isExactLen === bestExactLen && (
+        (info.rowIdx !== undefined && best.rowIdx !== undefined && info.rowIdx > best.rowIdx) ||
+        info.filledAt >= best.filledAt
+      ));
+    if (isNewer) {
       best = info;
       bestExactLen = isExactLen;
     }
