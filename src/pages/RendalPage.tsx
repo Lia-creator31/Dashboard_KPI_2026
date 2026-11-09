@@ -744,35 +744,51 @@ function classifyTimeOff(type: string): TimeOffEntry['kind'] {
 
 export function parseTimeOff(wb: XLSX.WorkBook | null): TimeOffEntry[] {
   if (!wb) return [];
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  if (!sheet) return [];
-  const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-  const head = (rows[0] || []).map(v => String(v).trim().toLowerCase());
-  const col = (name: string) => head.findIndex(h => h === name);
-  const cEmp = col('employee'), cType = col('time off type'), cStart = col('start date'),
-    cEnd = col('end date'), cDur = col('duration'), cStatus = col('status');
-  if (cEmp < 0 || cType < 0 || cStart < 0 || cEnd < 0) return [];
-  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
   const out: TimeOffEntry[] = [];
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i]; if (!r) continue;
-    const emp = String(r[cEmp] || '').trim(); if (!emp) continue;
-    const dash = emp.indexOf('-');
-    const start = parseToStandardDate(r[cStart]);
-    if (!isoRe.test(start)) continue;
-    const endRaw = parseToStandardDate(r[cEnd]);
-    const type = String(r[cType] || '').trim();
-    out.push({
-      nip: dash > 0 ? emp.slice(0, dash).trim() : '',
-      nama: dash > 0 ? emp.slice(dash + 1).trim() : emp,
-      type,
-      kind: classifyTimeOff(type),
-      start,
-      end: isoRe.test(endRaw) ? endRaw : start,
-      days: parseInt(String(r[cDur] || '').replace(/[^0-9]/g, ''), 10) || 1,
-      status: String(r[cStatus] || '').trim(),
-    });
-  }
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+  wb.SheetNames.forEach(sheetName => {
+    const sheet = wb.Sheets[sheetName];
+    if (!sheet) return;
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    if (rows.length === 0) return;
+    let headerIdx = -1, cEmp = -1, cType = -1, cStart = -1, cEnd = -1, cDur = -1, cStatus = -1;
+    for (let r = 0; r < Math.min(10, rows.length); r++) {
+      const head = (rows[r] || []).map(v => String(v).trim().toLowerCase());
+      const emp = head.findIndex(h => h === 'employee' || h === 'pegawai' || h === 'nama' || h.includes('employee'));
+      const typ = head.findIndex(h => h === 'time off type' || h.includes('time off') || h === 'tipe' || h === 'jenis cuti');
+      const st = head.findIndex(h => h === 'start date' || h.includes('start'));
+      const en = head.findIndex(h => h === 'end date' || h.includes('end'));
+      if (emp >= 0 && typ >= 0 && st >= 0 && en >= 0) {
+        headerIdx = r;
+        cEmp = emp; cType = typ; cStart = st; cEnd = en;
+        cDur = head.findIndex(h => h === 'duration' || h.includes('duration') || h.includes('durasi'));
+        cStatus = head.findIndex(h => h === 'status' || h.includes('state'));
+        break;
+      }
+    }
+    if (headerIdx < 0) return;
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const r = rows[i]; if (!r) continue;
+      const emp = String(r[cEmp] || '').trim(); if (!emp) continue;
+      const dash = emp.indexOf('-');
+      const start = parseToStandardDate(r[cStart]);
+      if (!isoRe.test(start)) continue;
+      const endRaw = parseToStandardDate(r[cEnd]);
+      const type = String(r[cType] || '').trim();
+      const rawStatus = cStatus >= 0 ? String(r[cStatus] || '').trim() : 'Approved';
+      const normStatus = /^approved|disetujui|validate|confirm$/i.test(rawStatus) ? 'Approved' : rawStatus;
+      out.push({
+        nip: dash > 0 ? emp.slice(0, dash).trim() : '',
+        nama: dash > 0 ? emp.slice(dash + 1).trim() : emp,
+        type,
+        kind: classifyTimeOff(type),
+        start,
+        end: isoRe.test(endRaw) ? endRaw : start,
+        days: (cDur >= 0 ? parseInt(String(r[cDur] || '').replace(/[^0-9]/g, ''), 10) : 0) || 1,
+        status: normStatus,
+      });
+    }
+  });
   return out;
 }
 
@@ -805,8 +821,9 @@ function parseSheetTimestamp(val: any, order: 'dmy' | 'mdy'): string {
   const a = parseInt(m[1], 10), b = parseInt(m[2], 10), c = parseInt(m[3], 10);
   const pad = (n: number) => String(n).padStart(2, '0');
   if (a > 31) return `${a}-${pad(b)}-${pad(c)}`;
-  const day = order === 'dmy' ? a : b;
-  const mon = order === 'dmy' ? b : a;
+  let day = order === 'dmy' ? a : b;
+  let mon = order === 'dmy' ? b : a;
+  if (mon > 12 && day <= 12) { const tmp = day; day = mon; mon = tmp; }
   return `${c}-${pad(mon)}-${pad(day)}`;
 }
 
@@ -827,17 +844,20 @@ export function countDaysAfter(e: TimeOffEntry, filledAt: string): number {
 }
 
 async function fetchSisaCutiCsv(): Promise<{ text: string; order: 'dmy' | 'mdy' } | null> {
+  const cb = Date.now();
   const sources: { url: string; order: 'dmy' | 'mdy' }[] = [
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/pub?gid=${SISA_CUTI_GID}&single=true&output=csv`, order: 'dmy' },
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/export?format=csv&gid=${SISA_CUTI_GID}`, order: 'dmy' },
-    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}`, order: 'mdy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/gviz/tq?tqx=out:csv&gid=${SISA_CUTI_GID}&_t=${cb}`, order: 'dmy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/export?format=csv&gid=${SISA_CUTI_GID}&_t=${cb}`, order: 'dmy' },
+    { url: `https://docs.google.com/spreadsheets/d/${SISA_CUTI_SHEET_ID}/pub?gid=${SISA_CUTI_GID}&single=true&output=csv&_t=${cb}`, order: 'dmy' },
   ];
   for (const s of sources) {
     try {
-      const res = await fetch(s.url);
+      const res = await fetch(s.url, { cache: 'no-store' });
       if (res.ok) {
-        console.log('Sisa cuti diambil dari:', s.url);
-        return { text: await res.text(), order: s.order };
+        const text = await res.text();
+        if (text && !text.trim().startsWith('<!DOCTYPE') && !text.trim().startsWith('<html')) {
+          return { text, order: s.order };
+        }
       }
     } catch (err) {
       console.warn('Gagal fetch:', s.url, err);
@@ -913,7 +933,7 @@ async function fetchSisaCuti(): Promise<SisaCutiData | null> {
       };
 
       const old = byName.get(nm);
-      if (!old || info.filledAt >= old.filledAt) byName.set(nm, info);
+      if (!old || !old.filledAt || !info.filledAt || info.filledAt >= old.filledAt) byName.set(nm, info);
     }
     return { byName };
   } catch { return null; }
@@ -1644,6 +1664,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     loadAllJobCards();
   }, [loadAllJobCards]);
 
+  const refreshSisaCuti = useCallback(async () => {
+    const data = await fetchSisaCuti();
+    if (data) setSisaCuti(data);
+    return data;
+  }, []);
+
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -1651,7 +1677,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       if (alive && data) setSisaCuti(data);
     };
     load();
-    const timer = setInterval(load, 10 * 60 * 1000);
+    const timer = setInterval(load, 2 * 60 * 1000);
     return () => { alive = false; clearInterval(timer); };
   }, []);
 
@@ -2820,6 +2846,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         sisaCuti={sisaCuti}
         onBack={() => (user.role === 'rekap' ? onLogout() : setShowRekapDivisi(false))}
         onUploadTimeOff={handleUploadTimeOffExcel}
+        onRefreshSisaCuti={refreshSisaCuti}
       />
     );
   }
