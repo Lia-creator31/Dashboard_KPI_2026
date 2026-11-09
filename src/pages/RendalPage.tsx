@@ -879,6 +879,31 @@ export function countDaysFrom(e: TimeOffEntry, startDate: string): number {
   return Math.min(n, e.days);
 }
 
+// Filter entri cuti/izin/sakit untuk tahun tertentu (misal 2026).
+// Jika pegawai sudah memiliki transaksi cuti tahun berjalan (misal "Cuti Tahunan PKWT November 2026"),
+// maka sisa cuti periode kontrak tahun sebelumnya ("Cuti PKWT November 2025") tidak dihitung sebagai realisasi tahun berjalan.
+export function filterLeavesForYear(mine: TimeOffEntry[], targetYear: number = new Date().getFullYear()): TimeOffEntry[] {
+  const targetYearStr = String(targetYear);
+  const prevYearStr = String(targetYear - 1);
+  const hasTargetYearLeave = mine.some(x => x.type.includes(targetYearStr));
+
+  return mine.filter(e => {
+    if (targetYear === 2026) {
+      const [y, mm] = e.start.split('-');
+      const n = parseInt(mm, 10);
+      if (y !== '2026' || n < 8 || n > 12) return false;
+    } else {
+      if (!e.start.startsWith(targetYearStr)) return false;
+    }
+
+    if (hasTargetYearLeave && e.type.includes(prevYearStr) && !e.type.includes(targetYearStr)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 async function fetchSisaCutiCsv(): Promise<{ text: string; order: 'dmy' | 'mdy' } | null> {
   const cb = Date.now();
   const sources: { url: string; order: 'dmy' | 'mdy' }[] = [
@@ -1296,16 +1321,7 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
       const mine = entries.filter(e =>
         e.status === 'Approved' && ((nip && normNip(e.nip) === nip) || cleanText(e.nama) === nm)
       );
-      let inYear: TimeOffEntry[] = [];
-      if (currentYear === 2026) {
-        inYear = mine.filter(e => {
-          const [y, mStr] = e.start.split('-');
-          const monthNum = parseInt(mStr, 10);
-          return y === '2026' && monthNum >= 8 && monthNum <= 12;
-        });
-      } else {
-        inYear = mine.filter(e => e.start.startsWith(String(currentYear)));
-      }
+      const inYear = filterLeavesForYear(mine, currentYear);
       const sum = (k: TimeOffEntry['kind']) => inYear.filter(e => e.kind === k).reduce((s, e) => s + e.days, 0);
       const realisasiCuti = sum('cuti');
       const cutiKhusus = inYear.filter(e => e.kind === 'khusus');
