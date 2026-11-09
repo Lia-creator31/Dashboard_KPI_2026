@@ -2,7 +2,7 @@ import React, { useMemo, useState, ChangeEvent } from 'react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { ArrowLeft, Search, FileSpreadsheet, FileDown, FileText } from 'lucide-react';
+import { ArrowLeft, Search, FileSpreadsheet, FileDown, FileText, RefreshCw } from 'lucide-react';
 import {
   parseTimeOff, findSisaCuti, countDaysAfter, normNip, cleanText, shortType, formatDisplayDate,
 } from './RendalPage';
@@ -20,6 +20,7 @@ interface Props {
   sisaCuti: SisaCutiData | null;     // Google Sheet Form Alokasi Cuti (Rencana Cuti 1, 2, ...)
   onBack: () => void;
   onUploadTimeOff: (e: ChangeEvent<HTMLInputElement>) => void;
+  onRefreshSisaCuti?: () => Promise<SisaCutiData | null>;
 }
 
 interface Row {
@@ -40,9 +41,20 @@ type TabKey = 'realisasi' | 'plan';
 
 const idOf = (m: ParsedMember) => m.nip || m.nama;
 
-export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, onUploadTimeOff }: Props) {
+export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, onUploadTimeOff, onRefreshSisaCuti }: Props) {
   const [q, setQ] = useState('');
   const [tab, setTab] = useState<TabKey>('realisasi');
+  const [isRefreshingSheet, setIsRefreshingSheet] = useState(false);
+
+  const handleRefreshSheet = async () => {
+    if (!onRefreshSisaCuti || isRefreshingSheet) return;
+    setIsRefreshingSheet(true);
+    try {
+      await onRefreshSisaCuti();
+    } finally {
+      setIsRefreshingSheet(false);
+    }
+  };
   const year = String(new Date().getFullYear());
   const entries = useMemo(() => parseTimeOff(wb), [wb]);
 
@@ -213,11 +225,24 @@ export default function RekapAbsensiDivisiPage({ groups, wb, sisaCuti, onBack, o
             <ArrowLeft className="w-3.5 h-3.5" /> Kembali
           </button>
           <span className="font-bold text-sm text-white">REKAP ABSENSI DIVISI DESAIN</span>
-          <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-            <FileSpreadsheet className="w-3.5 h-3.5 text-violet-400" />
-            {wb ? 'Update Time Off' : 'Upload Time Off'}
-            <input type="file" accept=".xlsx, .xls" onChange={onUploadTimeOff} className="hidden" />
-          </label>
+          <div className="flex items-center gap-2">
+            {onRefreshSisaCuti && (
+              <button
+                onClick={handleRefreshSheet}
+                disabled={isRefreshingSheet}
+                title="Ambil ulang data Sisa Cuti & Rencana Cuti terbaru dari Google Spreadsheet"
+                className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-sky-400 ${isRefreshingSheet ? 'animate-spin' : ''}`} />
+                {isRefreshingSheet ? 'Memuat...' : 'Refresh Spreadsheet'}
+              </button>
+            )}
+            <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
+              <FileSpreadsheet className="w-3.5 h-3.5 text-violet-400" />
+              {wb ? 'Update Time Off' : 'Upload Time Off'}
+              <input type="file" accept=".xlsx, .xls" onChange={onUploadTimeOff} className="hidden" />
+            </label>
+          </div>
         </div>
       </header>
 
