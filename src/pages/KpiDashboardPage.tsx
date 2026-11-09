@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import { departmentsData } from '../data';
+import { projectCandidates, dedupeRows } from '../lib/projectCandidates';
 import { Building2, ArrowLeft, ChevronRight, RefreshCw, Users, Layers } from 'lucide-react';
 
 interface KpiDashboardPageProps {
@@ -134,6 +135,190 @@ function formatDisplayDate(val: any): string {
 
 function getLocalMap(key: string): Record<string, any> {
   try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch { return {}; }
+}
+
+function saveLocalRelease(id: string, val: string) {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_release_map') || '{}');
+    map[id] = val;
+    localStorage.setItem('task_release_map', JSON.stringify(map));
+  } catch {}
+}
+
+/* ===== Sinkronisasi Release Drawing otomatis dari Google Drive ===== */
+const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
+const GOOGLE_DRIVE_SHEETS = [
+  { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)' },
+  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000304', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
+  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000305', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
+  { id: '19qiMBb1b7qmeRXkFNTbh-eKtVEKDUTgshloa116HQ48', projectKey: 'W000308', title: 'Drawing Control LPD UAE USED (W000308)' },
+  { id: '16rrjyU60BmzRIYFL3I1WRLkw_AfJPUwi8vZiJx2LYCg', projectKey: 'W000314', title: 'Drawing Control KSR 20 M ALU (W000314)' },
+  { id: '1uv2D4ECJ0z-NWP8byzXTkkM17MKD6f0r-RCtKjpG5Hs', projectKey: 'M000312', title: 'Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)' },
+  { id: '1eTO-dvVd3psdP4mFQc2ZQW_Z-lyooCb2TVjR4mYTbDw', projectKey: 'W000311', title: 'Drawing Control KSSR 18 M (W000311)' },
+  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKjpAMfo', projectKey: 'W000306', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
+  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000307', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
+  { id: '1l0ZoTCctHrmkruIkC4Gk1NtoqsugMVGABrsf3yb6PHo', projectKey: 'KSOT', title: 'Drawing Control KSOT' },
+  { id: '1jGNHh9HhSrPlEv7JZvtW8ToMU2ADrT0yE87tk9E53zY', projectKey: 'LCU', title: 'Drawing Control LCU LD PN 124 M' },
+  { id: '1XsrklFhcUkjgfEjuT4jDRWx6Uufsj8Jt', projectKey: 'FFBNW', title: 'Drawing Control FFBNW FRIGATE 140 M' },
+];
+
+interface DrawingControlRow {
+  noDwg: string;
+  drawingName: string;
+  fullDeskripsi: string;
+  rev: string;
+  finishDate: string;
+}
+
+const indoMonthsMap: Record<string, string> = {
+  jan: '01', januari: '01', january: '01', feb: '02', februari: '02', february: '02',
+  mar: '03', maret: '03', march: '03', apr: '04', april: '04', mei: '05', may: '05',
+  jun: '06', juni: '06', june: '06', jul: '07', juli: '07', july: '07',
+  agu: '08', ags: '08', agustus: '08', aug: '08', august: '08',
+  sep: '09', september: '09', okt: '10', oktober: '10', oct: '10', october: '10',
+  nov: '11', november: '11', des: '12', desember: '12', dec: '12', december: '12'
+};
+
+function parseDriveDate(val: any): string {
+  if (!val) return '';
+  let str = String(val).trim();
+  if (!str || str === '-' || str.toLowerCase() === 'nan') return '';
+  str = str.replace(/^(senin|selasa|rabu|kamis|jumat|sabtu|minggu|mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s*/i, '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+  const mJs = str.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})/);
+  if (mJs) {
+    const mon = indoMonthsMap[mJs[1].toLowerCase()] || indoMonthsMap[mJs[1].toLowerCase().slice(0, 3)] || '01';
+    return `${mJs[3]}-${mon}-${mJs[2].padStart(2, '0')}`;
+  }
+  const mDdMon = str.match(/^(\d{1,2})[-/\s]+([A-Za-z]+)[-/\s]+(\d{2,4})/);
+  if (mDdMon) {
+    let y = mDdMon[3]; if (y.length === 2) y = '20' + y;
+    const mon = indoMonthsMap[mDdMon[2].toLowerCase()] || indoMonthsMap[mDdMon[2].toLowerCase().slice(0, 3)] || '01';
+    return `${y}-${mon}-${mDdMon[1].padStart(2, '0')}`;
+  }
+  const mYMon = str.match(/^(\d{4})[-/\s]+([A-Za-z]+)[-/\s]+(\d{1,2})/);
+  if (mYMon) {
+    const mon = indoMonthsMap[mYMon[2].toLowerCase()] || indoMonthsMap[mYMon[2].toLowerCase().slice(0, 3)] || '01';
+    return `${mYMon[1]}-${mon}-${mYMon[3].padStart(2, '0')}`;
+  }
+  const mDmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (mDmy) return `${mDmy[3]}-${mDmy[2].padStart(2, '0')}-${mDmy[1].padStart(2, '0')}`;
+  const mYmd = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (mYmd) return `${mYmd[1]}-${mYmd[2].padStart(2, '0')}-${mYmd[3].padStart(2, '0')}`;
+  const num = Number(str);
+  if (!isNaN(num) && num > 30000 && num < 60000) {
+    return new Date(Math.round((num - 25569) * 86400 * 1000)).toISOString().split('T')[0];
+  }
+  return '';
+}
+
+const kpiDrawingCache = new Map<string, DrawingControlRow[]>();
+
+function isKnownDriveProject(projectCode: string): boolean {
+  const cands = projectCandidates(projectCode);
+  if (!cands.length) cands.push(projectCode);
+  return cands.some(c => {
+    const cp = cleanText(c);
+    return cp && GOOGLE_DRIVE_SHEETS.some(s => cleanText(s.projectKey) === cp || cp.includes(cleanText(s.projectKey)));
+  });
+}
+
+async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlRow[]> {
+  const cleanProj = cleanText(projectCode);
+  if (!cleanProj) return [];
+  try {
+    const res = await fetch(`${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        return json.data.map((item: any) => ({
+          noDwg: String(item.noDwg || '').trim(),
+          drawingName: String(item.drawingName || '').trim(),
+          fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
+          rev: String(item.rev || '0').trim(),
+          finishDate: String(item.finishDate || '').trim(),
+        }));
+      }
+    }
+  } catch {}
+  const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(s.projectKey) === cleanProj || cleanProj.includes(cleanText(s.projectKey)));
+  if (match) {
+    try {
+      const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`);
+      if (res.ok) {
+        const wb = XLSX.read(await res.text(), { type: 'string' });
+        const rawRows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+        const rows: DrawingControlRow[] = [];
+        for (let r = 1; r < rawRows.length; r++) {
+          const row = rawRows[r]; if (!row) continue;
+          const noDwg = String(row[0] || '').trim();
+          const dwgName = String(row[1] || '').trim();
+          if (!noDwg && !dwgName) continue;
+          rows.push({
+            noDwg, drawingName: dwgName,
+            fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg),
+            rev: String(row[14] || '0').trim(),
+            finishDate: String(row[15] || '').trim(),
+          });
+        }
+        if (rows.length > 0) return rows;
+      }
+    } catch {}
+  }
+  return [];
+}
+
+async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlRow[]> {
+  const cacheKey = cleanText(projectCode);
+  if (cacheKey && kpiDrawingCache.has(cacheKey)) {
+    const cached = kpiDrawingCache.get(cacheKey)!;
+    if (cached.length > 0) return cached;
+  }
+  const cands = projectCandidates(projectCode);
+  if (!cands.length) cands.push(projectCode);
+  const results = await Promise.all(cands.map(c => fetchDrawingRowsRaw(c).catch(() => [] as DrawingControlRow[])));
+  const deduped = dedupeRows(results.flat());
+  if (cacheKey && deduped.length > 0) kpiDrawingCache.set(cacheKey, deduped);
+  return deduped;
+}
+
+function normalizeDrawingSpacing(desc: string): string {
+  return (desc || '')
+    .replace(/(\b[A-Z]{1,4}\d{2,}[A-Z0-9]*)\s*\.\s*([A-Z0-9]+)/gi, '$1.$2')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractDrawingNumber(desc: string): string {
+  let s = normalizeDrawingSpacing(desc);
+  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
+  const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);
+  if (m) return m[0].toUpperCase();
+  const mMid = s.match(/\b[A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+\b/i);
+  if (mMid) return mMid[0].toUpperCase();
+  const first = s.split(/\s+-\s+|\s+/)[0] || '';
+  return /\d/.test(first) && first.length >= 4 ? first.toUpperCase() : '';
+}
+
+const drawingKey = (v: string) => cleanText(extractDrawingNumber(v) || v);
+
+function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
+  if (!rows || rows.length === 0 || !taskName) return '';
+  const wanted = drawingKey(taskName);
+  const cleanTarget = cleanText(taskName);
+  if (!wanted && !cleanTarget) return '';
+  const toNum = (v: any) => { const n = parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10); return isNaN(n) ? 0 : n; };
+  const wantRev = toNum(rev);
+  const hit = rows.find(r => {
+    if (toNum(r.rev) !== wantRev) return false;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(parseDriveDate(r.finishDate))) return false;
+    const rKey = drawingKey(r.noDwg);
+    if (wanted && rKey === wanted) return true;
+    const cDwg = cleanText(r.noDwg);
+    if (cDwg && cDwg.length >= 5 && cleanTarget.includes(cDwg)) return true;
+    return false;
+  });
+  return hit ? parseDriveDate(hit.finishDate) : '';
 }
 
 function parseNumber(val: any): number {
@@ -818,6 +1003,41 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
       }
 
       setCards(rows);
+
+      // Sinkronisasi otomatis tanggal Release dari Google Drive untuk kartu yang belum punya release
+      const missingRelease = rows.filter(r => r.project && r.taskName && !r.release);
+      if (missingRelease.length > 0) {
+        const projects = Array.from(new Set(missingRelease.map(r => r.project))).sort((a, b) =>
+          (isKnownDriveProject(b) ? 1 : 0) - (isKnownDriveProject(a) ? 1 : 0)
+        );
+        (async () => {
+          for (let i = 0; i < projects.length; i += 4) {
+            const batchProjs = projects.slice(i, i + 4);
+            const rowsByProj = new Map<string, DrawingControlRow[]>();
+            await Promise.all(batchProjs.map(async p => {
+              try { rowsByProj.set(p, await fetchDrawingRowsFor(p)); } catch { rowsByProj.set(p, []); }
+            }));
+            const batchFound = new Map<string, string>();
+            missingRelease.filter(r => batchProjs.includes(r.project)).forEach(r => {
+              const rel = findReleaseInRows(rowsByProj.get(r.project) || [], r.taskName, r.rev || '0');
+              if (rel) batchFound.set(r.id, rel);
+            });
+            if (batchFound.size > 0) {
+              setCards(prev => prev.map(c => batchFound.has(c.id) ? { ...c, release: batchFound.get(c.id)! } : c));
+              const ids = Array.from(batchFound.keys());
+              for (let j = 0; j < ids.length; j += 10) {
+                await Promise.all(ids.slice(j, j + 10).map(async id => {
+                  const rel = batchFound.get(id)!;
+                  saveLocalRelease(id, rel);
+                  if (!id.startsWith('realisasi-')) {
+                    try { await supabase.from('job_cards').update({ release: rel }).eq('id', id); } catch {}
+                  }
+                }));
+              }
+            }
+          }
+        })();
+      }
     } catch (err: any) {
       console.error('Gagal memuat data KPI:', err);
       setErrorMsg(err?.message || 'Gagal memuat data KPI.');
