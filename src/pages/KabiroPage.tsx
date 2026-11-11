@@ -464,7 +464,8 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
         let headerIdx = -1, jobcardCol = -1, effCol = -1, otCol = -1;
         for (let r = 0; r < Math.min(5, rawRows.length); r++) {
           const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
-          const jcIdx = row.findIndex(c => c.includes('jobcard'));
+          let jcIdx = row.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
+          if (jcIdx === -1) jcIdx = row.findIndex(c => c.includes('jobcard'));
           const eIdx = row.findIndex(c => c.includes('effective'));
           const oIdx = row.findIndex(c => c.includes('overtime'));
           if (jcIdx !== -1 && (eIdx !== -1 || oIdx !== -1)) { headerIdx = r; jobcardCol = jcIdx; effCol = eIdx; otCol = oIdx; break; }
