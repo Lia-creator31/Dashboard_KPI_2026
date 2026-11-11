@@ -2016,6 +2016,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         pic: string;
         project: string;
         taskName: string;
+        taskFromDwg: boolean;
         kodeJc: string;
         startDate: string;
         endDate: string;
@@ -2087,8 +2088,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           const biroName = resolveBiroName(rawWc, matchedMember?.biro);
 
           const project = cProj !== -1 ? extractProjectCodeFromCell(row[cProj]) : '';
-          const dwgCtrlVal = cDwgCtrl !== -1 ? String(row[cDwgCtrl] ?? '').trim() : '';
-          const descRaw = (dwgCtrlVal && dwgCtrlVal.toLowerCase() !== 'nan') ? dwgCtrlVal : (cDesc !== -1 ? String(row[cDesc] ?? '') : '');
+          const dwgCtrlVal = cDwgCtrl !== -1 ? String(row[cDwgCtrl] ?? '').replace(/\s+/g, ' ').trim() : '';
+          const hasDwgCtrl = !!dwgCtrlVal && dwgCtrlVal.toLowerCase() !== 'nan';
+          const descRaw = hasDwgCtrl ? dwgCtrlVal : (cDesc !== -1 ? String(row[cDesc] ?? '') : '');
           const desc = normalizeDrawingSpacing(descRaw);
           const detectedRev = revFromTaskName(desc);
           const parsedRowDate = cDate !== -1 ? parseToStandardDate(row[cDate]) : '';
@@ -2134,6 +2136,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               pic,
               project,
               taskName: desc,
+              taskFromDwg: hasDwgCtrl,
               kodeJc,
               startDate: rowDate,
               endDate: rowEndDate,
@@ -2155,7 +2158,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             }
             existing.realJo += hours;
             if (!existing.project && project) existing.project = project;
-            if (desc && (!existing.taskName || (!extractDrawingNumber(existing.taskName) && extractDrawingNumber(desc)))) {
+            if (hasDwgCtrl && !existing.taskFromDwg) {
+              // Jobcard/Drawing Control selalu didahulukan daripada Work Order/Description
+              existing.taskName = desc;
+              existing.taskFromDwg = true;
+            } else if (!existing.taskFromDwg && desc && (!existing.taskName || (!extractDrawingNumber(existing.taskName) && extractDrawingNumber(desc)))) {
               existing.taskName = desc;
             }
             if (detectedRev !== null) {
