@@ -119,10 +119,19 @@ function isBiroMatch(biro1: string, biro2: string): boolean {
 
 function normalizeDate(val: any): string {
   if (!val) return '';
-  const s = String(val).trim();
+  let s = String(val).trim();
+  if (!s || s === '-' || s.toLowerCase() === 'nan') return '';
+  s = s.replace(/^(senin|selasa|rabu|kamis|jumat|sabtu|minggu|mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s*/i, '').trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  const m = s.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  const token = s.split(' ')[0] || '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(token)) return token.slice(0, 10);
+  const m = token.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  const num = Number(s);
+  if (!isNaN(num) && num > 30000 && num < 60000) {
+    const d = new Date(Math.round((num - 25569) * 86400 * 1000));
+    return d.toISOString().split('T')[0];
+  }
   return '';
 }
 
