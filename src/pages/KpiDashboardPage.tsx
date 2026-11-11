@@ -443,7 +443,7 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
         headerIdx = r; cJc = jc; cEff = ef; cOt = ot;
         cName = h.findIndex(c => c === 'employee/name' || c === 'nama' || c === 'name' || c === 'user' || c === 'employee' || c === 'pegawai');
         cProj = h.findIndex(c => c === 'project/code' || c === 'project' || c === 'proyek');
-        cTask = h.findIndex(c => c === 'jobcard/task name' || c === 'description' || c === 'deskripsi' || c === 'task name');
+        cTask = h.findIndex(c => c === 'work order/description' || c === 'jobcard/task name' || c === 'description' || c === 'deskripsi' || c === 'task name');
         break;
       }
     }
