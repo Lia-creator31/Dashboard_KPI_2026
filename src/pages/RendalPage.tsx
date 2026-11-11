@@ -1113,11 +1113,11 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     if (rows.length === 0) return;
     let headerIdx = -1;
-    let cNip = -1, cName = 1, cProj = 5, cJc = 16, cEff = 11, cOt = 12, cTask = 22;
+    let cNip = -1, cName = 1, cProj = 5, cJc = 16, cEff = 11, cOt = 12, cTask = 22, cDwgCtrl = -1;
     for (let r = 0; r < Math.min(10, rows.length); r++) {
       const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
       const jcExact = h.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
-      const jc = jcExact !== -1 ? jcExact : h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+      const jc = jcExact !== -1 ? jcExact : h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state') && !c.includes('drawing'));
       const ef = h.findIndex(c => c.includes('effective'));
       const ot = h.findIndex(c => c.includes('overtime'));
       if (jc !== -1 && (ef !== -1 || ot !== -1)) {
@@ -1130,6 +1130,8 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
         if (np !== -1) cNip = np;
         if (pj !== -1) cProj = pj;
         if (tk !== -1) cTask = tk;
+        // Deskripsi utama: Jobcard/Drawing Control (fallback ke Work Order/Description per baris)
+        cDwgCtrl = h.findIndex(c => c === 'jobcard/drawing control' || c === 'work order/job card/drawing control' || c === 'job card/drawing control' || c === 'drawing control');
         break;
       }
     }
@@ -1148,7 +1150,7 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
         nama,
         project: extractProjectCodeFromCell(row[cProj]),
         jobcard,
-        taskName: String(row[cTask] ?? '').trim(),
+        taskName: (cDwgCtrl !== -1 ? String(row[cDwgCtrl] ?? '').trim() : '') || String(row[cTask] ?? '').trim(),
         hours,
       });
     }
@@ -2040,11 +2042,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         if (rows.length === 0) return;
 
         let headerIdx = -1;
-        let cDate = -1, cUser = -1, cJc = -1, cPlan = -1, cEff = -1, cOt = -1, cQty = -1, cProj = -1, cDesc = -1, cWc = -1, cEnd = -1;
+        let cDate = -1, cUser = -1, cJc = -1, cPlan = -1, cEff = -1, cOt = -1, cQty = -1, cProj = -1, cDesc = -1, cWc = -1, cEnd = -1, cDwgCtrl = -1;
         for (let r = 0; r < Math.min(10, rows.length); r++) {
           const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
           const jcExact = h.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
-      const jc = jcExact !== -1 ? jcExact : h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+      const jc = jcExact !== -1 ? jcExact : h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state') && !c.includes('drawing'));
           const us = h.findIndex(c => c === 'user' || c === 'employee/name' || c === 'nama' || c === 'name' || c === 'employee' || c === 'pegawai');
           if (jc !== -1 && us !== -1) {
             headerIdx = r;
@@ -2060,6 +2062,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             cQty = h.findIndex(c => c === 'quantity' || c === 'qty');
             cProj = h.findIndex(c => c === 'project' || c === 'project/code' || c === 'proyek');
             cDesc = h.findIndex(c => c === 'work order/description' || c === 'description' || c === 'deskripsi' || c === 'jobcard/task name' || c === 'task name');
+            // Deskripsi utama: Jobcard/Drawing Control (fallback ke Work Order/Description per baris)
+            cDwgCtrl = h.findIndex(c => c === 'jobcard/drawing control' || c === 'work order/job card/drawing control' || c === 'job card/drawing control' || c === 'drawing control');
             cWc = h.findIndex(c => c === 'work center' || c === 'biro' || c.includes('work center'));
             break;
           }
@@ -2083,7 +2087,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           const biroName = resolveBiroName(rawWc, matchedMember?.biro);
 
           const project = cProj !== -1 ? extractProjectCodeFromCell(row[cProj]) : '';
-          const desc = cDesc !== -1 ? normalizeDrawingSpacing(String(row[cDesc] ?? '')) : '';
+          const dwgCtrlVal = cDwgCtrl !== -1 ? String(row[cDwgCtrl] ?? '').trim() : '';
+          const descRaw = (dwgCtrlVal && dwgCtrlVal.toLowerCase() !== 'nan') ? dwgCtrlVal : (cDesc !== -1 ? String(row[cDesc] ?? '') : '');
+          const desc = normalizeDrawingSpacing(descRaw);
           const detectedRev = revFromTaskName(desc);
           const parsedRowDate = cDate !== -1 ? parseToStandardDate(row[cDate]) : '';
           const rowDate = /^\d{4}-\d{2}-\d{2}$/.test(parsedRowDate) ? parsedRowDate : dateFromJobcardCode(kodeJc);
