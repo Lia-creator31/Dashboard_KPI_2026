@@ -2016,6 +2016,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         taskName: string;
         kodeJc: string;
         startDate: string;
+        endDate: string;
         maxPlanJo: number;
         hasPlanJo: boolean;
         realJo: number;
@@ -2039,7 +2040,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         if (rows.length === 0) return;
 
         let headerIdx = -1;
-        let cDate = -1, cUser = -1, cJc = -1, cPlan = -1, cEff = -1, cOt = -1, cQty = -1, cProj = -1, cDesc = -1, cWc = -1;
+        let cDate = -1, cUser = -1, cJc = -1, cPlan = -1, cEff = -1, cOt = -1, cQty = -1, cProj = -1, cDesc = -1, cWc = -1, cEnd = -1;
         for (let r = 0; r < Math.min(10, rows.length); r++) {
           const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
           const jcExact = h.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
@@ -2049,7 +2050,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             headerIdx = r;
             cJc = jc;
             cUser = us;
-            cDate = h.findIndex(c => c === 'date' || c === 'tanggal' || c.includes('start'));
+            const startExact = h.findIndex(c => c === 'work order/job card/schedule start date' || c === 'job card/schedule start date' || c === 'work order/schedule start date');
+            cDate = startExact !== -1 ? startExact : h.findIndex(c => c === 'date' || c === 'tanggal' || c.includes('start'));
+            const endExact = h.findIndex(c => c === 'work order/job card/schedule end date' || c === 'job card/schedule end date' || c === 'work order/schedule end date');
+            cEnd = endExact !== -1 ? endExact : h.findIndex(c => c.includes('end') || c.includes('finish') || c.includes('selesai'));
             cPlan = h.findIndex(c => (c.includes('plan') && c.includes('hour')) || c === 'plan jo' || c === 'planned hour');
             cEff = h.findIndex(c => c.includes('effective'));
             cOt = h.findIndex(c => c.includes('overtime'));
@@ -2083,6 +2087,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           const detectedRev = revFromTaskName(desc);
           const parsedRowDate = cDate !== -1 ? parseToStandardDate(row[cDate]) : '';
           const rowDate = /^\d{4}-\d{2}-\d{2}$/.test(parsedRowDate) ? parsedRowDate : dateFromJobcardCode(kodeJc);
+          const parsedEndDate = cEnd !== -1 ? parseToStandardDate(row[cEnd]) : '';
+          const rowEndDate = /^\d{4}-\d{2}-\d{2}$/.test(parsedEndDate) ? parsedEndDate : '';
 
           const planValRaw = cPlan !== -1 ? String(row[cPlan] ?? '').trim().replace(',', '.') : '';
           const planNum = planValRaw !== '' ? parseFloat(planValRaw) : NaN;
@@ -2098,16 +2104,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           if (jcKey && hasValidPlan) {
             const prevHp = newHpMap[jcKey];
             const bestStart = prevHp?.start && rowDate ? (rowDate < prevHp.start ? rowDate : prevHp.start) : (rowDate || prevHp?.start || '');
+            const bestEnd = prevHp?.end && rowEndDate ? (rowEndDate > prevHp.end ? rowEndDate : prevHp.end) : (rowEndDate || prevHp?.end || '');
             if (!prevHp || planNum > prevHp.hour) {
               newHpMap[jcKey] = {
                 kode: kodeJc,
                 hour: planNum,
                 planner: prevHp?.planner || '',
                 start: bestStart,
-                end: '',
+                end: bestEnd,
               };
-            } else if (bestStart && bestStart !== prevHp.start) {
-              prevHp.start = bestStart;
+            } else {
+              if (bestStart && bestStart !== prevHp.start) prevHp.start = bestStart;
+              if (bestEnd && bestEnd !== prevHp.end) prevHp.end = bestEnd;
             }
           }
 
@@ -2122,6 +2130,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               taskName: desc,
               kodeJc,
               startDate: rowDate,
+              endDate: rowEndDate,
               maxPlanJo: hasValidPlan ? planNum : 0,
               hasPlanJo: hasValidPlan,
               realJo: hours,
@@ -2130,6 +2139,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           } else {
             if (rowDate && (!existing.startDate || rowDate < existing.startDate)) {
               existing.startDate = rowDate;
+            }
+            if (rowEndDate && (!existing.endDate || rowEndDate > existing.endDate)) {
+              existing.endDate = rowEndDate;
             }
             if (hasValidPlan && (!existing.hasPlanJo || planNum > existing.maxPlanJo)) {
               existing.maxPlanJo = planNum;
@@ -2219,7 +2231,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           project: g.project,
           task_name: g.taskName,
           start_date: g.startDate,
-          end_date: '',
+          end_date: g.endDate || '',
           jo: joStr,
           kode_jc: g.kodeJc,
           status: 'approved',
@@ -3529,7 +3541,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
                                         <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
                                         <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate || (jcKey && hourPlannerMap[jcKey]?.start))}</td>
-                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate)}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate || (jcKey && hourPlannerMap[jcKey]?.end))}</td>
                                         <td className="py-2 px-2.5 font-mono text-violet-300">{displayPlanJo}</td>
                                         <td className="py-2 px-2.5 font-mono font-bold">
                                           {calculatedRealHours !== undefined ? (
