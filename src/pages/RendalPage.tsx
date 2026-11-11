@@ -227,7 +227,11 @@ function parseToStandardDate(val: any): string {
   let str = String(val).trim();
   if (!str || str === '-' || str.toLowerCase() === 'nan') return '';
   str = str.replace(/^(senin|selasa|rabu|kamis|jumat|sabtu|minggu|mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s*/i, '').trim();
-  if (str.toLowerCase().includes('t') && str.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+  const dateToken = str.split(' ')[0] || '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateToken)) return dateToken.slice(0, 10);
+  const mDmyTime = dateToken.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (mDmyTime) return `${mDmyTime[3]}-${mDmyTime[2].padStart(2, '0')}-${mDmyTime[1].padStart(2, '0')}`;
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
   const mJs = str.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})/);
   if (mJs) {
@@ -503,8 +507,21 @@ function parseHourPlannerWorkbook(wb: XLSX.WorkBook): { entries: HourPlannerMap;
     if (n !== -1 && hr !== -1) {
       headerIdx = r; nameCol = n; hourCol = hr;
       plannerCol = h.findIndex(c => c === 'planner');
-      startCol = h.findIndex(c => c.includes('start'));
-      endCol = h.findIndex(c => c.includes('end'));
+      startCol = h.findIndex(c =>
+        c.includes('schedule start') ||
+        c.includes('plan start') ||
+        (c.includes('start') && (c.includes('schedule') || c.includes('work order') || c.includes('job card') || c.includes('plan'))) ||
+        c.includes('start')
+      );
+      endCol = h.findIndex(c =>
+        c.includes('schedule end') ||
+        c.includes('schedule finish') ||
+        c.includes('plan finish') ||
+        c.includes('plan end') ||
+        ((c.includes('end') || c.includes('finish')) && (c.includes('schedule') || c.includes('work order') || c.includes('job card') || c.includes('plan'))) ||
+        c.includes('end') ||
+        c.includes('finish')
+      );
       break;
     }
   }
@@ -1930,20 +1947,36 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const allTasks = ([] as TaskItem[]).concat(...Object.values(manualTasks));
       const toUpdate = allTasks.filter(t => t.kodeJc && entries[cleanText(t.kodeJc)]);
       let okCount = 0, failCount = 0;
-      const newJo = new Map<string, string>();
+      const newUpdates = new Map<string, { jo: string; start: string; end: string }>();
       for (let i = 0; i < toUpdate.length; i += 10) {
         await Promise.all(toUpdate.slice(i, i + 10).map(async t => {
-          const hour = String(entries[cleanText(t.kodeJc)].hour);
-          const { error: upErr } = await supabase.from('job_cards').update({ jo: hour }).eq('id', t.id);
+          const hpItem = entries[cleanText(t.kodeJc)];
+          const hour = String(hpItem.hour);
+          const upObj: any = { jo: hour };
+          if (hpItem.start) upObj.start_date = hpItem.start;
+          if (hpItem.end) upObj.end_date = hpItem.end;
+          const { error: upErr } = await supabase.from('job_cards').update(upObj).eq('id', t.id);
           if (upErr) failCount++;
-          else { okCount++; newJo.set(t.id, hour); }
+          else {
+            okCount++;
+            newUpdates.set(t.id, { jo: hour, start: hpItem.start || '', end: hpItem.end || '' });
+          }
         }));
       }
-      if (newJo.size > 0) {
+      if (newUpdates.size > 0) {
         setManualTasks(prev => {
           const updated = { ...prev };
           Object.keys(updated).forEach(k => {
-            updated[k] = updated[k].map(t => newJo.has(t.id) ? { ...t, jo: newJo.get(t.id)! } : t);
+            updated[k] = updated[k].map(t => {
+              const u = newUpdates.get(t.id);
+              if (!u) return t;
+              return {
+                ...t,
+                jo: u.jo,
+                startDate: u.start || t.startDate,
+                endDate: u.end || t.endDate,
+              };
+            });
           });
           return updated;
         });
@@ -2017,6 +2050,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         taskName: string;
         kodeJc: string;
         startDate: string;
+        endDate: string;
         maxPlanJo: number;
         hasPlanJo: boolean;
         realJo: number;
@@ -2041,6 +2075,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
         let headerIdx = -1;
         let cDate = -1, cUser = -1, cJc = -1, cPlan = -1, cEff = -1, cOt = -1, cQty = -1, cProj = -1, cDesc = -1, cWc = -1;
+        let cSchedStart = -1, cSchedEnd = -1;
         for (let r = 0; r < Math.min(10, rows.length); r++) {
           const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
           const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
@@ -2049,7 +2084,34 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             headerIdx = r;
             cJc = jc;
             cUser = us;
-            cDate = h.findIndex(c => c === 'date' || c === 'tanggal' || c.includes('start'));
+            // Plan Start: "Work Order/Job Card/Schedule Start date"
+            cSchedStart = h.findIndex(c =>
+              c.includes('schedule start') ||
+              c.includes('plan start') ||
+              (c.includes('start') && (c.includes('schedule') || c.includes('work order') || c.includes('job card') || c.includes('plan')))
+            );
+            // Plan Finish: "Work Order/Job Card/Schedule End date"
+            cSchedEnd = h.findIndex(c =>
+              c.includes('schedule end') ||
+              c.includes('schedule finish') ||
+              c.includes('plan finish') ||
+              c.includes('plan end') ||
+              ((c.includes('end') || c.includes('finish')) && (c.includes('schedule') || c.includes('work order') || c.includes('job card') || c.includes('plan')))
+            );
+            // Tanggal log timesheet harian: hindari kolom schedule
+            cDate = h.findIndex(c =>
+              c === 'date' || c === 'tanggal' || c === 'log date' ||
+              (c.includes('date') && !c.includes('schedule') && !c.includes('plan') && !c.includes('start') && !c.includes('end') && !c.includes('finish'))
+            );
+            if (cDate === -1) {
+              cDate = h.findIndex(c => (c === 'date' || c.includes('tanggal')) && !c.includes('schedule') && !c.includes('end'));
+            }
+            if (cSchedStart === -1) {
+              cSchedStart = h.findIndex(c => c.includes('start'));
+            }
+            if (cSchedEnd === -1) {
+              cSchedEnd = h.findIndex(c => c.includes('end') || c.includes('finish'));
+            }
             cPlan = h.findIndex(c => (c.includes('plan') && c.includes('hour')) || c === 'plan jo' || c === 'planned hour');
             cEff = h.findIndex(c => c.includes('effective'));
             cOt = h.findIndex(c => c.includes('overtime'));
@@ -2084,6 +2146,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           const parsedRowDate = cDate !== -1 ? parseToStandardDate(row[cDate]) : '';
           const rowDate = /^\d{4}-\d{2}-\d{2}$/.test(parsedRowDate) ? parsedRowDate : dateFromJobcardCode(kodeJc);
 
+          const parsedSchedStart = cSchedStart !== -1 ? parseToStandardDate(row[cSchedStart]) : '';
+          const planStart = /^\d{4}-\d{2}-\d{2}$/.test(parsedSchedStart) ? parsedSchedStart : '';
+
+          const parsedSchedEnd = cSchedEnd !== -1 ? parseToStandardDate(row[cSchedEnd]) : '';
+          const planEnd = /^\d{4}-\d{2}-\d{2}$/.test(parsedSchedEnd) ? parsedSchedEnd : '';
+
           const planValRaw = cPlan !== -1 ? String(row[cPlan] ?? '').trim().replace(',', '.') : '';
           const planNum = planValRaw !== '' ? parseFloat(planValRaw) : NaN;
           const hasValidPlan = !isNaN(planNum);
@@ -2093,27 +2161,35 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           const qty = cQty !== -1 ? absNum(row[cQty]) : 0;
           const hours = (eff + ot) > 0 ? (eff + ot) : qty;
 
-          // Simpan nilai tertinggi Planned Hour ke HourPlannerMap per kode Jobcard
+          // Simpan Planned Hour, Plan Start, dan Plan Finish ke HourPlannerMap per kode Jobcard
           const jcKey = cleanText(kodeJc);
-          if (jcKey && hasValidPlan) {
+          if (jcKey) {
             const prevHp = newHpMap[jcKey];
-            const bestStart = prevHp?.start && rowDate ? (rowDate < prevHp.start ? rowDate : prevHp.start) : (rowDate || prevHp?.start || '');
-            if (!prevHp || planNum > prevHp.hour) {
+            const effStart = planStart || prevHp?.start || rowDate;
+            const effEnd = planEnd || prevHp?.end || '';
+            if (!prevHp) {
               newHpMap[jcKey] = {
                 kode: kodeJc,
-                hour: planNum,
-                planner: prevHp?.planner || '',
-                start: bestStart,
-                end: '',
+                hour: hasValidPlan ? planNum : 0,
+                planner: '',
+                start: effStart,
+                end: effEnd,
               };
-            } else if (bestStart && bestStart !== prevHp.start) {
-              prevHp.start = bestStart;
+            } else {
+              if (hasValidPlan && planNum > prevHp.hour) {
+                prevHp.hour = planNum;
+              }
+              if (planStart) prevHp.start = planStart;
+              else if (!prevHp.start && rowDate) prevHp.start = rowDate;
+              if (planEnd) prevHp.end = planEnd;
             }
           }
 
           // Kelompokkan per (PIC, Jobcard)
           const groupKey = `${cleanText(pic)}|${jcKey}`;
           const existing = taskGroups.get(groupKey);
+          const taskStart = planStart || rowDate;
+          const taskEnd = planEnd || '';
           if (!existing) {
             taskGroups.set(groupKey, {
               biroName,
@@ -2121,15 +2197,21 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               project,
               taskName: desc,
               kodeJc,
-              startDate: rowDate,
+              startDate: taskStart,
+              endDate: taskEnd,
               maxPlanJo: hasValidPlan ? planNum : 0,
               hasPlanJo: hasValidPlan,
               realJo: hours,
               rev: detectedRev !== null ? String(detectedRev) : '0',
             });
           } else {
-            if (rowDate && (!existing.startDate || rowDate < existing.startDate)) {
+            if (planStart) {
+              existing.startDate = planStart;
+            } else if (!existing.startDate && rowDate) {
               existing.startDate = rowDate;
+            }
+            if (planEnd) {
+              existing.endDate = planEnd;
             }
             if (hasValidPlan && (!existing.hasPlanJo || planNum > existing.maxPlanJo)) {
               existing.maxPlanJo = planNum;
@@ -2219,7 +2301,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           project: g.project,
           task_name: g.taskName,
           start_date: g.startDate,
-          end_date: '',
+          end_date: g.endDate,
           jo: joStr,
           kode_jc: g.kodeJc,
           status: 'approved',
@@ -3546,7 +3628,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
                                         <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
                                         <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate || (jcKey && hourPlannerMap[jcKey]?.start))}</td>
-                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate)}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate || (jcKey && hourPlannerMap[jcKey]?.end))}</td>
                                         <td className="py-2 px-2.5 font-mono text-violet-300">{displayPlanJo}</td>
                                         <td className="py-2 px-2.5 font-mono font-bold">
                                           {calculatedRealHours !== undefined ? (
