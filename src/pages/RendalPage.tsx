@@ -1116,7 +1116,8 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
     let cNip = -1, cName = 1, cProj = 5, cJc = 16, cEff = 11, cOt = 12, cTask = 22;
     for (let r = 0; r < Math.min(10, rows.length); r++) {
       const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-      const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+      const jcExact = h.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
+      const jc = jcExact !== -1 ? jcExact : h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
       const ef = h.findIndex(c => c.includes('effective'));
       const ot = h.findIndex(c => c.includes('overtime'));
       if (jc !== -1 && (ef !== -1 || ot !== -1)) {
@@ -2041,7 +2042,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         let cDate = -1, cUser = -1, cJc = -1, cPlan = -1, cEff = -1, cOt = -1, cQty = -1, cProj = -1, cDesc = -1, cWc = -1;
         for (let r = 0; r < Math.min(10, rows.length); r++) {
           const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-          const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+          const jcExact = h.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
+      const jc = jcExact !== -1 ? jcExact : h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
           const us = h.findIndex(c => c === 'user' || c === 'employee/name' || c === 'nama' || c === 'name' || c === 'employee' || c === 'pegawai');
           if (jc !== -1 && us !== -1) {
             headerIdx = r;
@@ -2380,7 +2382,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         let headerIdx = -1, jobcardCol = -1, effCol = -1, otCol = -1;
         for (let r = 0; r < Math.min(5, rawRows.length); r++) {
           const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
-          let jcIdx = row.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+          let jcIdx = row.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
+          if (jcIdx === -1) jcIdx = row.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
           if (jcIdx === -1) jcIdx = row.findIndex(c => c.includes('jobcard'));
           const eIdx = row.findIndex(c => c.includes('effective'));
           const oIdx = row.findIndex(c => c.includes('overtime'));
