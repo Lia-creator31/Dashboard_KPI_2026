@@ -1124,7 +1124,7 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
         const nm = h.findIndex(c => c === 'employee/name' || c === 'nama' || c === 'name' || c === 'user' || c === 'employee' || c === 'pegawai');
         const np = h.findIndex(c => c === 'employee/nip' || c === 'nip');
         const pj = h.findIndex(c => c === 'project/code' || c === 'project' || c === 'proyek');
-        const tk = h.findIndex(c => c === 'jobcard/task name' || c === 'description' || c === 'deskripsi' || c === 'task name');
+        const tk = h.findIndex(c => c === 'work order/description' || c === 'jobcard/task name' || c === 'description' || c === 'deskripsi' || c === 'task name');
         if (nm !== -1) cName = nm;
         if (np !== -1) cNip = np;
         if (pj !== -1) cProj = pj;
@@ -2053,7 +2053,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             cOt = h.findIndex(c => c.includes('overtime'));
             cQty = h.findIndex(c => c === 'quantity' || c === 'qty');
             cProj = h.findIndex(c => c === 'project' || c === 'project/code' || c === 'proyek');
-            cDesc = h.findIndex(c => c === 'description' || c === 'deskripsi' || c === 'jobcard/task name' || c === 'task name');
+            cDesc = h.findIndex(c => c === 'work order/description' || c === 'description' || c === 'deskripsi' || c === 'jobcard/task name' || c === 'task name');
             cWc = h.findIndex(c => c === 'work center' || c === 'biro' || c.includes('work center'));
             break;
           }
