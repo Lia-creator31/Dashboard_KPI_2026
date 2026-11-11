@@ -354,7 +354,8 @@ function buildRealisasiMap(wb: XLSX.WorkBook | null): Map<string, number> {
     let headerIdx = -1, jcCol = -1, effCol = -1, otCol = -1;
     for (let r = 0; r < Math.min(5, rows.length); r++) {
       const row = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-      let j = row.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+      let j = row.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
+      if (j === -1) j = row.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
       if (j === -1) j = row.findIndex(c => c.includes('jobcard'));
       const e = row.findIndex(c => c.includes('effective'));
       const o = row.findIndex(c => c.includes('overtime'));
@@ -436,7 +437,8 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
     let headerIdx = -1, cName = -1, cProj = -1, cJc = -1, cEff = -1, cOt = -1, cTask = -1;
     for (let r = 0; r < Math.min(10, rows.length); r++) {
       const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-      const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+      const jcExact = h.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
+      const jc = jcExact !== -1 ? jcExact : h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
       const ef = h.findIndex(c => c.includes('effective'));
       const ot = h.findIndex(c => c.includes('overtime'));
       if (jc !== -1 && (ef !== -1 || ot !== -1)) {
