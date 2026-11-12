@@ -143,12 +143,13 @@ function extractDrawingNumber(desc: string): string {
 }
 const drawingKey = (v: string) => dcClean(extractDrawingNumber(v) || v);
 
-function findDrawingRow(rows: DrawingControlRow[], taskName: string, rev: string | number): DrawingControlRow | undefined {
-  if (!rows.length || !taskName) return undefined;
+function findReleaseDate(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
+  if (!rows.length || !taskName) return '';
   const wanted = drawingKey(taskName);
-  if (!wanted) return undefined;
+  if (!wanted) return '';
   const wantRev = dcRevNum(rev);
-  return rows.find(r => dcRevNum(r.rev) === wantRev && drawingKey(r.noDwg) === wanted);
+  const hit = rows.find(r => dcRevNum(r.rev) === wantRev && drawingKey(r.noDwg) === wanted && parseToStandardDate(r.finishDate));
+  return hit ? parseToStandardDate(hit.finishDate) : '';
 }
 
 
@@ -232,7 +233,6 @@ export default function SyncReleasePage({ user, onLogout, onBack }: SyncReleaseP
   const [isSaving, setIsSaving] = useState(false);
   const [resultMsg, setResultMsg] = useState('');
   const [reloadTick, setReloadTick] = useState(0);
-  const [driveReloadTick, setDriveReloadTick] = useState(0);
 
   // 1) Ambil semua job card dari database
   useEffect(() => {
@@ -304,7 +304,7 @@ export default function SyncReleasePage({ user, onLogout, onBack }: SyncReleaseP
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthCards, driveReloadTick]);
+  }, [monthCards]);
 
   // 4) Cocokkan tiap job card dengan Drawing Control
   const analyzed = useMemo(() => {
@@ -314,10 +314,9 @@ export default function SyncReleasePage({ user, onLogout, onBack }: SyncReleaseP
       let drive = '';
       if (!c.project || (d && d.state === 'empty')) status = 'noproj';
       else if (d && d.state === 'ok') {
-        const row = findDrawingRow(d.rows, c.task, c.rev);
-        drive = row ? parseToStandardDate(row.finishDate) : '';
-        if (!row) status = 'notfound';
-        else if (!c.release && drive) status = 'new';
+        drive = findReleaseDate(d.rows, c.task, c.rev);
+        if (!drive) status = 'notfound';
+        else if (!c.release) status = 'new';
         else status = c.release === drive ? 'same' : 'diff';
       }
       return { card: c, drive, status };
@@ -339,7 +338,6 @@ export default function SyncReleasePage({ user, onLogout, onBack }: SyncReleaseP
 
   // Otomatis centang baris "Baru dari Drive" (sekali per baris, agar centang manual tidak ditimpa)
   const autoSeen = useRef<Set<string>>(new Set());
-  const autoSyncInFlight = useRef<Set<string>>(new Set());
   useEffect(() => {
     const add: string[] = [];
     analyzed.forEach(a => {
@@ -347,43 +345,6 @@ export default function SyncReleasePage({ user, onLogout, onBack }: SyncReleaseP
     });
     if (add.length) setSelected(prev => { const n = new Set(prev); add.forEach(id => n.add(id)); return n; });
   }, [analyzed]);
-
-  useEffect(() => {
-    const pending = analyzed.flatMap(({ card }) => {
-      const drive = driveMap[card.project];
-      if (drive?.state !== 'ok' || autoSyncInFlight.current.has(card.id)) return [];
-      const row = findDrawingRow(drive.rows, card.task, card.rev);
-      if (!row) return [];
-      const release = parseToStandardDate(row.finishDate);
-      if (release === card.release) return [];
-      autoSyncInFlight.current.add(card.id);
-      return [{ id: card.id, release }];
-    });
-    if (!pending.length) return;
-
-    (async () => {
-      const done = new Map<string, string>();
-      let failed = 0;
-      for (let i = 0; i < pending.length; i += 10) {
-        await Promise.all(pending.slice(i, i + 10).map(async item => {
-          const { error } = await supabase.from('job_cards').update({ release: item.release || null }).eq('id', item.id);
-          if (!error || /release/i.test(error.message || '')) {
-            saveLocalRelease(item.id, item.release);
-            done.set(item.id, item.release);
-          } else {
-            failed++;
-          }
-          autoSyncInFlight.current.delete(item.id);
-        }));
-      }
-      if (done.size) {
-        setCards(prev => prev.map(card => done.has(card.id) ? { ...card, release: done.get(card.id)! } : card));
-        setResultMsg(`Sinkron otomatis: ${done.size} tanggal Release diperbarui${failed ? `, ${failed} gagal` : ''}.`);
-      } else if (failed) {
-        setResultMsg(`Sinkron otomatis gagal untuk ${failed} tanggal Release.`);
-      }
-    })();
-  }, [analyzed, driveMap]);
 
   const toggle = (id: string) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -418,15 +379,6 @@ export default function SyncReleasePage({ user, onLogout, onBack }: SyncReleaseP
     clearDrawingCache();
     setDriveMap({});
     setResultMsg('');
-    setDriveReloadTick(t => t + 1);
-  };
-
-  const handleRefreshPageData = () => {
-    clearDrawingCache();
-    setDriveMap({});
-    setResultMsg('');
-    setReloadTick(t => t + 1);
-    setDriveReloadTick(t => t + 1);
   };
 
   const driveSummary = useMemo(() => {
@@ -486,14 +438,14 @@ export default function SyncReleasePage({ user, onLogout, onBack }: SyncReleaseP
               className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer">
               <RefreshCw className="w-3.5 h-3.5" /> Baca ulang Drive
             </button>
-            <button onClick={handleRefreshPageData}
+            <button onClick={() => { setReloadTick(t => t + 1); }}
               className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 cursor-pointer">
-              Muat ulang & sinkronkan
+              Muat ulang database
             </button>
           </div>
           <div className="text-[11px] text-slate-400">
-            Release diselaraskan otomatis dari Google Drive berdasarkan <b>nomor gambar di deskripsi</b> dan <b>Rev</b> yang sama, termasuk dikosongkan bila Finish Date di Drive kosong.
-            Gunakan "Muat ulang &amp; sinkronkan" untuk mengambil perubahan terbaru.
+            Drawing Control dibaca otomatis dari Google Drive untuk setiap proyek yang tampil. Release dicocokkan lewat <b>nomor gambar di deskripsi</b> dan <b>Rev</b> yang sama.
+            Baris berstatus "Baru dari Drive" otomatis tercentang; "Beda dengan Drive" perlu Anda centang sendiri bila ingin menimpa.
           </div>
           {driveSummary.length > 0 && (
             <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
