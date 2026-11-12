@@ -9,7 +9,7 @@ import { projectCandidates, dedupeRows } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
-  FileSpreadsheet, Users, Search, TrendingUp
+  FileSpreadsheet, Users, Search, TrendingUp, RefreshCw
 } from 'lucide-react';
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
@@ -424,23 +424,35 @@ function extractDrawingNumber(desc: string): string {
 
 const drawingKey = (v: string) => cleanText(extractDrawingNumber(v) || v);
 
-function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
-  if (!rows || rows.length === 0 || !taskName) return '';
+function drawingNameKey(v: string): string {
+  return cleanText(normalizeDrawingSpacing(v)
+    .toLowerCase()
+    .replace(/\bmcw\b/g, 'main cable way')
+    .replace(/\bdwg\b|\bof\b/g, ' '));
+}
+
+function findDrawingRowInRows(rows: DrawingControlRow[], taskName: string, rev: string | number): DrawingControlRow | undefined {
+  if (!rows || rows.length === 0 || !taskName) return undefined;
   const wanted = drawingKey(taskName);
   const cleanTarget = cleanText(taskName);
-  if (!wanted && !cleanTarget) return '';
+  const wantedName = drawingNameKey(taskName);
+  if (!wanted && !cleanTarget) return undefined;
   const toNum = (v: any) => { const n = parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10); return isNaN(n) ? 0 : n; };
   const wantRev = toNum(rev);
-  const hit = rows.find(r => {
+  return rows.find(r => {
     if (toNum(r.rev) !== wantRev) return false;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(r.finishDate))) return false;
     const rKey = drawingKey(r.noDwg);
     if (wanted && rKey === wanted) return true;
     const cDwg = cleanText(r.noDwg);
     if (cDwg && cDwg.length >= 5 && cleanTarget.includes(cDwg)) return true;
-    return false;
+    return wantedName && wantedName === drawingNameKey(r.drawingName);
   });
-  return hit ? parseToStandardDate(hit.finishDate) : '';
+}
+
+function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
+  const hit = findDrawingRowInRows(rows, taskName, rev);
+  const release = hit ? parseToStandardDate(hit.finishDate) : '';
+  return /^\d{4}-\d{2}-\d{2}$/.test(release) ? release : '';
 }
 
 const MASTER_BUCKET = 'master-files';
@@ -1783,16 +1795,17 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const autoRunning = useRef(false);
   const autoPending = useRef(false);
   const [autoSyncMsg, setAutoSyncMsg] = useState('');
+  const [isSyncingReleases, setIsSyncingReleases] = useState(false);
 
   const autoSyncReleases = useCallback(async (retryAll: boolean) => {
     if (autoRunning.current) {
       autoPending.current = true;
       return;
     }
+    if (retryAll) drawingRowsCache.clear();
     const all = ([] as TaskItem[]).concat(...Object.values(manualTasks));
     const todo = all.filter(t =>
       t.project && t.taskName &&
-      !/^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(t.release)) &&
       (retryAll || !autoTried.current.has(`${t.id}|${t.rev || '0'}`)));
     if (todo.length === 0) return;
     autoRunning.current = true;
@@ -1810,8 +1823,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         const batchFound = new Map<string, string>();
         todo.filter(t => batchProjs.includes(t.project)).forEach(t => {
           autoTried.current.add(`${t.id}|${t.rev || '0'}`);
-          const rel = findReleaseInRows(rowsByProject.get(t.project) || [], t.taskName, t.rev || '0');
-          if (rel) batchFound.set(t.id, rel);
+          const row = findDrawingRowInRows(rowsByProject.get(t.project) || [], t.taskName, t.rev || '0');
+          if (!row) return;
+          const rawDate = String(row.finishDate || '').trim();
+          const rel = rawDate ? parseToStandardDate(rawDate) : '';
+          if (rawDate && !/^\d{4}-\d{2}-\d{2}$/.test(rel)) return;
+          if (rel !== parseToStandardDate(t.release)) batchFound.set(t.id, rel);
         });
         if (batchFound.size > 0) {
           totalFound += batchFound.size;
@@ -1820,7 +1837,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             await Promise.all(ids.slice(j, j + 10).map(async id => {
               const rel = batchFound.get(id)!;
               saveLocalRelease(id, rel);
-              try { await supabase.from('job_cards').update({ release: rel }).eq('id', id); } catch {}
+              try { await supabase.from('job_cards').update({ release: rel || null }).eq('id', id); } catch {}
             }));
           }
           setManualTasks(prev => {
@@ -1833,7 +1850,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         }
       }
       if (totalFound > 0) {
-        setAutoSyncMsg(`${totalFound} tanggal Release terisi otomatis dari Drawing Control`);
+        setAutoSyncMsg(`${totalFound} tanggal Release diselaraskan otomatis dari Drawing Control`);
         setTimeout(() => setAutoSyncMsg(''), 8000);
       }
     } finally {
@@ -1850,6 +1867,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     const timer = setInterval(() => autoSyncReleases(true), 10 * 60 * 1000);
     return () => clearInterval(timer);
   }, [autoSyncReleases]);
+
+  const handleRefreshReleaseSync = async () => {
+    setIsSyncingReleases(true);
+    try {
+      await autoSyncReleases(true);
+      await loadAllJobCards();
+      setAutoSyncMsg('Penyegaran Release selesai');
+      setTimeout(() => setAutoSyncMsg(''), 8000);
+    } finally {
+      setIsSyncingReleases(false);
+    }
+  };
 
   const handleUpdateIm4Excel = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
@@ -2994,6 +3023,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 <Sparkles className="w-3 h-3" /> {autoSyncMsg}
               </span>
             )}
+            <button onClick={handleRefreshReleaseSync} disabled={isSyncingReleases}
+              title="Muat ulang Release dari Google Drive"
+              className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 rounded-lg border border-slate-700 flex items-center gap-1.5 cursor-pointer">
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingReleases ? 'animate-spin' : ''}`} />
+              {isSyncingReleases ? 'Menyinkronkan...' : 'Sinkronkan Release'}
+            </button>
             {accessMode !== 'landing' && (
               <button onClick={() => { setAccessMode('landing'); setSelectedDept(null); setSelectedFormBiro(null); setSubconSelectedBiro(null); setSubconSelectedDept(null); }}
                 className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer">
