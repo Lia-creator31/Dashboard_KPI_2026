@@ -4,7 +4,6 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
-import ImportJobcardPage from './ImportJobcardPage';
 import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
 import { projectCandidates, dedupeRows } from '../lib/projectCandidates';
 import {
@@ -15,7 +14,7 @@ import {
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
   query: '?url',
-  import: 'default',
+  import: 'default', 
   eager: true
 }) as Record<string, string>;
 
@@ -1114,10 +1113,11 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     if (rows.length === 0) return;
     let headerIdx = -1;
-    let cNip = -1, cName = 1, cProj = 5, cJc = 16, cEff = 11, cOt = 12, cTask = 22;
+    let cNip = -1, cName = 1, cProj = 5, cJc = 16, cEff = 11, cOt = 12, cTask = 22, cDwgCtrl = -1;
     for (let r = 0; r < Math.min(10, rows.length); r++) {
       const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-      const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+      const jcExact = h.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
+      const jc = jcExact !== -1 ? jcExact : h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state') && !c.includes('drawing'));
       const ef = h.findIndex(c => c.includes('effective'));
       const ot = h.findIndex(c => c.includes('overtime'));
       if (jc !== -1 && (ef !== -1 || ot !== -1)) {
@@ -1125,11 +1125,13 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
         const nm = h.findIndex(c => c === 'employee/name' || c === 'nama' || c === 'name' || c === 'user' || c === 'employee' || c === 'pegawai');
         const np = h.findIndex(c => c === 'employee/nip' || c === 'nip');
         const pj = h.findIndex(c => c === 'project/code' || c === 'project' || c === 'proyek');
-        const tk = h.findIndex(c => c === 'jobcard/task name' || c === 'description' || c === 'deskripsi' || c === 'task name');
+        const tk = h.findIndex(c => c === 'work order/description' || c === 'jobcard/task name' || c === 'description' || c === 'deskripsi' || c === 'task name');
         if (nm !== -1) cName = nm;
         if (np !== -1) cNip = np;
         if (pj !== -1) cProj = pj;
         if (tk !== -1) cTask = tk;
+        // Deskripsi utama: Jobcard/Drawing Control (fallback ke Work Order/Description per baris)
+        cDwgCtrl = h.findIndex(c => c === 'jobcard/drawing control' || c === 'work order/job card/drawing control' || c === 'job card/drawing control' || c === 'drawing control');
         break;
       }
     }
@@ -1148,7 +1150,7 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
         nama,
         project: extractProjectCodeFromCell(row[cProj]),
         jobcard,
-        taskName: String(row[cTask] ?? '').trim(),
+        taskName: (cDwgCtrl !== -1 ? String(row[cDwgCtrl] ?? '').trim() : '') || String(row[cTask] ?? '').trim(),
         hours,
       });
     }
@@ -1687,7 +1689,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   });
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
-  const [showImport, setShowImport] = useState(false);
   const [showRekapDivisi, setShowRekapDivisi] = useState(user.role === 'rekap');
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
@@ -2015,8 +2016,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         pic: string;
         project: string;
         taskName: string;
+        taskFromDwg: boolean;
         kodeJc: string;
         startDate: string;
+        endDate: string;
         maxPlanJo: number;
         hasPlanJo: boolean;
         realJo: number;
@@ -2040,22 +2043,28 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         if (rows.length === 0) return;
 
         let headerIdx = -1;
-        let cDate = -1, cUser = -1, cJc = -1, cPlan = -1, cEff = -1, cOt = -1, cQty = -1, cProj = -1, cDesc = -1, cWc = -1;
+        let cDate = -1, cUser = -1, cJc = -1, cPlan = -1, cEff = -1, cOt = -1, cQty = -1, cProj = -1, cDesc = -1, cWc = -1, cEnd = -1, cDwgCtrl = -1;
         for (let r = 0; r < Math.min(10, rows.length); r++) {
           const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-          const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+          const jcExact = h.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
+      const jc = jcExact !== -1 ? jcExact : h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state') && !c.includes('drawing'));
           const us = h.findIndex(c => c === 'user' || c === 'employee/name' || c === 'nama' || c === 'name' || c === 'employee' || c === 'pegawai');
           if (jc !== -1 && us !== -1) {
             headerIdx = r;
             cJc = jc;
             cUser = us;
-            cDate = h.findIndex(c => c === 'date' || c === 'tanggal' || c.includes('start'));
+            const startExact = h.findIndex(c => c === 'work order/job card/schedule start date' || c === 'job card/schedule start date' || c === 'work order/schedule start date');
+            cDate = startExact !== -1 ? startExact : h.findIndex(c => c === 'date' || c === 'tanggal' || c.includes('start'));
+            const endExact = h.findIndex(c => c === 'work order/job card/schedule end date' || c === 'job card/schedule end date' || c === 'work order/schedule end date');
+            cEnd = endExact !== -1 ? endExact : h.findIndex(c => c.includes('end') || c.includes('finish') || c.includes('selesai'));
             cPlan = h.findIndex(c => (c.includes('plan') && c.includes('hour')) || c === 'plan jo' || c === 'planned hour');
             cEff = h.findIndex(c => c.includes('effective'));
             cOt = h.findIndex(c => c.includes('overtime'));
             cQty = h.findIndex(c => c === 'quantity' || c === 'qty');
             cProj = h.findIndex(c => c === 'project' || c === 'project/code' || c === 'proyek');
-            cDesc = h.findIndex(c => c === 'description' || c === 'deskripsi' || c === 'jobcard/task name' || c === 'task name');
+            cDesc = h.findIndex(c => c === 'work order/description' || c === 'description' || c === 'deskripsi' || c === 'jobcard/task name' || c === 'task name');
+            // Deskripsi utama: Jobcard/Drawing Control (fallback ke Work Order/Description per baris)
+            cDwgCtrl = h.findIndex(c => c === 'jobcard/drawing control' || c === 'work order/job card/drawing control' || c === 'job card/drawing control' || c === 'drawing control');
             cWc = h.findIndex(c => c === 'work center' || c === 'biro' || c.includes('work center'));
             break;
           }
@@ -2079,10 +2088,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           const biroName = resolveBiroName(rawWc, matchedMember?.biro);
 
           const project = cProj !== -1 ? extractProjectCodeFromCell(row[cProj]) : '';
-          const desc = cDesc !== -1 ? normalizeDrawingSpacing(String(row[cDesc] ?? '')) : '';
+          const dwgCtrlVal = cDwgCtrl !== -1 ? String(row[cDwgCtrl] ?? '').replace(/\s+/g, ' ').trim() : '';
+          const hasDwgCtrl = !!dwgCtrlVal && dwgCtrlVal.toLowerCase() !== 'nan';
+          const descRaw = hasDwgCtrl ? dwgCtrlVal : (cDesc !== -1 ? String(row[cDesc] ?? '') : '');
+          const desc = normalizeDrawingSpacing(descRaw);
           const detectedRev = revFromTaskName(desc);
           const parsedRowDate = cDate !== -1 ? parseToStandardDate(row[cDate]) : '';
           const rowDate = /^\d{4}-\d{2}-\d{2}$/.test(parsedRowDate) ? parsedRowDate : dateFromJobcardCode(kodeJc);
+          const parsedEndDate = cEnd !== -1 ? parseToStandardDate(row[cEnd]) : '';
+          const rowEndDate = /^\d{4}-\d{2}-\d{2}$/.test(parsedEndDate) ? parsedEndDate : '';
 
           const planValRaw = cPlan !== -1 ? String(row[cPlan] ?? '').trim().replace(',', '.') : '';
           const planNum = planValRaw !== '' ? parseFloat(planValRaw) : NaN;
@@ -2098,16 +2112,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           if (jcKey && hasValidPlan) {
             const prevHp = newHpMap[jcKey];
             const bestStart = prevHp?.start && rowDate ? (rowDate < prevHp.start ? rowDate : prevHp.start) : (rowDate || prevHp?.start || '');
+            const bestEnd = prevHp?.end && rowEndDate ? (rowEndDate > prevHp.end ? rowEndDate : prevHp.end) : (rowEndDate || prevHp?.end || '');
             if (!prevHp || planNum > prevHp.hour) {
               newHpMap[jcKey] = {
                 kode: kodeJc,
                 hour: planNum,
                 planner: prevHp?.planner || '',
                 start: bestStart,
-                end: '',
+                end: bestEnd,
               };
-            } else if (bestStart && bestStart !== prevHp.start) {
-              prevHp.start = bestStart;
+            } else {
+              if (bestStart && bestStart !== prevHp.start) prevHp.start = bestStart;
+              if (bestEnd && bestEnd !== prevHp.end) prevHp.end = bestEnd;
             }
           }
 
@@ -2120,8 +2136,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               pic,
               project,
               taskName: desc,
+              taskFromDwg: hasDwgCtrl,
               kodeJc,
               startDate: rowDate,
+              endDate: rowEndDate,
               maxPlanJo: hasValidPlan ? planNum : 0,
               hasPlanJo: hasValidPlan,
               realJo: hours,
@@ -2131,13 +2149,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             if (rowDate && (!existing.startDate || rowDate < existing.startDate)) {
               existing.startDate = rowDate;
             }
+            if (rowEndDate && (!existing.endDate || rowEndDate > existing.endDate)) {
+              existing.endDate = rowEndDate;
+            }
             if (hasValidPlan && (!existing.hasPlanJo || planNum > existing.maxPlanJo)) {
               existing.maxPlanJo = planNum;
               existing.hasPlanJo = true;
             }
             existing.realJo += hours;
             if (!existing.project && project) existing.project = project;
-            if (desc && (!existing.taskName || (!extractDrawingNumber(existing.taskName) && extractDrawingNumber(desc)))) {
+            if (hasDwgCtrl && !existing.taskFromDwg) {
+              // Jobcard/Drawing Control selalu didahulukan daripada Work Order/Description
+              existing.taskName = desc;
+              existing.taskFromDwg = true;
+            } else if (!existing.taskFromDwg && desc && (!existing.taskName || (!extractDrawingNumber(existing.taskName) && extractDrawingNumber(desc)))) {
               existing.taskName = desc;
             }
             if (detectedRev !== null) {
@@ -2219,7 +2244,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           project: g.project,
           task_name: g.taskName,
           start_date: g.startDate,
-          end_date: '',
+          end_date: g.endDate || '',
           jo: joStr,
           kode_jc: g.kodeJc,
           status: 'approved',
@@ -2382,7 +2407,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         let headerIdx = -1, jobcardCol = -1, effCol = -1, otCol = -1;
         for (let r = 0; r < Math.min(5, rawRows.length); r++) {
           const row = (rawRows[r] || []).map(v => String(v).trim().toLowerCase());
-          let jcIdx = row.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+          let jcIdx = row.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
+          if (jcIdx === -1) jcIdx = row.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
           if (jcIdx === -1) jcIdx = row.findIndex(c => c.includes('jobcard'));
           const eIdx = row.findIndex(c => c.includes('effective'));
           const oIdx = row.findIndex(c => c.includes('overtime'));
@@ -2932,9 +2958,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   if (showKpi) {
     return <KpiDashboardPage user={user} onLogout={onLogout} onBack={() => setShowKpi(false)} />;
   }
-  if (showImport) {
-    return <ImportJobcardPage user={user} onLogout={onLogout} onBack={() => setShowImport(false)} />;
-  }
   if (showRekapDivisi) {
     return (
       <RekapAbsensiDivisiPage
@@ -3276,10 +3299,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
                 </label>
                 <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <Clock className="w-3.5 h-3.5 text-emerald-400" /><span>{realisasiMap.size > 0 ? `Realisasi JO: OK (${realisasiMap.size})` : 'Upload Realisasi JO.xlsx'}</span>
-                  <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
-                </label>
-                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
                   <FileSpreadsheet className="w-3.5 h-3.5 text-violet-400" />
                   <span>{timeOffWorkbook ? 'Update Time Off' : 'Upload Time Off'}</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleUploadTimeOffExcel} className="hidden" />
@@ -3302,13 +3321,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   title="Buka Dashboard KPI Individual"
                 >
                   <TrendingUp className="w-3.5 h-3.5" /> Dashboard KPI
-                </button>
-                <button
-                  onClick={() => setShowImport(true)}
-                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                  title="Impor Jobcard bulanan dari JOBCARD_DESAIN.xlsx"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5" /> Import Jobcard
                 </button>
                 <label
                   className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
@@ -3446,10 +3458,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <label className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <Clock className="w-3 h-3 text-emerald-400" /><span>{realisasiMap.size > 0 ? 'Update Realisasi JO' : 'Upload Realisasi JO'}</span>
-                  <input type="file" accept=".xlsx, .xls" onChange={handleManualUploadRealisasi} className="hidden" />
-                </label>
                 <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
                   {/* Sembunyikan tab Anggota & Form khusus untuk Kadep */}
                   {!selectedFormBiro.biroName.startsWith('Kepala ') && (
@@ -3546,7 +3554,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
                                         <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
                                         <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate || (jcKey && hourPlannerMap[jcKey]?.start))}</td>
-                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate)}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate || (jcKey && hourPlannerMap[jcKey]?.end))}</td>
                                         <td className="py-2 px-2.5 font-mono text-violet-300">{displayPlanJo}</td>
                                         <td className="py-2 px-2.5 font-mono font-bold">
                                           {calculatedRealHours !== undefined ? (
