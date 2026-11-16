@@ -14,7 +14,7 @@ import {
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
   query: '?url',
-  import: 'default',
+  import: 'default', 
   eager: true
 }) as Record<string, string>;
 
