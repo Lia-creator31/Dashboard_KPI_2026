@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
+import { departmentsData } from '../data';
 import {
   HardHat, ArrowLeft, X, Check, Plus, Trash2, Pencil,
   Calendar, FileCheck, Printer, ChevronLeft
@@ -37,11 +38,25 @@ interface TimesheetHeader {
   nip: string;
   dateStart: string;
   dateEnd: string;
+  departemen: string;
   unitKerja: string;
   divisi: string;
   status: 'Draft' | 'Submitted' | 'Approved';
   lines: TimesheetLine[];
   createdAt: string;
+}
+
+function findDeptForBiro(biroName: string): string {
+  const bLower = (biroName || '').toLowerCase().replace('&', ' dan ').trim();
+  for (const dept of (departmentsData || [])) {
+    if (dept.biros.some(b => {
+      const target = b.name.toLowerCase().replace('&', ' dan ').trim();
+      return target === bLower || bLower.includes(target) || target.includes(bLower);
+    })) {
+      return dept.name;
+    }
+  }
+  return 'Departemen Perencanaan Desain';
 }
 
 // Helper: Normalisasi tanggal
@@ -105,6 +120,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
   // State form header timesheet
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
+  const [departemen, setDepartemen] = useState('Departemen Perencanaan Desain');
   const [unitKerja, setUnitKerja] = useState('Biro Dukungan & Administrasi');
   const [divisi, setDivisi] = useState('71000 - Divisi Desain');
 
@@ -147,6 +163,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
           .eq('timesheet_id', ts.id)
           .order('date', { ascending: true });
 
+        const resolvedUnit = ts.unit_kerja || 'Biro Dukungan & Administrasi';
         timesheetsWithLines.push({
           id: ts.id,
           code: ts.code || `TIM-${ts.id}`,
@@ -155,7 +172,8 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
           nip: user.nip,
           dateStart: ts.date_start,
           dateEnd: ts.date_end,
-          unitKerja: ts.unit_kerja || 'Biro Dukungan & Administrasi',
+          departemen: ts.departemen || findDeptForBiro(resolvedUnit),
+          unitKerja: resolvedUnit,
           divisi: ts.divisi || '71000 - Divisi Desain',
           status: ts.status || 'Draft',
           lines: (linesData || []).map((l: any) => ({
@@ -220,6 +238,13 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
       });
 
       setAvailableWorkOrders(filteredData);
+      if (filteredData.length > 0 && filteredData[0].biro_name) {
+        const bName = String(filteredData[0].biro_name).trim();
+        if (bName) {
+          setUnitKerja(bName);
+          setDepartemen(findDeptForBiro(bName));
+        }
+      }
 
     } catch (error) {
       console.error('Gagal memuat work order:', error);
@@ -228,7 +253,8 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
 
   useEffect(() => {
     loadTimesheets();
-  }, [loadTimesheets]);
+    loadAvailableWorkOrders();
+  }, [loadTimesheets, loadAvailableWorkOrders]);
 
   // Handler untuk melihat detail timesheet
   const handleViewDetail = (timesheet: TimesheetHeader) => {
@@ -242,7 +268,11 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
     setDateStart('');
     setDateEnd('');
     setLines([]);
-    setUnitKerja('Biro Dukungan & Administrasi');
+    const defaultBiro = availableWorkOrders[0]?.biro_name
+      ? String(availableWorkOrders[0].biro_name).trim()
+      : 'Biro Dukungan & Administrasi';
+    setUnitKerja(defaultBiro);
+    setDepartemen(findDeptForBiro(defaultBiro));
     setDivisi('71000 - Divisi Desain');
   };
 
@@ -575,6 +605,10 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                   </div>
                   <div className="space-y-2">
                     <div className="flex">
+                      <span className="text-slate-400 w-32">Departemen</span>
+                      <span className="text-amber-300 font-semibold">{selectedTimesheet.departemen || findDeptForBiro(selectedTimesheet.unitKerja)}</span>
+                    </div>
+                    <div className="flex">
                       <span className="text-slate-400 w-32">Unit Kerja</span>
                       <span className="text-cyan-400">{selectedTimesheet.unitKerja}</span>
                     </div>
@@ -706,12 +740,25 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
 
               <div className="space-y-3">
                 <div className="flex justify-between items-center gap-2">
+                  <span className="text-slate-400">Departemen</span>
+                  <input
+                    type="text"
+                    value={departemen}
+                    onChange={(e) => setDepartemen(e.target.value)}
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-amber-300 font-semibold w-64"
+                  />
+                </div>
+                <div className="flex justify-between items-center gap-2">
                   <span className="text-slate-400">Unit Kerja</span>
                   <input
                     type="text"
                     value={unitKerja}
-                    onChange={(e) => setUnitKerja(e.target.value)}
-                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-cyan-400 font-semibold"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setUnitKerja(val);
+                      setDepartemen(findDeptForBiro(val));
+                    }}
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-cyan-400 font-semibold w-64"
                   />
                 </div>
                 <div className="flex justify-between items-center gap-2">
@@ -720,7 +767,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                     type="text"
                     value={divisi}
                     onChange={(e) => setDivisi(e.target.value)}
-                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-semibold"
+                    className="px-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-semibold w-64"
                   />
                 </div>
               </div>
