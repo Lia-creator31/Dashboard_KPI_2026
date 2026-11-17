@@ -324,6 +324,56 @@ function getBiroPrefix(biroName: string): string {
   return 'WO';
 }
 
+const SUBCON_WO_PREFIX_RE = /^(DP|DL|DA|PD|NK|KS|KP|SL|AK|PL|PR|SP|PP|HV|SK|KO|SE|HP|WO)\d+$/i;
+const SUBCON_HISTORY_KEY = 'subcon_wo_history_v1';
+
+function getDeptAndBiroOrder(biroName: string): { deptOrder: number; biroOrder: number } {
+  for (let dIdx = 0; dIdx < (departmentsData || []).length; dIdx++) {
+    const dept = departmentsData[dIdx];
+    const bIdx = dept.biros.findIndex(b => isBiroMatch(b.name, biroName));
+    if (bIdx !== -1) {
+      return { deptOrder: dIdx + 1, biroOrder: bIdx + 1 };
+    }
+  }
+  return { deptOrder: 1, biroOrder: 1 };
+}
+
+function generateAutoSubconJo(biroName: string, personName: string, subconMembersInBiro: ParsedMember[]): string {
+  if (!biroName || !personName) return '';
+  const { deptOrder, biroOrder } = getDeptAndBiroOrder(biroName);
+  const personIdx = subconMembersInBiro.findIndex(p => cleanText(p.nama) === cleanText(personName));
+  const personNum = personIdx >= 0 ? personIdx + 1 : 1;
+  return `${deptOrder}${biroOrder}${String(personNum).padStart(2, '0')}`;
+}
+
+function loadSubconHistoryLocal(): TaskItem[] {
+  try {
+    const raw = localStorage.getItem(SUBCON_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function saveSubconHistoryLocal(items: TaskItem[]) {
+  try {
+    localStorage.setItem(SUBCON_HISTORY_KEY, JSON.stringify(items));
+  } catch {}
+}
+
+function upsertSubconHistoryItem(item: TaskItem) {
+  const list = loadSubconHistoryLocal();
+  const idx = list.findIndex(x => x.id === item.id);
+  if (idx >= 0) list[idx] = item;
+  else list.push(item);
+  saveSubconHistoryLocal(list);
+}
+
+function removeSubconHistoryItem(taskId: string) {
+  const list = loadSubconHistoryLocal().filter(x => x.id !== taskId);
+  saveSubconHistoryLocal(list);
+}
+
 function cleanProjectString(raw: any): string {
   if (!raw) return '';
   let s = String(raw).replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
@@ -1703,24 +1753,41 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const loadAllJobCards = useCallback(async () => {
     try {
       const { data, error } = await supabase.from('job_cards').select('*').order('created_at', { ascending: true });
-      if (error) return;
-      if (data) {
-        const grouped: { [biroKey: string]: TaskItem[] } = {};
+      const grouped: { [biroKey: string]: TaskItem[] } = {};
+      const seenIds = new Set<string>();
+      const localHistory = loadSubconHistoryLocal();
+
+      if (!error && data) {
         data.forEach((row: any) => {
           const biroKey = cleanText(row.biro_name || '');
           if (!biroKey) return;
           if (!grouped[biroKey]) grouped[biroKey] = [];
           const persistedRev = (row.rev !== undefined && row.rev !== null && String(row.rev).trim() !== '') ? String(row.rev) : getLocalRev(row.id, '0');
           const persistedRelease = (row.release !== undefined && row.release !== null && String(row.release).trim() !== '') ? String(row.release) : getLocalRelease(row.id, '');
-          grouped[biroKey].push({
+          const item: TaskItem = {
             id: row.id, biroName: row.biro_name || '', project: row.project || '', taskName: row.task_name || '',
             startDate: row.start_date || '', endDate: row.end_date || '', pic: row.pic || '', jo: row.jo || '',
             kodeJc: row.kode_jc || '', rev: persistedRev, release: persistedRelease, realJo: row.real_jc || row.realJo || '',
             status: row.status || '',
-          });
+          };
+          grouped[biroKey].push(item);
+          seenIds.add(String(row.id));
+          if (SUBCON_WO_PREFIX_RE.test(String(item.kodeJc || '').trim())) {
+            upsertSubconHistoryItem(item);
+          }
         });
-        setManualTasks(grouped);
       }
+
+      localHistory.forEach(item => {
+        if (!item || !item.id || seenIds.has(String(item.id))) return;
+        const biroKey = cleanText(item.biroName || '');
+        if (!biroKey) return;
+        if (!grouped[biroKey]) grouped[biroKey] = [];
+        grouped[biroKey].push(item);
+        seenIds.add(String(item.id));
+      });
+
+      setManualTasks(grouped);
     } catch {}
   }, []);
 
@@ -2207,7 +2274,22 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         }));
       }
 
-      const oldIds = (oldRows || []).map((r: any) => r.id).filter(Boolean);
+      // Lindungi seluruh Work Order milik Subkon agar tidak ikut terhapus saat Reset Data Terpadu Organik
+      const subconNameSet = new Set(
+        allParsedFromExcel
+          .filter(p => p.status.toLowerCase().includes('outsourcing'))
+          .map(p => cleanText(p.nama))
+      );
+      const isSubconWorkOrderRow = (r: any) => {
+        const picKey = cleanText(r.pic || r.personil_name || '');
+        const jc = String(r.kode_jc || '').trim();
+        return (picKey && subconNameSet.has(picKey)) || (jc && SUBCON_WO_PREFIX_RE.test(jc));
+      };
+
+      const oldIds = (oldRows || [])
+        .filter((r: any) => !isSubconWorkOrderRow(r))
+        .map((r: any) => r.id)
+        .filter(Boolean);
       for (let i = 0; i < oldIds.length; i += 100) {
         const chunk = oldIds.slice(i, i + 100);
         const { error: delErr } = await supabase.from('job_cards').delete().in('id', chunk);
@@ -2589,23 +2671,27 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       return;
     }
     saveLocalRelease(editingTask.id, releaseVal);
+    const updatedItem: TaskItem = {
+      ...editingTask,
+      project: editFormData.project,
+      taskName: editFormData.taskName,
+      startDate: editFormData.startDate,
+      endDate: editFormData.endDate,
+      jo: resolvedJo,
+      kodeJc: trimmedKodeJc,
+      status: nextStatus,
+      rev: revVal,
+      release: releaseVal,
+    };
+    if (accessMode === 'subkon' || SUBCON_WO_PREFIX_RE.test(String(updatedItem.kodeJc || '').trim())) {
+      upsertSubconHistoryItem(updatedItem);
+    }
     setManualTasks(prev => {
       const updated = { ...prev };
       Object.keys(updated).forEach(k => {
         updated[k] = updated[k].map(t => {
           if (t.id === editingTask.id) {
-            return {
-              ...t,
-              project: editFormData.project,
-              taskName: editFormData.taskName,
-              startDate: editFormData.startDate,
-              endDate: editFormData.endDate,
-              jo: resolvedJo,
-              kodeJc: trimmedKodeJc,
-              status: nextStatus,
-              rev: revVal,
-              release: releaseVal,
-            };
+            return updatedItem;
           }
           return t;
         });
@@ -2624,6 +2710,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         alert('Gagal menghapus: ' + error.message);
         return;
       }
+      removeSubconHistoryItem(taskId);
       setManualTasks(prev => {
         const updated = { ...prev };
         Object.keys(updated).forEach(k => {
@@ -2720,9 +2807,19 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const biroKey = cleanText(activeBiro);
       const currentList = manualTasks[biroKey] || [];
       let autoKode = '';
+      const resolvedJo = accessMode === 'subkon'
+        ? (formData.jo || generateAutoSubconJo(activeBiro, formData.nama, getSubconMembersForBiro(activeBiro)))
+        : formData.jo;
       if (accessMode === 'subkon') {
         const prefix = getBiroPrefix(activeBiro);
-        autoKode = `${prefix}${currentList.length + 1}`;
+        const existingNums = currentList
+          .map(t => {
+            const m = String(t.kodeJc || '').trim().toUpperCase().match(new RegExp(`^${prefix}(\\d+)$`));
+            return m ? parseInt(m[1], 10) : 0;
+          })
+          .filter(n => !isNaN(n) && n > 0);
+        const nextWoNum = existingNums.length > 0 ? Math.max(...existingNums) + 1 : 1;
+        autoKode = `${prefix}${nextWoNum}`;
       }
       const revVal = (formData.rev && formData.rev.trim() !== '') ? formData.rev.trim() : '0';
       let releaseVal = '';
@@ -2735,7 +2832,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const insertPayload: any = {
         biro_id: validBiroId, biro_name: activeBiro, personil_name: formData.nama, project_code: formData.kodeProyek,
         project: formData.kodeProyek, task_name: formData.taskName, start_date: formData.startDate, end_date: formData.endDate,
-        pic: formData.nama, jo: formData.jo, kode_jc: autoKode, status: accessMode === 'subkon' ? 'approved' : 'pending',
+        pic: formData.nama, jo: resolvedJo, kode_jc: autoKode, status: accessMode === 'subkon' ? 'approved' : 'pending',
         rev: revVal, release: releaseVal,
       };
       let insertedRow: any = null;
@@ -2749,15 +2846,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       if (releaseVal) saveLocalRelease(insertedRow.id, releaseVal);
       const newTask: TaskItem = {
         id: insertedRow.id, biroName: activeBiro, project: formData.kodeProyek, taskName: formData.taskName,
-        startDate: formData.startDate, endDate: formData.endDate, pic: formData.nama, jo: formData.jo,
+        startDate: formData.startDate, endDate: formData.endDate, pic: formData.nama, jo: resolvedJo,
         kodeJc: autoKode, rev: revVal, release: releaseVal,
         status: accessMode === 'subkon' ? 'approved' : 'pending',
       };
+      if (accessMode === 'subkon') {
+        upsertSubconHistoryItem(newTask);
+      }
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
       setFormData({ nama: '', kodeProyek: '', taskName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '', release: '' });
       if (accessMode === 'subkon') {
-        alert(`Tugas tersimpan! Work Order "${autoKode}" langsung terbit dan dapat dilihat di bawah nama personil.`);
+        alert(`Tugas tersimpan! Work Order "${autoKode}" (Nomor JO: ${resolvedJo}) langsung terbit dan tersimpan di History.`);
       } else {
         alert('Tugas tersimpan! Buka Planner untuk approval Jobcard.');
       }
@@ -2844,8 +2944,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     if (!subconSelectedBiro) return [];
     const prefix = getBiroPrefix(subconSelectedBiro);
     const subconNames = getSubconMembersForBiro(subconSelectedBiro).map(m => cleanText(m.nama));
-    const filteredTasks = currentActiveBiroTasks.filter(t => subconNames.includes(cleanText(t.pic)));
-    return filteredTasks.map((task, idx) => ({ ...task, packageTitle: `${prefix}${idx + 1}` }));
+    const filteredTasks = currentActiveBiroTasks.filter(t =>
+      subconNames.includes(cleanText(t.pic)) || SUBCON_WO_PREFIX_RE.test(String(t.kodeJc || '').trim())
+    );
+    return filteredTasks.map((task, idx) => ({ ...task, packageTitle: task.kodeJc || `${prefix}${idx + 1}` }));
   }, [subconSelectedBiro, currentActiveBiroTasks, getSubconMembersForBiro]);
 
   const projectOptions = useMemo((): string[] => {
@@ -3205,51 +3307,153 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </div>
             )}
             {subconPageMode === 'form' && (
-              <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                <form onSubmit={handleSubmitForm} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                    <div className="md:col-span-2">
-                      <label className="block text-slate-400 mb-1">Nama Drafter / Personel (Outsourcing)</label>
-                      <SearchableSelect options={activeSubconMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.jabatan})` }))}
-                        value={formData.nama} onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
-                        placeholder="Ketik nama personel outsourcing..." required />
+              <div className="space-y-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+                  <form onSubmit={handleSubmitForm} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                      <div className="md:col-span-2">
+                        <label className="block text-slate-400 mb-1">Nama Drafter / Personel (Outsourcing)</label>
+                        <SearchableSelect
+                          options={activeSubconMembers.map((p, idx) => {
+                            const autoJo = generateAutoSubconJo(subconSelectedBiro || '', p.nama, activeSubconMembers);
+                            return {
+                              value: p.nama,
+                              label: `${String(idx + 1).padStart(2, '0')}. ${p.nama} (${p.jabatan}) — JO: ${autoJo}`,
+                            };
+                          })}
+                          value={formData.nama}
+                          onChange={(val) => {
+                            const autoJo = generateAutoSubconJo(subconSelectedBiro || '', val, activeSubconMembers);
+                            setFormData(prev => ({ ...prev, nama: val, jo: autoJo }));
+                          }}
+                          placeholder="Ketik nama personel outsourcing..."
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1">Kode Proyek</label>
+                        <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
+                          placeholder="Ketik kode proyek..." required />
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Nomor JO (Otomatis)</label>
+                          {subconSelectedBiro && formData.nama && (() => {
+                            const { deptOrder, biroOrder } = getDeptAndBiroOrder(subconSelectedBiro);
+                            const pIdx = activeSubconMembers.findIndex(p => cleanText(p.nama) === cleanText(formData.nama));
+                            const pNum = String((pIdx >= 0 ? pIdx : 0) + 1).padStart(2, '0');
+                            return (
+                              <span className="text-[10px] font-mono text-amber-400">
+                                Dept {deptOrder} • Biro {biroOrder} • Urutan #{pNum}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                        <input
+                          type="text"
+                          readOnly
+                          value={formData.jo || (formData.nama && subconSelectedBiro ? generateAutoSubconJo(subconSelectedBiro, formData.nama, activeSubconMembers) : '')}
+                          placeholder="Otomatis terisi saat pilih nama personel..."
+                          required
+                          className="w-full px-3 py-2 bg-slate-950/80 border border-amber-500/40 rounded-lg text-amber-300 font-mono font-bold cursor-not-allowed"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-slate-400 mb-1">Deskripsi</label>
+                        <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={handleDeskripsiChange}
+                          placeholder="Ketik nama gambar / deskripsi tugas..." required />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
+                        <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                          required style={{ colorScheme: 'dark' }}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
+                        <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                          required style={{ colorScheme: 'dark' }}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                      </div>
                     </div>
+                    <div className="pt-3 border-t border-slate-800 flex justify-end">
+                      <button type="submit" className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-lg transition cursor-pointer">
+                        Simpan Tugas & Terbitkan Work Order
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                {/* Tabel Riwayat (History) Work Order yang Diberikan */}
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 flex-wrap gap-2">
                     <div>
-                      <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                      <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
-                        placeholder="Ketik kode proyek..." required />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Nomor JO</label>
-                      <input type="text" inputMode="decimal" value={formData.jo}
-                        onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
-                        placeholder="Contoh: 300426" required
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-slate-400 mb-1">Deskripsi</label>
-                      <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={handleDeskripsiChange}
-                        placeholder="Ketik nama gambar / deskripsi tugas..." required />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
-                      <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                        required style={{ colorScheme: 'dark' }}
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
-                      <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                        required style={{ colorScheme: 'dark' }}
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                      <h4 className="text-xs font-bold text-white uppercase tracking-wide flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-amber-400" />
+                        Riwayat (History) Work Order — {subconSelectedBiro}
+                      </h4>
+                      <p className="text-[11px] text-slate-400">
+                        Seluruh Work Order yang pernah diberikan tetap tersimpan di sini ({subconWorkOrders.length} Work Order)
+                      </p>
                     </div>
                   </div>
-                  <div className="pt-3 border-t border-slate-800 flex justify-end">
-                    <button type="submit" className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-lg transition cursor-pointer">
-                      Simpan Tugas & Terbitkan Work Order
-                    </button>
-                  </div>
-                </form>
+                  {subconWorkOrders.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="text-slate-400 border-b border-slate-800">
+                            <th className="py-2 px-2.5 w-8">#</th>
+                            <th className="py-2 px-2.5 font-mono text-amber-400">Kode WO</th>
+                            <th className="py-2 px-2.5 font-mono text-violet-300">Nomor JO</th>
+                            <th className="py-2 px-2.5">Nama Personel</th>
+                            <th className="py-2 px-2.5">Proyek</th>
+                            <th className="py-2 px-2.5">Deskripsi</th>
+                            <th className="py-2 px-2.5 font-mono">Jadwal</th>
+                            <th className="py-2 px-2.5 text-center w-20">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 text-slate-300">
+                          {subconWorkOrders.map((wo, idx) => {
+                            const isSelectedPerson = formData.nama && cleanText(wo.pic) === cleanText(formData.nama);
+                            return (
+                              <tr key={wo.id} className={`hover:bg-slate-800/40 ${isSelectedPerson ? 'bg-amber-500/5' : ''}`}>
+                                <td className="py-2 px-2.5 text-slate-500 font-mono">{idx + 1}</td>
+                                <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{wo.kodeJc || wo.packageTitle}</td>
+                                <td className="py-2 px-2.5 font-mono font-bold text-violet-300">{wo.jo ? String(wo.jo).replace(/^#+/, '') : '-'}</td>
+                                <td className="py-2 px-2.5 font-semibold text-white">{wo.pic}</td>
+                                <td className="py-2 px-2.5 text-emerald-400 font-mono">{wo.project}</td>
+                                <td className="py-2 px-2.5 text-slate-200">{wo.taskName}</td>
+                                <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">{formatDisplayDate(wo.startDate)} s/d {formatDisplayDate(wo.endDate)}</td>
+                                <td className="py-2 px-2.5 text-center">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      onClick={() => handleOpenEdit(wo)}
+                                      className="p-1 rounded bg-slate-800 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 transition cursor-pointer"
+                                      title="Edit Work Order"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteTask(wo.id)}
+                                      className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition cursor-pointer"
+                                      title="Hapus Work Order"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 py-4 text-center italic">
+                      Belum ada riwayat Work Order di biro ini.
+                    </div>
+                  )}
+                </div>
               </div>
             )}
             {subconPageMode === 'release' && (
