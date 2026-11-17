@@ -3,8 +3,14 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import { departmentsData } from '../data';
 import {
+  syncSubkonOvertimeFromServer,
+  findActualOvertimeForUserDate,
+  SubkonOvertimeRecord,
+  SubkonSyncStatus,
+} from '../lib/subkonOvertime';
+import {
   HardHat, ArrowLeft, X, Check, Plus, Trash2, Pencil,
-  Calendar, FileCheck, Printer, ChevronLeft
+  Calendar, FileCheck, Printer, ChevronLeft, RefreshCw
 } from 'lucide-react';
 
 interface OutsourcingPageProps {
@@ -20,6 +26,7 @@ interface TimesheetLine {
   description: string;
   effectiveHours: number;
   overtimeHours: number;
+  actualOvertimeHours?: number;
   plannedHour?: string;
   idleHours?: string;
   type?: string;
@@ -134,10 +141,27 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
   const [lineDescription, setLineDescription] = useState('');
   const [lineEffective, setLineEffective] = useState('8');
   const [lineOvertime, setLineOvertime] = useState('0');
+  const [lineActualOvertime, setLineActualOvertime] = useState<number | undefined>(undefined);
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
 
   // State work orders
   const [availableWorkOrders, setAvailableWorkOrders] = useState<any[]>([]);
+
+  // State Durasi Aktual Lembur dari https://subkon.pal.co.id/overtime (akun: pwdesain)
+  const [overtimeRecords, setOvertimeRecords] = useState<SubkonOvertimeRecord[]>([]);
+  const [overtimeSyncStatus, setOvertimeSyncStatus] = useState<SubkonSyncStatus | null>(null);
+  const [isSyncingOvertime, setIsSyncingOvertime] = useState(false);
+
+  const handleSyncSubkonOvertime = useCallback(async () => {
+    setIsSyncingOvertime(true);
+    try {
+      const { records, status } = await syncSubkonOvertimeFromServer();
+      setOvertimeRecords(records);
+      setOvertimeSyncStatus(status);
+    } finally {
+      setIsSyncingOvertime(false);
+    }
+  }, []);
 
   // Load timesheet dari Supabase
   const loadTimesheets = useCallback(async () => {
@@ -254,7 +278,24 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
   useEffect(() => {
     loadTimesheets();
     loadAvailableWorkOrders();
-  }, [loadTimesheets, loadAvailableWorkOrders]);
+    handleSyncSubkonOvertime();
+  }, [loadTimesheets, loadAvailableWorkOrders, handleSyncSubkonOvertime]);
+
+  const getActualOvertimeForDate = useCallback((dateVal: string, customActual?: number): SubkonOvertimeRecord | undefined => {
+    const found = findActualOvertimeForUserDate(overtimeRecords, user.nip, user.nama, dateVal);
+    if (found) return found;
+    if (customActual !== undefined && customActual > 0) {
+      return {
+        nip: user.nip,
+        nama: user.nama,
+        date: normalizeDate(dateVal),
+        durasiAktual: customActual,
+        durasiAktualText: `${customActual} jam`,
+        statusVerifikasi: 'Disetujui Evaluator',
+      };
+    }
+    return undefined;
+  }, [overtimeRecords, user.nip, user.nama]);
 
   // Handler untuk melihat detail timesheet
   const handleViewDetail = (timesheet: TimesheetHeader) => {
@@ -287,7 +328,9 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
     setLineWorkOrderId('');
     setLineDescription('');
     setLineEffective('8');
-    setLineOvertime('0');
+    const matchedOt = findActualOvertimeForUserDate(overtimeRecords, user.nip, user.nama, dateStart);
+    setLineOvertime(matchedOt ? String(matchedOt.durasiAktual) : '0');
+    setLineActualOvertime(matchedOt ? matchedOt.durasiAktual : undefined);
     setIsModalOpen(true);
     loadAvailableWorkOrders(dateStart);
   };
@@ -297,6 +340,11 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
     setLineDate(newDate);
     setLineWorkOrderId('');
     setLineDescription('');
+    const matchedOt = findActualOvertimeForUserDate(overtimeRecords, user.nip, user.nama, newDate);
+    setLineActualOvertime(matchedOt ? matchedOt.durasiAktual : undefined);
+    if (matchedOt) {
+      setLineOvertime(String(matchedOt.durasiAktual));
+    }
     if (newDate) {
       loadAvailableWorkOrders(newDate);
     }
@@ -319,6 +367,9 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
       return;
     }
 
+    const matchedOt = findActualOvertimeForUserDate(overtimeRecords, user.nip, user.nama, lineDate);
+    const resolvedActualOt = matchedOt ? matchedOt.durasiAktual : lineActualOvertime;
+
     const newLine: TimesheetLine = {
       id: editingLineId || `line_${Date.now()}`,
       date: lineDate,
@@ -327,6 +378,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
       description: lineDescription.trim() || getWoDescription(selectedWo),
       effectiveHours: parseFloat(lineEffective) || 0,
       overtimeHours: parseFloat(lineOvertime) || 0,
+      actualOvertimeHours: resolvedActualOt,
       plannedHour: '08:00',
       idleHours: '00:00',
       type: 'Biasa',
@@ -355,6 +407,8 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
     setLineDescription(line.description);
     setLineEffective(String(line.effectiveHours));
     setLineOvertime(String(line.overtimeHours));
+    const matchedOt = findActualOvertimeForUserDate(overtimeRecords, user.nip, user.nama, line.date);
+    setLineActualOvertime(matchedOt ? matchedOt.durasiAktual : line.actualOvertimeHours);
     setIsModalOpen(true);
     loadAvailableWorkOrders(line.date);
   };
@@ -459,7 +513,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
       {/* Header */}
       <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <div className="p-1.5 bg-amber-600 rounded-lg text-white">
               <HardHat className="w-4 h-4" />
@@ -469,12 +523,28 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
               <span className="text-xs text-slate-400 ml-2">— {user.nama}</span>
             </div>
           </div>
-          <button
-            onClick={onLogout}
-            className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer"
-          >
-            Keluar
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSyncSubkonOvertime}
+              disabled={isSyncingOvertime}
+              title="Sinkronisasi Durasi Aktual Lembur dari https://subkon.pal.co.id/overtime (akun: pwdesain)"
+              className="px-2.5 py-1 text-[11px] bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 rounded-lg border border-emerald-500/30 flex items-center gap-1.5 cursor-pointer transition"
+            >
+              <RefreshCw className={`w-3 h-3 ${isSyncingOvertime ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">
+                {isSyncingOvertime
+                  ? 'Sinkronisasi subkon.pal.co.id...'
+                  : `subkon.pal.co.id (${overtimeSyncStatus?.account || 'pwdesain'})`}
+              </span>
+            </button>
+            <button
+              onClick={onLogout}
+              className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer"
+            >
+              Keluar
+            </button>
+          </div>
         </div>
       </header>
 
@@ -648,25 +718,38 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                       <th className="py-2.5 px-3 text-left border-b border-slate-800">Description</th>
                       <th className="py-2.5 px-3 text-center border-b border-slate-800">Effective Hours</th>
                       <th className="py-2.5 px-3 text-center border-b border-slate-800">Overtime Hours</th>
+                      <th className="py-2.5 px-3 text-center border-b border-slate-800 text-emerald-400">Durasi Aktual Lembur</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-300">
                     {selectedTimesheet.lines.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-3 py-8 text-center text-slate-500 italic">
+                        <td colSpan={6} className="px-3 py-8 text-center text-slate-500 italic">
                           Tidak ada baris timesheet
                         </td>
                       </tr>
                     ) : (
-                      selectedTimesheet.lines.map((line) => (
-                        <tr key={line.id} className="hover:bg-slate-950/50">
-                          <td className="py-2.5 px-3 font-mono text-cyan-300">{formatDisplayDate(line.date)}</td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-amber-300">{line.workOrderCode}</td>
-                          <td className="py-2.5 px-3 text-slate-200">{line.description || '-'}</td>
-                          <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{line.effectiveHours.toFixed(2)}</td>
-                          <td className="py-2.5 px-3 text-center font-mono text-purple-400">{line.overtimeHours.toFixed(2)}</td>
-                        </tr>
-                      ))
+                      selectedTimesheet.lines.map((line) => {
+                        const actualOt = getActualOvertimeForDate(line.date, line.actualOvertimeHours);
+                        return (
+                          <tr key={line.id} className="hover:bg-slate-950/50">
+                            <td className="py-2.5 px-3 font-mono text-cyan-300">{formatDisplayDate(line.date)}</td>
+                            <td className="py-2.5 px-3 font-mono font-bold text-amber-300">{line.workOrderCode}</td>
+                            <td className="py-2.5 px-3 text-slate-200">{line.description || '-'}</td>
+                            <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{line.effectiveHours.toFixed(2)}</td>
+                            <td className="py-2.5 px-3 text-center font-mono text-purple-400">{line.overtimeHours.toFixed(2)}</td>
+                            <td className="py-2.5 px-3 text-center font-mono">
+                              {actualOt ? (
+                                <span className="px-2 py-0.5 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 rounded font-bold">
+                                  {actualOt.durasiAktualText || `${actualOt.durasiAktual} jam`}
+                                </span>
+                              ) : (
+                                <span className="text-slate-500">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                   {selectedTimesheet.lines.length > 0 && (
@@ -678,6 +761,11 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                         </td>
                         <td className="py-2.5 px-3 text-center font-mono font-bold text-purple-400">
                           {selectedTimesheet.lines.reduce((a, l) => a + l.overtimeHours, 0).toFixed(2)}
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-mono font-bold text-emerald-300">
+                          {selectedTimesheet.lines
+                            .reduce((a, l) => a + (getActualOvertimeForDate(l.date, l.actualOvertimeHours)?.durasiAktual || 0), 0)
+                            .toFixed(2)}
                         </td>
                       </tr>
                     </tfoot>
@@ -796,42 +884,58 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                       <th className="py-2.5 px-3">Description</th>
                       <th className="py-2.5 px-3 text-center">Effective Hours</th>
                       <th className="py-2.5 px-3 text-center">Overtime Hours</th>
+                      <th className="py-2.5 px-3 text-center text-emerald-400">Durasi Aktual Lembur</th>
                       <th className="py-2.5 px-3 text-center">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-300">
                     {lines.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-3 py-8 text-center text-slate-500 italic">
+                        <td colSpan={7} className="px-3 py-8 text-center text-slate-500 italic">
                           Belum ada baris. Klik "Add a line" untuk menambahkan.
                         </td>
                       </tr>
                     ) : (
-                      lines.map((l) => (
-                        <tr key={l.id} className="hover:bg-slate-950/50">
-                          <td className="py-2.5 px-3 font-mono text-cyan-300">{formatDisplayDate(l.date)}</td>
-                          <td className="py-2.5 px-3 font-mono font-bold text-amber-300">{l.workOrderCode}</td>
-                          <td className="py-2.5 px-3 text-slate-200">{l.description || '-'}</td>
-                          <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{l.effectiveHours} Jam</td>
-                          <td className="py-2.5 px-3 text-center font-mono text-purple-400">{l.overtimeHours} Jam</td>
-                          <td className="py-2.5 px-3 text-center">
-                            <div className="flex justify-center gap-1">
-                              <button
-                                onClick={() => handleEditLine(l)}
-                                className="p-1 text-blue-400 hover:bg-blue-500/20 rounded cursor-pointer"
-                              >
-                                <Pencil className="w-3 h-3" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteLine(l.id)}
-                                className="p-1 text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                      lines.map((l) => {
+                        const actualOt = getActualOvertimeForDate(l.date, l.actualOvertimeHours);
+                        return (
+                          <tr key={l.id} className="hover:bg-slate-950/50">
+                            <td className="py-2.5 px-3 font-mono text-cyan-300">{formatDisplayDate(l.date)}</td>
+                            <td className="py-2.5 px-3 font-mono font-bold text-amber-300">{l.workOrderCode}</td>
+                            <td className="py-2.5 px-3 text-slate-200">{l.description || '-'}</td>
+                            <td className="py-2.5 px-3 text-center font-mono text-emerald-400">{l.effectiveHours} Jam</td>
+                            <td className="py-2.5 px-3 text-center font-mono text-purple-400">{l.overtimeHours} Jam</td>
+                            <td className="py-2.5 px-3 text-center font-mono">
+                              {actualOt ? (
+                                <span
+                                  className="px-2 py-0.5 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 rounded font-bold inline-block"
+                                  title={`Dari subkon.pal.co.id/overtime • ${actualOt.statusVerifikasi || 'Disetujui Evaluator'}`}
+                                >
+                                  {actualOt.durasiAktualText || `${actualOt.durasiAktual} jam`}
+                                </span>
+                              ) : (
+                                <span className="text-slate-500">-</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <div className="flex justify-center gap-1">
+                                <button
+                                  onClick={() => handleEditLine(l)}
+                                  className="p-1 text-blue-400 hover:bg-blue-500/20 rounded cursor-pointer"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteLine(l.id)}
+                                  className="p-1 text-rose-400 hover:bg-rose-500/20 rounded cursor-pointer"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                   {lines.length > 0 && (
@@ -839,7 +943,13 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                       <tr className="bg-slate-950/50">
                         <td colSpan={3} className="py-2.5 px-3 text-right font-bold text-white">Total Hours:</td>
                         <td className="py-2.5 px-3 text-center font-mono font-bold text-emerald-400">{totalHours.toFixed(1)} Jam</td>
-                        <td colSpan={2}></td>
+                        <td className="py-2.5 px-3 text-center font-mono font-bold text-purple-400">
+                          {lines.reduce((a, l) => a + l.overtimeHours, 0).toFixed(1)} Jam
+                        </td>
+                        <td className="py-2.5 px-3 text-center font-mono font-bold text-emerald-300">
+                          {lines.reduce((a, l) => a + (getActualOvertimeForDate(l.date, l.actualOvertimeHours)?.durasiAktual || 0), 0).toFixed(1)} Jam
+                        </td>
+                        <td></td>
                       </tr>
                     </tfoot>
                   )}
@@ -923,7 +1033,7 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-slate-400 mb-1">Effective Hours (Jam)</label>
                     <input
@@ -946,6 +1056,21 @@ export default function OutsourcingPage({ user, onLogout }: OutsourcingPageProps
                       value={lineOvertime}
                       onChange={(e) => setLineOvertime(e.target.value)}
                       className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-emerald-400 mb-1">Durasi Aktual Lembur</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={(() => {
+                        const matched = findActualOvertimeForUserDate(overtimeRecords, user.nip, user.nama, lineDate);
+                        if (matched) return `${matched.durasiAktualText || `${matched.durasiAktual} jam`}`;
+                        if (lineActualOvertime !== undefined && lineActualOvertime > 0) return `${lineActualOvertime} jam`;
+                        return '-';
+                      })()}
+                      title="Diambil otomatis dari kolom Durasi Aktual pada https://subkon.pal.co.id/overtime (Modul Lembur -> Approval Lembur)"
+                      className="w-full px-3 py-2 bg-emerald-950/30 border border-emerald-500/30 rounded-lg text-emerald-300 font-mono font-bold cursor-not-allowed"
                     />
                   </div>
                 </div>
