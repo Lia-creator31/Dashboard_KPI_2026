@@ -85,12 +85,16 @@ function SearchableSelect({
   onChange,
   placeholder = 'Ketik untuk mencari...',
   required = false,
+  allowCustom = false,
+  onAddCustom,
 }: {
   options: (string | SelectOption)[];
   value: string;
   onChange: (val: string) => void;
   placeholder?: string;
   required?: boolean;
+  allowCustom?: boolean;
+  onAddCustom?: (val: string) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -107,9 +111,9 @@ function SearchableSelect({
 
   useEffect(() => {
     if (!isOpen) {
-      setSearch(selectedOption ? selectedOption.label : '');
+      setSearch(selectedOption ? selectedOption.label : (value || ''));
     }
-  }, [selectedOption, isOpen]);
+  }, [selectedOption, value, isOpen]);
 
   const filtered = useMemo(() => {
     if (!search || !isOpen) return normalizedOptions;
@@ -119,30 +123,55 @@ function SearchableSelect({
     );
   }, [normalizedOptions, search, isOpen]);
 
+  const trimmedSearch = search.trim();
+  const hasExactMatch = useMemo(() => {
+    if (!trimmedSearch) return true;
+    const low = trimmedSearch.toLowerCase();
+    return normalizedOptions.some(opt => opt.value.toLowerCase() === low || opt.label.toLowerCase() === low);
+  }, [normalizedOptions, trimmedSearch]);
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        if (isOpen && allowCustom && search.trim()) {
+          const customVal = search.trim();
+          onChange(customVal);
+          if (onAddCustom) onAddCustom(customVal);
+          setSearch(customVal);
+        } else {
+          setSearch(selectedOption ? selectedOption.label : (value || ''));
+        }
         setIsOpen(false);
-        setSearch(selectedOption ? selectedOption.label : '');
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [selectedOption]);
+  }, [selectedOption, value, isOpen, allowCustom, search, onChange, onAddCustom]);
 
   return (
     <div ref={wrapperRef} className="relative w-full">
       <div className="relative">
         <input
           type="text"
-          value={isOpen ? search : (selectedOption ? selectedOption.label : '')}
+          value={isOpen ? search : (selectedOption ? selectedOption.label : (value || ''))}
           onChange={(e) => {
-            setSearch(e.target.value);
+            const val = e.target.value;
+            setSearch(val);
+            if (allowCustom) onChange(val);
             if (!isOpen) setIsOpen(true);
           }}
           onFocus={() => {
             setIsOpen(true);
-            setSearch('');
+            setSearch(allowCustom && value ? value : '');
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && allowCustom && trimmedSearch) {
+              e.preventDefault();
+              onChange(trimmedSearch);
+              if (onAddCustom) onAddCustom(trimmedSearch);
+              setSearch(trimmedSearch);
+              setIsOpen(false);
+            }
           }}
           placeholder={placeholder}
           required={required && !value}
@@ -155,6 +184,20 @@ function SearchableSelect({
 
       {isOpen && (
         <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-800 animate-fadeIn text-xs">
+          {allowCustom && trimmedSearch && !hasExactMatch && (
+            <div
+              onClick={() => {
+                onChange(trimmedSearch);
+                if (onAddCustom) onAddCustom(trimmedSearch);
+                setSearch(trimmedSearch);
+                setIsOpen(false);
+              }}
+              className="px-3 py-2.5 cursor-pointer bg-emerald-600/15 hover:bg-emerald-600 text-emerald-300 hover:text-white transition flex items-center justify-between font-semibold"
+            >
+              <span className="truncate">+ Tambah Deskripsi Baru: "{trimmedSearch}"</span>
+              <Check className="w-3.5 h-3.5 shrink-0 ml-2" />
+            </div>
+          )}
           {filtered.length > 0 ? (
             filtered.map((opt, i) => (
               <div
@@ -171,9 +214,11 @@ function SearchableSelect({
               </div>
             ))
           ) : (
-            <div className="px-3 py-3 text-center text-slate-500 italic">
-              Tidak ditemukan "{search}"
-            </div>
+            !allowCustom && (
+              <div className="px-3 py-3 text-center text-slate-500 italic">
+                Tidak ditemukan "{search}"
+              </div>
+            )
           )}
         </div>
       )}
@@ -348,6 +393,30 @@ function removeSubconHistoryItem(taskId: string) {
   saveSubconHistoryLocal(list);
 }
 
+const SUBCON_CUSTOM_DESC_KEY = 'subcon_custom_descriptions_v1';
+
+function loadCustomDescriptionsLocal(): string[] {
+  try {
+    const raw = localStorage.getItem(SUBCON_CUSTOM_DESC_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(x => typeof x === 'string' && x.trim()) : [];
+  } catch { return []; }
+}
+
+function addCustomDescriptionLocal(desc: string): string[] {
+  const trimmed = (desc || '').trim();
+  if (!trimmed) return loadCustomDescriptionsLocal();
+  const list = loadCustomDescriptionsLocal();
+  if (!list.some(x => cleanText(x) === cleanText(trimmed))) {
+    list.push(trimmed);
+    try {
+      localStorage.setItem(SUBCON_CUSTOM_DESC_KEY, JSON.stringify(list));
+    } catch {}
+  }
+  return list;
+}
+
 function cleanProjectString(raw: any): string {
   if (!raw) return '';
   let s = String(raw).replace(/[\u00A0\u200B\uFEFF\t\r\n\s]+/g, ' ').trim();
@@ -440,6 +509,8 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
   const [activeDrawingSheetTitle, setActiveDrawingSheetTitle] = useState<string>('');
   const [isFetchingDrawing, setIsFetchingDrawing] = useState<boolean>(false);
+  const [isSubmittingTask, setIsSubmittingTask] = useState<boolean>(false);
+  const [customDescriptions, setCustomDescriptions] = useState<string[]>(() => loadCustomDescriptionsLocal());
 
   // Load All Job Cards from Supabase (+ sinkronisasi riwayat Work Order Subkon di localStorage)
   const loadAllJobCards = useCallback(async () => {
@@ -858,8 +929,10 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
 
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingTask) return;
     const activeBiro = accessMode === 'subkon' ? subconSelectedBiro : selectedFormBiro?.biroName;
     if (!activeBiro) return;
+    setIsSubmittingTask(true);
     try {
       let validBiroId: string | null = null;
       const { data: biroList } = await supabase.from('biros').select('id, name');
@@ -883,6 +956,9 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
           .filter(n => !isNaN(n) && n > 0);
         const nextWoNum = existingNums.length > 0 ? Math.max(...existingNums) + 1 : 1;
         autoKode = `${prefix}${nextWoNum}`;
+        if (formData.taskName?.trim()) {
+          setCustomDescriptions(addCustomDescriptionLocal(formData.taskName.trim()));
+        }
       }
       const revVal = (formData.rev && formData.rev.trim() !== '') ? formData.rev.trim() : '0';
       const releaseVal = formData.release ? formData.release.trim() : '';
@@ -917,8 +993,12 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
       } else {
         alert('Tugas tersimpan! Menunggu approval dari Planner (Rendal).');
       }
-      loadAllJobCards();
-    } catch { alert('Koneksi database bermasalah.'); }
+      await loadAllJobCards();
+    } catch {
+      alert('Koneksi database bermasalah.');
+    } finally {
+      setIsSubmittingTask(false);
+    }
   };
 
   const handleSaveKodeJcForTask = async (taskId: string) => {
@@ -1022,6 +1102,18 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
         if (!taskMap.has(norm)) taskMap.set(norm, r.fullDeskripsi);
       }
     });
+    customDescriptions.forEach(desc => {
+      const cleaned = desc.trim();
+      const norm = cleanText(cleaned);
+      if (cleaned && norm && !taskMap.has(norm)) taskMap.set(norm, cleaned);
+    });
+    Object.values(manualTasks).forEach(tasks => {
+      tasks.forEach(t => {
+        const cleaned = (t.taskName || '').trim();
+        const norm = cleanText(cleaned);
+        if (cleaned && norm && !taskMap.has(norm)) taskMap.set(norm, cleaned);
+      });
+    });
     if (jobcardWorkbook) {
       try {
         jobcardWorkbook.SheetNames.forEach(sheetName => {
@@ -1045,7 +1137,7 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
       } catch {}
     }
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
-  }, [formData.kodeProyek, drawingControlMap, jobcardWorkbook]);
+  }, [formData.kodeProyek, drawingControlMap, jobcardWorkbook, customDescriptions, manualTasks]);
 
   // Halaman Dashboard KPI Individual (dibuka dari tombol di portal Organik)
   if (showKpi) {
@@ -1335,9 +1427,34 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                         />
                       </div>
                       <div className="md:col-span-2">
-                        <label className="block text-slate-400 mb-1">Deskripsi</label>
-                        <SearchableSelect options={dynamicTaskOptions} value={formData.taskName} onChange={handleDeskripsiChange}
-                          placeholder="Ketik nama gambar / deskripsi tugas..." required />
+                        <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+                          <label className="text-slate-400">
+                            Deskripsi <span className="text-[10px] text-slate-500">(Pilih dari daftar atau ketik deskripsi baru)</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const inputDesc = window.prompt('Masukkan deskripsi tugas baru:');
+                              if (inputDesc && inputDesc.trim()) {
+                                const trimmed = inputDesc.trim();
+                                setCustomDescriptions(addCustomDescriptionLocal(trimmed));
+                                handleDeskripsiChange(trimmed);
+                              }
+                            }}
+                            className="px-2 py-0.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 rounded text-[11px] font-semibold cursor-pointer transition"
+                          >
+                            + Tambah Deskripsi Baru
+                          </button>
+                        </div>
+                        <SearchableSelect
+                          options={dynamicTaskOptions}
+                          value={formData.taskName}
+                          onChange={handleDeskripsiChange}
+                          allowCustom
+                          onAddCustom={(val) => setCustomDescriptions(addCustomDescriptionLocal(val))}
+                          placeholder="Pilih dari daftar atau ketik langsung deskripsi tugas baru..."
+                          required
+                        />
                       </div>
                       <div>
                         <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
@@ -1352,9 +1469,30 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
                       </div>
                     </div>
+                    {isSubmittingTask && (
+                      <div className="px-3.5 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2.5 animate-pulse">
+                        <span className="w-4 h-4 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin shrink-0" />
+                        <span>Mohon tunggu, sistem sedang memproses dan menerbitkan Work Order...</span>
+                      </div>
+                    )}
                     <div className="pt-3 border-t border-slate-800 flex justify-end">
-                      <button type="submit" className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-lg transition cursor-pointer">
-                        Simpan Tugas & Terbitkan Work Order
+                      <button
+                        type="submit"
+                        disabled={isSubmittingTask}
+                        className={`px-5 py-2 text-white font-bold text-xs rounded-lg transition flex items-center gap-2 ${
+                          isSubmittingTask
+                            ? 'bg-amber-700/70 opacity-80 cursor-wait'
+                            : 'bg-amber-600 hover:bg-amber-500 cursor-pointer'
+                        }`}
+                      >
+                        {isSubmittingTask ? (
+                          <>
+                            <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            <span>Sedang Memproses Work Order...</span>
+                          </>
+                        ) : (
+                          <span>Simpan Tugas &amp; Terbitkan Work Order</span>
+                        )}
                       </button>
                     </div>
                   </form>
