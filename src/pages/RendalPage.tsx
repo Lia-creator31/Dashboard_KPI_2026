@@ -401,12 +401,29 @@ function getDeptAndBiroOrder(biroName: string): { deptOrder: number; biroOrder: 
   return { deptOrder: 1, biroOrder: 1 };
 }
 
-function generateAutoSubconJo(biroName: string, personName: string, subconMembersInBiro: ParsedMember[]): string {
+function generateAutoSubconJo(
+  biroName: string,
+  personName: string,
+  subconMembersInBiro: ParsedMember[],
+  existingTasksInBiro: TaskItem[] = []
+): string {
   if (!biroName || !personName) return '';
   const { deptOrder, biroOrder } = getDeptAndBiroOrder(biroName);
   const personIdx = subconMembersInBiro.findIndex(p => cleanText(p.nama) === cleanText(personName));
-  const personNum = personIdx >= 0 ? personIdx + 1 : 1;
-  return `${deptOrder}${biroOrder}${String(personNum).padStart(2, '0')}`;
+  const personNum = String((personIdx >= 0 ? personIdx : 0) + 1).padStart(2, '0');
+  const basePrefix = `${deptOrder}${biroOrder}${personNum}`;
+
+  const personTasks = existingTasksInBiro.filter(t => cleanText(t.pic) === cleanText(personName));
+  let maxSeq = personTasks.length;
+  personTasks.forEach(t => {
+    const joClean = String(t.jo || '').replace(/\D/g, '');
+    if (joClean.startsWith(basePrefix) && joClean.length > basePrefix.length) {
+      const suffix = parseInt(joClean.slice(basePrefix.length), 10);
+      if (!isNaN(suffix) && suffix > maxSeq) maxSeq = suffix;
+    }
+  });
+  const nextJoSeq = String(maxSeq + 1).padStart(2, '0');
+  return `${basePrefix}${nextJoSeq}`;
 }
 
 function loadSubconHistoryLocal(): TaskItem[] {
@@ -2899,7 +2916,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const currentList = manualTasks[biroKey] || [];
       let autoKode = '';
       const resolvedJo = accessMode === 'subkon'
-        ? (formData.jo || generateAutoSubconJo(activeBiro, formData.nama, getSubconMembersForBiro(activeBiro)))
+        ? (formData.jo || generateAutoSubconJo(activeBiro, formData.nama, getSubconMembersForBiro(activeBiro), currentList))
         : formData.jo;
       if (accessMode === 'subkon') {
         const prefix = getBiroPrefix(activeBiro);
@@ -3425,7 +3442,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         <label className="block text-slate-400 mb-1">Nama Drafter / Personel (Outsourcing)</label>
                         <SearchableSelect
                           options={activeSubconMembers.map((p, idx) => {
-                            const autoJo = generateAutoSubconJo(subconSelectedBiro || '', p.nama, activeSubconMembers);
+                            const autoJo = generateAutoSubconJo(subconSelectedBiro || '', p.nama, activeSubconMembers, currentActiveBiroTasks);
                             return {
                               value: p.nama,
                               label: `${String(idx + 1).padStart(2, '0')}. ${p.nama} (${p.jabatan}) — JO: ${autoJo}`,
@@ -3433,7 +3450,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                           })}
                           value={formData.nama}
                           onChange={(val) => {
-                            const autoJo = generateAutoSubconJo(subconSelectedBiro || '', val, activeSubconMembers);
+                            const autoJo = generateAutoSubconJo(subconSelectedBiro || '', val, activeSubconMembers, currentActiveBiroTasks);
                             setFormData(prev => ({ ...prev, nama: val, jo: autoJo }));
                           }}
                           placeholder="Ketik nama personel outsourcing..."
@@ -3452,9 +3469,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                             const { deptOrder, biroOrder } = getDeptAndBiroOrder(subconSelectedBiro);
                             const pIdx = activeSubconMembers.findIndex(p => cleanText(p.nama) === cleanText(formData.nama));
                             const pNum = String((pIdx >= 0 ? pIdx : 0) + 1).padStart(2, '0');
+                            const curJo = formData.jo || generateAutoSubconJo(subconSelectedBiro, formData.nama, activeSubconMembers, currentActiveBiroTasks);
+                            const joSeq = curJo.slice(-2) || '01';
                             return (
                               <span className="text-[10px] font-mono text-amber-400">
-                                Dept {deptOrder} • Biro {biroOrder} • Urutan #{pNum}
+                                Dept {deptOrder} • Biro {biroOrder} • Urutan #{pNum} • JO #{joSeq}
                               </span>
                             );
                           })()}
@@ -3462,7 +3481,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         <input
                           type="text"
                           readOnly
-                          value={formData.jo || (formData.nama && subconSelectedBiro ? generateAutoSubconJo(subconSelectedBiro, formData.nama, activeSubconMembers) : '')}
+                          value={formData.jo || (formData.nama && subconSelectedBiro ? generateAutoSubconJo(subconSelectedBiro, formData.nama, activeSubconMembers, currentActiveBiroTasks) : '')}
                           placeholder="Otomatis terisi saat pilih nama personel..."
                           required
                           className="w-full px-3 py-2 bg-slate-950/80 border border-amber-500/40 rounded-lg text-amber-300 font-mono font-bold cursor-not-allowed"
