@@ -155,20 +155,13 @@ function SearchableSelect({
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        if (isOpen && allowCustom && search.trim()) {
-          const customVal = search.trim();
-          onChange(customVal);
-          if (onAddCustom) onAddCustom(customVal);
-          setSearch(customVal);
-        } else {
-          setSearch(selectedOption ? selectedOption.label : (value || ''));
-        }
         setIsOpen(false);
+        setSearch(selectedOption ? selectedOption.label : (value || ''));
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [selectedOption, value, isOpen, allowCustom, search, onChange, onAddCustom]);
+  }, [selectedOption, value]);
 
   return (
     <div ref={wrapperRef} className="relative w-full">
@@ -177,22 +170,22 @@ function SearchableSelect({
           type="text"
           value={isOpen ? search : (selectedOption ? selectedOption.label : (value || ''))}
           onChange={(e) => {
-            const val = e.target.value;
-            setSearch(val);
-            if (allowCustom) onChange(val);
+            setSearch(e.target.value);
             if (!isOpen) setIsOpen(true);
           }}
           onFocus={() => {
             setIsOpen(true);
-            setSearch(allowCustom && value ? value : '');
+            setSearch('');
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && allowCustom && trimmedSearch) {
+            if (e.key === 'Enter' && isOpen) {
               e.preventDefault();
-              onChange(trimmedSearch);
-              if (onAddCustom) onAddCustom(trimmedSearch);
-              setSearch(trimmedSearch);
-              setIsOpen(false);
+              if (allowCustom && trimmedSearch && filtered.length === 0) {
+                if (onAddCustom) onAddCustom(trimmedSearch);
+                onChange(trimmedSearch);
+                setSearch(trimmedSearch);
+                setIsOpen(false);
+              }
             }
           }}
           placeholder={placeholder}
@@ -205,41 +198,66 @@ function SearchableSelect({
       </div>
       {isOpen && (
         <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl max-h-56 overflow-y-auto divide-y divide-slate-800 animate-fadeIn text-xs">
-          {allowCustom && trimmedSearch && !hasExactMatch && (
-            <div
-              onClick={() => {
-                onChange(trimmedSearch);
-                if (onAddCustom) onAddCustom(trimmedSearch);
-                setSearch(trimmedSearch);
-                setIsOpen(false);
-              }}
-              className="px-3 py-2.5 cursor-pointer bg-emerald-600/15 hover:bg-emerald-600 text-emerald-300 hover:text-white transition flex items-center justify-between font-semibold"
-            >
-              <span className="truncate">+ Tambah Deskripsi Baru: "{trimmedSearch}"</span>
-              <Check className="w-3.5 h-3.5 shrink-0 ml-2" />
-            </div>
-          )}
           {filtered.length > 0 ? (
-            filtered.map((opt, i) => (
-              <div
-                key={i}
-                onClick={() => {
-                  onChange(opt.value);
-                  setSearch(opt.label);
-                  setIsOpen(false);
-                }}
-                className={`px-3 py-2 cursor-pointer hover:bg-blue-600 hover:text-white transition flex items-center justify-between ${opt.value === value ? 'bg-slate-800 text-blue-400 font-semibold' : 'text-slate-200'}`}
-              >
-                <span className="truncate">{opt.label}</span>
-                {opt.value === value && <Check className="w-3.5 h-3.5 shrink-0 ml-2 text-blue-400" />}
-              </div>
-            ))
+            <>
+              {filtered.map((opt, i) => (
+                <div
+                  key={i}
+                  onClick={() => {
+                    onChange(opt.value);
+                    setSearch(opt.label);
+                    setIsOpen(false);
+                  }}
+                  className={`px-3 py-2 cursor-pointer hover:bg-blue-600 hover:text-white transition flex items-center justify-between ${opt.value === value ? 'bg-slate-800 text-blue-400 font-semibold' : 'text-slate-200'}`}
+                >
+                  <span className="truncate">{opt.label}</span>
+                  {opt.value === value && <Check className="w-3.5 h-3.5 shrink-0 ml-2 text-blue-400" />}
+                </div>
+              ))}
+              {allowCustom && trimmedSearch && !hasExactMatch && (
+                <div className="px-3 py-2.5 bg-slate-950/80 flex items-center justify-between gap-2">
+                  <span className="text-slate-400 italic truncate">Tambah "{trimmedSearch}"</span>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (onAddCustom) onAddCustom(trimmedSearch);
+                      onChange(trimmedSearch);
+                      setSearch(trimmedSearch);
+                      setIsOpen(false);
+                    }}
+                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-md text-[11px] shrink-0 cursor-pointer transition"
+                  >
+                    + Tambah Deskripsi
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
-            !allowCustom && (
-              <div className="px-3 py-3 text-center text-slate-500 italic">
+            <div className="px-3 py-2.5 flex items-center justify-between gap-2">
+              <span className="text-slate-400 italic truncate">
                 Tidak ditemukan "{search}"
-              </div>
-            )
+              </span>
+              {allowCustom && trimmedSearch && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (onAddCustom) onAddCustom(trimmedSearch);
+                    onChange(trimmedSearch);
+                    setSearch(trimmedSearch);
+                    setIsOpen(false);
+                  }}
+                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-md text-[11px] shrink-0 cursor-pointer transition"
+                >
+                  + Tambah Deskripsi
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -3451,32 +3469,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         />
                       </div>
                       <div className="md:col-span-2">
-                        <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
-                          <label className="text-slate-400">
-                            Deskripsi <span className="text-[10px] text-slate-500">(Pilih dari daftar atau ketik deskripsi baru)</span>
-                          </label>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const inputDesc = window.prompt('Masukkan deskripsi tugas baru:');
-                              if (inputDesc && inputDesc.trim()) {
-                                const trimmed = inputDesc.trim();
-                                setCustomDescriptions(addCustomDescriptionLocal(trimmed));
-                                handleDeskripsiChange(trimmed);
-                              }
-                            }}
-                            className="px-2 py-0.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 rounded text-[11px] font-semibold cursor-pointer transition"
-                          >
-                            + Tambah Deskripsi Baru
-                          </button>
-                        </div>
+                        <label className="block text-slate-400 mb-1">Deskripsi</label>
                         <SearchableSelect
                           options={dynamicTaskOptions}
                           value={formData.taskName}
                           onChange={handleDeskripsiChange}
                           allowCustom
                           onAddCustom={(val) => setCustomDescriptions(addCustomDescriptionLocal(val))}
-                          placeholder="Pilih dari daftar atau ketik langsung deskripsi tugas baru..."
+                          placeholder="Ketik nama gambar / deskripsi tugas..."
                           required
                         />
                       </div>
