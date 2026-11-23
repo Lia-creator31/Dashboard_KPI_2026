@@ -43,6 +43,7 @@ interface JobCardRow {
   release: string;
   realJo: number;
   fromRealisasi?: boolean;   // true = diambil dari file Realisasi JO (tidak ada di job_cards)
+  noJobcardDesc?: boolean;   // true = baris tanpa kode jobcard, deskripsi dari WO/Description
 }
 
 // Anggota organik dari master IM4 (dipakai agar semua anggota biro tampil walau belum punya job card)
@@ -412,6 +413,8 @@ interface RealisasiRow {
   project: string;
   jobcard: string;
   taskName: string;
+  woDesc: string;      // Work Order/Description (selalu diisi, bahkan saat tanpa jobcard)
+  noJobcard: boolean;  // true = baris ini tidak punya kode jobcard
   hours: number;
 }
 
@@ -452,22 +455,63 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
       }
     }
     if (headerIdx === -1 || cName === -1) return;   // tanpa kolom nama -> tidak bisa per pegawai
+
+    // Cari kolom Work Order/Description untuk deskripsi fallback (terutama saat tanpa jobcard)
+    let cWoDesc = -1;
+    if (headerIdx !== -1) {
+      const h = (rows[headerIdx] || []).map(v => String(v).trim().toLowerCase());
+      cWoDesc = h.findIndex(c => c === 'work order/description' || c === 'wo/description' || c === 'description');
+      // Jangan bentrok dengan cTask yang mungkin sudah diset ke kolom yang sama
+    }
+
+    // Kelompokkan jam per (nama, jobcard) untuk baris DENGAN jobcard
+    // Untuk baris TANPA jobcard, kumpulkan deskripsi unik per (nama, project)
     for (let r = headerIdx + 1; r < rows.length; r++) {
       const row = rows[r]; if (!row) continue;
       const nama = splitUserCell(row[cName]);
       if (!nama) continue;
       const jcRaw = String(row[cJc] ?? '').trim();
-      if (!jcRaw || jcRaw.toLowerCase() === 'nan' || jcRaw.toLowerCase().includes('jobcard')) continue;
+      const woDesc = (cWoDesc !== -1 ? String(row[cWoDesc] ?? '').trim() : '') ||
+                     (cTask !== -1 ? String(row[cTask] ?? '').trim() : '');
+      const isEmptyJc = !jcRaw || jcRaw.toLowerCase() === 'nan' || jcRaw.toLowerCase().includes('jobcard');
+      if (isEmptyJc) {
+        // Baris tanpa jobcard: rekam sebagai entri noJobcard untuk ditampilkan sebagai deskripsi
+        const proj = cProj !== -1 ? extractProjectCodeFromCell(row[cProj]) : '';
+        if (!woDesc) continue; // skip baris benar-benar kosong
+        out.push({
+          nama,
+          project: proj,
+          jobcard: '',
+          taskName: woDesc,
+          woDesc,
+          noJobcard: true,
+          hours: (cEff !== -1 ? Math.abs(parseNumber(row[cEff])) : 0) + (cOt !== -1 ? Math.abs(parseNumber(row[cOt])) : 0),
+        });
+        continue;
+      }
       out.push({
         nama,
         project: cProj !== -1 ? extractProjectCodeFromCell(row[cProj]) : '',
         jobcard: jcRaw.replace(/\s+/g, ' ').toUpperCase(),
-        taskName: (cDwgCtrl !== -1 ? String(row[cDwgCtrl] ?? '').trim() : '') || (cTask !== -1 ? String(row[cTask] ?? '').trim() : ''),
+        taskName: (cDwgCtrl !== -1 ? String(row[cDwgCtrl] ?? '').trim() : '') || woDesc,
+        woDesc,
+        noJobcard: false,
         hours: (cEff !== -1 ? Math.abs(parseNumber(row[cEff])) : 0) + (cOt !== -1 ? Math.abs(parseNumber(row[cOt])) : 0),
       });
     }
   });
   return out;
+}
+
+/* Ekstrak kode proyek dari deskripsi CORP2026 (misal "W000307 - INPUT PDM..." -> "W000307") */
+function extractProjectFromDesc(desc: string): string {
+  if (!desc) return '';
+  // Cari kode proyek standar: 1 huruf + angka (M000312, W000307, E260N002, dsb.)
+  const m = desc.match(/\b([A-Z]\d{4,}[A-Z0-9]*)\b/);
+  if (m) return m[1];
+  // Fallback: token pertama yang mengandung angka
+  const first = desc.split(/[\s\-–—]+/)[0] || '';
+  return /[A-Z].*\d/.test(first) && first.length >= 4 ? first.toUpperCase() : '';
 }
 
 async function loadHourPlanner(): Promise<Record<string, { hour: number; start?: string; end?: string }>> {
@@ -980,7 +1024,9 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
       if (INCLUDE_REALISASI_JOBCARDS && realRows.length > 0) {
         const existing = new Set(rows.filter(r => r.kodeJc).map(r => `${cleanText(r.pic)}|${cleanText(r.kodeJc)}`));
         const extra = new Map<string, JobCardRow>();
-        realRows.forEach(r => {
+
+        // === Baris DENGAN jobcard: sudah ada sebelumnya ===
+        realRows.filter(r => !r.noJobcard).forEach(r => {
           const m = resolveMember(r.nama);
           if (!m) return;   // bukan pegawai organik IM4
           const jcKey = cleanText(r.jobcard);
@@ -1003,7 +1049,53 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
             fromRealisasi: true,
           });
         });
-        rows.push(...extra.values());
+
+        // === Baris TANPA jobcard: tampilkan sebagai penugasan dengan deskripsi ===
+        // Khusus CORP2026: baca deskripsi, cari kode proyek dari Drawing Control Drive
+        // Kelompokkan per (nama, project, woDesc) agar tidak duplikat per hari
+        const noJcSeen = new Map<string, JobCardRow>();
+        realRows.filter(r => r.noJobcard && r.woDesc).forEach(r => {
+          const m = resolveMember(r.nama);
+          if (!m) return;
+
+          // Tentukan proyek: dari kolom Project atau ekstrak dari deskripsi
+          let proj = r.project;
+          const isCorp = proj.toUpperCase().startsWith('CORP');
+
+          // Untuk CORP2026: coba ekstrak kode proyek dari deskripsi (misal "W000307 - INPUT PDM...")
+          let derivedProjFromDesc = '';
+          if (isCorp) {
+            derivedProjFromDesc = extractProjectFromDesc(r.woDesc);
+          }
+
+          const effectiveProj = derivedProjFromDesc || proj;
+          // Kunci unik: nama + project efektif + deskripsi (dedupe baris harian)
+          const descKey = cleanText(r.woDesc.slice(0, 60));
+          const k = `nojc|${cleanText(m.nama)}|${cleanText(effectiveProj)}|${descKey}`;
+          if (noJcSeen.has(k)) {
+            // Akumulasi jam
+            const ex = noJcSeen.get(k)!;
+            ex.realJo += r.hours;
+            return;
+          }
+          noJcSeen.set(k, {
+            id: `nojc-${k}`,
+            biro: m.biro || 'Tanpa Biro',
+            pic: m.nama,
+            project: effectiveProj,
+            taskName: r.woDesc,       // deskripsi sebagai nama task
+            startDate: '',
+            endDate: '',
+            plannedJo: 0,
+            kodeJc: '',               // tidak punya kode jobcard
+            rev: '0',
+            release: '',
+            realJo: r.hours,
+            fromRealisasi: true,
+            noJobcardDesc: true,      // flag: ini baris tanpa jobcard dengan deskripsi
+          } as any);
+        });
+        rows.push(...extra.values(), ...noJcSeen.values());
       }
 
       setCards(rows);
@@ -1171,6 +1263,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
   ];
 
   const cardStatus = (c: JobCardRow): { text: string; cls: string } => {
+    if ((c as any).noJobcardDesc) return { text: 'Deskripsi kegiatan (tanpa Jobcard)', cls: 'text-slate-400' };
     if (REQUIRE_JOBCARD_CODE && !c.kodeJc) return { text: 'Menunggu Planner', cls: 'text-rose-300' };
     if (c.fromRealisasi) return { text: 'Dari Realisasi JO (belum diinput di Form)', cls: 'text-sky-300' };
     if (!c.release) return { text: 'Belum release', cls: 'text-amber-300' };
@@ -1385,6 +1478,9 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
               )}
               {activeBiro.persons.map(p => {
                 const cat = getCategory(p.kpi);
+                // Hitung berapa kartu yang hanya berisi deskripsi (tanpa jobcard)
+                const descOnlyCount = p.cards.filter(c => !!(c as any).noJobcardDesc).length;
+                const realCardCount = p.cards.length - descOnlyCount;
                 return (
                   <div key={p.name} onClick={() => setSelectedPerson(p.name)}
                     className="p-3 bg-slate-950 border border-slate-800 hover:border-blue-500 rounded-xl cursor-pointer transition space-y-2">
@@ -1401,6 +1497,8 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                     <div className="text-[11px] text-slate-500">
                       A {fmt(p.a)}{p.a !== null && '%'} · B {fmt(p.b)}{p.b !== null && '%'}
                       {p.cards.length === 0 && <span className="text-slate-600"> · belum ada penugasan</span>}
+                      {realCardCount === 0 && descOnlyCount > 0 && <span className="text-slate-400"> · {descOnlyCount} deskripsi kegiatan (belum ada Jobcard)</span>}
+                      {realCardCount > 0 && descOnlyCount > 0 && <span className="text-slate-400"> · +{descOnlyCount} deskripsi kegiatan</span>}
                       {p.pendingCount > 0 && <span className="text-rose-300"> · {p.pendingCount} menunggu Planner</span>}
                     </div>
                   </div>
@@ -1518,30 +1616,41 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                               const maxCard = Math.max(1, ...r.cards.flatMap(c => [c.plannedJo, c.realJo]));
                               return r.cards.map(c => {
                                 const st = cardStatus(c);
+                                const isDescOnly = !!(c as any).noJobcardDesc;
                                 return (
-                                  <div key={c.id} className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg space-y-1.5 text-xs">
+                                  <div key={c.id} className={`p-2.5 bg-slate-950 border rounded-lg space-y-1.5 text-xs ${isDescOnly ? 'border-slate-700/50 opacity-75' : 'border-slate-800'}`}>
                                     <div className="flex items-start justify-between gap-3">
                                       <div className="text-slate-200">{c.taskName || '-'}</div>
                                       <div className="flex items-center gap-2 shrink-0">
-                                        <span className="font-mono text-[10px] text-slate-400">Rev {c.rev}</span>
+                                        {!isDescOnly && <span className="font-mono text-[10px] text-slate-400">Rev {c.rev}</span>}
                                         <span className={`text-[10px] font-semibold ${st.cls}`}>{st.text}</span>
                                       </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                      <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
-                                        <div className="h-2 rounded-full" style={{ width: `${(c.plannedJo / maxCard) * 100}%`, background: '#a78bfa' }} />
+                                    {!isDescOnly && (
+                                      <>
+                                        <div className="flex items-center gap-2">
+                                          <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                                            <div className="h-2 rounded-full" style={{ width: `${(c.plannedJo / maxCard) * 100}%`, background: '#a78bfa' }} />
+                                          </div>
+                                          <span className="w-12 text-right font-mono text-violet-300">{c.plannedJo || '-'}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                                            <div className="h-2 rounded-full" style={{ width: `${(c.realJo / maxCard) * 100}%`, background: '#34d399' }} />
+                                          </div>
+                                          <span className="w-12 text-right font-mono text-emerald-400">{c.realJo ? Math.round(c.realJo * 100) / 100 : '-'}</span>
+                                        </div>
+                                        <div className="text-[10px] text-slate-500 font-mono">
+                                          {c.kodeJc} · Plan Finish {formatDisplayDate(c.endDate)} · Release {formatDisplayDate(c.release)}
+                                        </div>
+                                      </>
+                                    )}
+                                    {isDescOnly && c.realJo > 0 && (
+                                      <div className="text-[10px] text-slate-500 font-mono">
+                                        Real JO: {Math.round(c.realJo * 100) / 100} jam
+                                        {c.release && ` · Drawing release: ${formatDisplayDate(c.release)}`}
                                       </div>
-                                      <span className="w-12 text-right font-mono text-violet-300">{c.plannedJo || '-'}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
-                                        <div className="h-2 rounded-full" style={{ width: `${(c.realJo / maxCard) * 100}%`, background: '#34d399' }} />
-                                      </div>
-                                      <span className="w-12 text-right font-mono text-emerald-400">{c.realJo ? Math.round(c.realJo * 100) / 100 : '-'}</span>
-                                    </div>
-                                    <div className="text-[10px] text-slate-500 font-mono">
-                                      {c.kodeJc} · Plan Finish {formatDisplayDate(c.endDate)} · Release {formatDisplayDate(c.release)}
-                                    </div>
+                                    )}
                                   </div>
                                 );
                               });
@@ -1580,12 +1689,17 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                     )}
                     {activePerson.cards.map(c => {
                       const st = cardStatus(c);
+                      const isDescOnly = !!(c as any).noJobcardDesc;
                       return (
-                        <tr key={c.id} className="hover:bg-slate-950/50">
-                          <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{c.kodeJc || <span className="text-rose-400 font-normal">-</span>}</td>
+                        <tr key={c.id} className={`hover:bg-slate-950/50 ${isDescOnly ? 'opacity-70' : ''}`}>
+                          <td className="py-2 px-2.5 font-mono font-bold text-amber-300">
+                            {c.kodeJc || <span className={isDescOnly ? 'text-slate-500 font-normal text-[10px]' : 'text-rose-400 font-normal'}>
+                              {isDescOnly ? '(deskripsi)' : '-'}
+                            </span>}
+                          </td>
                           <td className="py-2 px-2.5 text-emerald-400">{c.project}</td>
                           <td className="py-2 px-2.5 text-slate-200">{c.taskName}</td>
-                          <td className="py-2 px-2.5 text-center font-mono">{c.rev}</td>
+                          <td className="py-2 px-2.5 text-center font-mono">{isDescOnly ? '-' : c.rev}</td>
                           <td className="py-2 px-2.5 text-right font-mono text-violet-300">{c.plannedJo || '-'}</td>
                           <td className="py-2 px-2.5 text-right font-mono text-emerald-400">{c.realJo ? Math.round(c.realJo * 100) / 100 : '-'}</td>
                           <td className="py-2 px-2.5 font-mono">{formatDisplayDate(c.startDate)}</td>
