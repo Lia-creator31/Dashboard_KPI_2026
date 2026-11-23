@@ -354,7 +354,8 @@ function buildRealisasiMap(wb: XLSX.WorkBook | null): Map<string, number> {
     let headerIdx = -1, jcCol = -1, effCol = -1, otCol = -1;
     for (let r = 0; r < Math.min(5, rows.length); r++) {
       const row = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-      let j = row.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+      let j = row.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
+      if (j === -1) j = row.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
       if (j === -1) j = row.findIndex(c => c.includes('jobcard'));
       const e = row.findIndex(c => c.includes('effective'));
       const o = row.findIndex(c => c.includes('overtime'));
@@ -433,17 +434,20 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
     const sheet = wb.Sheets[sheetName]; if (!sheet) return;
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
     if (!rows.length) return;
-    let headerIdx = -1, cName = -1, cProj = -1, cJc = -1, cEff = -1, cOt = -1, cTask = -1;
+    let headerIdx = -1, cName = -1, cProj = -1, cJc = -1, cEff = -1, cOt = -1, cTask = -1, cDwgCtrl = -1;
     for (let r = 0; r < Math.min(10, rows.length); r++) {
       const h = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-      const jc = h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state'));
+      const jcExact = h.findIndex(c => c === 'work order/job card/display name' || c === 'job card/display name' || c === 'jobcard/display name');
+      const jc = jcExact !== -1 ? jcExact : h.findIndex(c => c.includes('jobcard') && !c.includes('task') && !c.includes('state') && !c.includes('drawing'));
       const ef = h.findIndex(c => c.includes('effective'));
       const ot = h.findIndex(c => c.includes('overtime'));
       if (jc !== -1 && (ef !== -1 || ot !== -1)) {
         headerIdx = r; cJc = jc; cEff = ef; cOt = ot;
         cName = h.findIndex(c => c === 'employee/name' || c === 'nama' || c === 'name' || c === 'user' || c === 'employee' || c === 'pegawai');
         cProj = h.findIndex(c => c === 'project/code' || c === 'project' || c === 'proyek');
-        cTask = h.findIndex(c => c === 'jobcard/task name' || c === 'description' || c === 'deskripsi' || c === 'task name');
+        cTask = h.findIndex(c => c === 'work order/description' || c === 'jobcard/task name' || c === 'description' || c === 'deskripsi' || c === 'task name');
+        // Deskripsi utama: Jobcard/Drawing Control (fallback ke Work Order/Description per baris)
+        cDwgCtrl = h.findIndex(c => c === 'jobcard/drawing control' || c === 'work order/job card/drawing control' || c === 'job card/drawing control' || c === 'drawing control');
         break;
       }
     }
@@ -458,7 +462,7 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
         nama,
         project: cProj !== -1 ? extractProjectCodeFromCell(row[cProj]) : '',
         jobcard: jcRaw.replace(/\s+/g, ' ').toUpperCase(),
-        taskName: cTask !== -1 ? String(row[cTask] ?? '').trim() : '',
+        taskName: (cDwgCtrl !== -1 ? String(row[cDwgCtrl] ?? '').trim() : '') || (cTask !== -1 ? String(row[cTask] ?? '').trim() : ''),
         hours: (cEff !== -1 ? Math.abs(parseNumber(row[cEff])) : 0) + (cOt !== -1 ? Math.abs(parseNumber(row[cOt])) : 0),
       });
     }
