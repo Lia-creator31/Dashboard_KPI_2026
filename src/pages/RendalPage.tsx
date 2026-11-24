@@ -3252,34 +3252,37 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
-      <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
-        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+      <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800">
+        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => { setAccessMode('landing'); setSelectedDept(null); setSelectedFormBiro(null); setSubconSelectedBiro(null); setSubconSelectedDept(null); }}>
-            <div className="p-1.5 bg-purple-600 rounded-lg text-white">
+            <div className="p-1.5 bg-blue-600/15 border border-blue-500/30 rounded-md text-blue-400">
               <Building2 className="w-4 h-4" />
             </div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-sm text-white">PORTAL ADMIN RENDAL</span>
+              <span className="font-bold text-sm text-white tracking-tight">DIVISI DESAIN</span>
+              <span className="text-slate-700">|</span>
+              <span className="text-xs font-medium text-slate-300">Rendal</span>
               {accessMode !== 'landing' && (
-                <span className="text-xs px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-300 border border-slate-700">
-                  {accessMode === 'organik' ? 'Organik' : 'Subkon'}
+                <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-800 text-slate-300 border border-slate-700">
+                  {accessMode === 'organik' ? 'Pegawai Organik' : 'Mitra / Subkon'}
                 </span>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2">
             {autoSyncMsg && (
-              <span className="px-2.5 py-1 text-[11px] bg-cyan-500/10 text-cyan-300 rounded-lg border border-cyan-500/30 flex items-center gap-1">
-                <Sparkles className="w-3 h-3" /> {autoSyncMsg}
+              <span className="px-2.5 py-1 text-[11px] bg-emerald-500/10 text-emerald-300 rounded-md border border-emerald-500/25 flex items-center gap-1">
+                <Check className="w-3 h-3" /> {autoSyncMsg}
               </span>
             )}
+            <span className="hidden md:inline text-xs text-slate-400 mr-1">{user.nama}</span>
             {accessMode !== 'landing' && (
               <button onClick={() => { setAccessMode('landing'); setSelectedDept(null); setSelectedFormBiro(null); setSubconSelectedBiro(null); setSubconSelectedDept(null); }}
-                className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer">
+                className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md border border-slate-700 cursor-pointer transition">
                 Ganti Portal
               </button>
             )}
-            <button onClick={onLogout} className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer">
+            <button onClick={onLogout} className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-rose-600/20 text-slate-300 hover:text-rose-300 rounded-md border border-slate-700 hover:border-rose-500/30 cursor-pointer transition">
               Keluar
             </button>
           </div>
@@ -3287,27 +3290,54 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       </header>
       <main className="max-w-6xl mx-auto px-4 py-8">
         {accessMode === 'landing' && (
-          <div className="max-w-2xl mx-auto text-center space-y-8 pt-8">
-            <div className="space-y-2">
-              <h1 className="text-2xl sm:text-3xl font-bold text-white">Sistem Penugasan Job Card</h1>
-              <p className="text-slate-400 text-sm">Pilih portal akses kerja Anda</p>
+          <div className="max-w-3xl mx-auto space-y-6 pt-4">
+            <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-400 mb-1">Portal Perencanaan &amp; Pengendalian</div>
+                <h1 className="text-xl sm:text-2xl font-bold text-white">Pilih Kategori Penugasan Personel</h1>
+              </div>
+              <span className="text-xs text-slate-400">Masuk sebagai <b className="text-slate-200">{user.nama}</b></span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div onClick={() => setAccessMode('organik')}
-                className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-2xl p-6 cursor-pointer text-left transition hover:bg-slate-900/80 group">
-                <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl w-fit mb-4 group-hover:bg-blue-600 group-hover:text-white transition">
-                  <Briefcase className="w-6 h-6" />
+                className="bg-slate-900 border border-slate-800 hover:border-blue-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex flex-col justify-between gap-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-lg">
+                      <Briefcase className="w-5 h-5" />
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-blue-400 group-hover:translate-x-0.5 transition" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Pegawai Organik</h3>
+                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                      Penugasan Jobcard, pemantauan Realisasi JO, Drawing Control, Rekap Absensi, dan Evaluasi KPI pegawai PKWTT &amp; PKWT.
+                    </p>
+                  </div>
                 </div>
-                <h3 className="text-lg font-bold text-white">Pegawai Organik</h3>
-                <span className="text-xs text-slate-400">Pegawai PKWTT & PKWT Divisi Desain</span>
+                <div className="pt-3 border-t border-slate-800/80 text-[11px] font-medium text-blue-400">
+                  Buka Portal Organik →
+                </div>
               </div>
               <div onClick={() => setAccessMode('subkon')}
-                className="bg-slate-900 border border-slate-800 hover:border-amber-500 rounded-2xl p-6 cursor-pointer text-left transition hover:bg-slate-900/80 group">
-                <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl w-fit mb-4 group-hover:bg-amber-600 group-hover:text-white transition">
-                  <HardHat className="w-6 h-6" />
+                className="bg-slate-900 border border-slate-800 hover:border-amber-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex flex-col justify-between gap-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-lg">
+                      <HardHat className="w-5 h-5" />
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Mitra / Subkon</h3>
+                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                      Penerbitan Work Order (WO), penomoran JO otomatis, dan riwayat penugasan personel outsourcing per biro.
+                    </p>
+                  </div>
                 </div>
-                <h3 className="text-lg font-bold text-white">Mitra / Subkon</h3>
-                <span className="text-xs text-slate-400">Personil Outsourcing</span>
+                <div className="pt-3 border-t border-slate-800/80 text-[11px] font-medium text-amber-400">
+                  Buka Portal Mitra / Subkon →
+                </div>
               </div>
             </div>
           </div>
@@ -3695,89 +3725,94 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
         {accessMode === 'organik' && !selectedDept && !selectedFormBiro && (
           <div className="space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 flex-wrap gap-2">
+            {/* Baris Judul & Navigasi Utama */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4 flex-wrap gap-3">
               <div>
-                <h2 className="text-lg font-bold text-white">Departemen Desain</h2>
-                <span className="text-xs text-slate-400">Akses Pegawai Organik (PKWTT & PKWT)</span>
+                <h2 className="text-lg font-bold text-white">Departemen Divisi Desain</h2>
+                <span className="text-xs text-slate-400">Penugasan &amp; Monitoring Pegawai Organik (PKWTT &amp; PKWT)</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <Users className="w-3.5 h-3.5 text-blue-400" /><span>Update Personel IM4</span>
-                  <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
-                </label>
-                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" /><span>Update Jobcard Desain</span>
-                  <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
-                </label>
-                <label className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg border border-slate-700 flex items-center gap-1 cursor-pointer">
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-violet-400" />
-                  <span>{timeOffWorkbook ? 'Update Time Off' : 'Upload Time Off'}</span>
-                  <input type="file" accept=".xlsx, .xls" onChange={handleUploadTimeOffExcel} className="hidden" />
-                </label>
                 <button
                   onClick={() => setIsPlannerOpen(true)}
-                  className="relative px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  className="relative px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
                   title={pendingTasksCount > 0 ? `${pendingTasksCount} tugas menunggu kode Jobcard` : 'Tidak ada tugas yang menunggu kode Jobcard'}
                 >
-                  <FileCheck className="w-3.5 h-3.5" /> Planner
+                  <FileCheck className="w-3.5 h-3.5" /> Planner Approval
                   {pendingTasksCount > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center border-2 border-slate-950">
+                    <span className="ml-1 px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-bold">
                       {pendingTasksCount > 99 ? '99+' : pendingTasksCount}
                     </span>
                   )}
                 </button>
                 <button
                   onClick={() => setShowKpi(true)}
-                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
                   title="Buka Dashboard KPI Individual"
                 >
                   <TrendingUp className="w-3.5 h-3.5" /> Dashboard KPI
                 </button>
-                <label
-                  className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
-                  title="Impor Hour Planner (Hour_Planner.xlsx): kolom Hour Planned masuk ke Plan JO sesuai kode Jobcard"
+                <button
+                  onClick={() => setShowRekapDivisi(true)}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                  title="Buka Rekap Absensi & Cuti Divisi Desain"
                 >
-                  <Clock className="w-3.5 h-3.5" />
-                  {isImportingHour ? 'Mengimpor...' : `Import Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}
-                  <input type="file" accept=".xlsx, .xls" onChange={handleImportHourPlanner} disabled={isImportingHour} className="hidden" />
-                </label>
-                <label
-                  className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-sm"
-                  title="Impor 1 file gabungan (TARIKAN_TIMESHEET.xlsx: Hour Planner + Realisasi JO + Jobcard + Deskripsi). Otomatis menghapus data lama & mengganti dengan data baru."
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  {isImportingUnified ? 'Memproses Data Terpadu...' : 'Import Data Terpadu (Reset)'}
-                  <input type="file" accept=".xlsx, .xls, .csv" onChange={handleImportUnifiedData} disabled={isImportingUnified} className="hidden" />
-                </label>
-                <input type="text" placeholder="Cari..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none w-44" />
+                  <Clock className="w-3.5 h-3.5 text-sky-400" /> Rekap Absensi Divisi
+                </button>
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
+                  <input type="text" placeholder="Cari departemen..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 bg-slate-900 border border-slate-700 rounded-md text-xs text-white focus:outline-none focus:border-blue-500 w-48" />
+                </div>
               </div>
             </div>
 
-            {/* Tombol Rekap Absensi Divisi Desain */}
-            <button
-              onClick={() => setShowRekapDivisi(true)}
-              className="w-full bg-gradient-to-r from-purple-600/20 to-blue-600/10 hover:from-purple-600/30 border border-purple-500/30 hover:border-purple-400 rounded-xl p-4 flex items-center justify-between transition cursor-pointer group text-left"
-            >
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-purple-600 rounded-lg text-white"><Clock className="w-5 h-5" /></div>
-                <div>
-                  <div className="font-bold text-white text-sm">Rekap Absensi Divisi Desain</div>
-                  <div className="text-xs text-slate-400">Cuti, sakit, dan rencana cuti seluruh departemen: Kadep dan staf</div>
-                </div>
+            {/* Toolbar Data Master & Sinkronisasi Excel (dikelompokkan rapi agar ramah pengguna) */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between flex-wrap gap-3">
+              <div className="text-xs text-slate-400">
+                <span className="font-semibold text-slate-200">Pembaruan Data Master:</span> Unggah file Excel untuk memperbarui database personel, katalog, atau tarikan timesheet.
               </div>
-              <ChevronRight className="w-5 h-5 text-purple-300 group-hover:translate-x-1 transition" />
-            </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs rounded-md border border-slate-700 flex items-center gap-1.5 cursor-pointer transition">
+                  <Users className="w-3.5 h-3.5 text-blue-400" /><span>Personel IM4</span>
+                  <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
+                </label>
+                <label className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs rounded-md border border-slate-700 flex items-center gap-1.5 cursor-pointer transition">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-cyan-400" /><span>Katalog Jobcard</span>
+                  <input type="file" accept=".xlsx, .xls" onChange={handleUpdateJobcardExcel} className="hidden" />
+                </label>
+                <label className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs rounded-md border border-slate-700 flex items-center gap-1.5 cursor-pointer transition">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-violet-400" />
+                  <span>{timeOffWorkbook ? 'Update Time Off' : 'Upload Time Off'}</span>
+                  <input type="file" accept=".xlsx, .xls" onChange={handleUploadTimeOffExcel} className="hidden" />
+                </label>
+                <label
+                  className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-md border border-slate-700 text-xs flex items-center gap-1.5 cursor-pointer transition"
+                  title="Impor Hour Planner (Hour_Planner.xlsx): kolom Hour Planned masuk ke Plan JO sesuai kode Jobcard"
+                >
+                  <Clock className="w-3.5 h-3.5 text-sky-400" />
+                  <span>{isImportingHour ? 'Mengimpor...' : `Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}</span>
+                  <input type="file" accept=".xlsx, .xls" onChange={handleImportHourPlanner} disabled={isImportingHour} className="hidden" />
+                </label>
+                <label
+                  className="px-3 py-1.5 bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-300 border border-emerald-500/30 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                  title="Impor 1 file gabungan (TARIKAN_TIMESHEET.xlsx: Hour Planner + Realisasi JO + Jobcard + Deskripsi). Otomatis menghapus data lama & mengganti dengan data baru."
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>{isImportingUnified ? 'Memproses Data Terpadu...' : 'Import Data Terpadu (Reset)'}</span>
+                  <input type="file" accept=".xlsx, .xls, .csv" onChange={handleImportUnifiedData} disabled={isImportingUnified} className="hidden" />
+                </label>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {filteredDepartments.map((dept) => (
                 <div key={dept.id} onClick={() => setSelectedDept(dept)}
-                  className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-xl p-4 cursor-pointer transition flex items-center justify-between">
+                  className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-xl p-4 cursor-pointer transition flex items-center justify-between group">
                   <div>
-                    <h4 className="font-semibold text-white text-sm">{dept.name}</h4>
+                    <h4 className="font-semibold text-white text-sm group-hover:text-blue-400 transition">{dept.name}</h4>
                     <span className="text-xs text-slate-400">{dept.biros.length} Biro</span>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-slate-500" />
+                  <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-blue-400 group-hover:translate-x-0.5 transition" />
                 </div>
               ))}
             </div>
