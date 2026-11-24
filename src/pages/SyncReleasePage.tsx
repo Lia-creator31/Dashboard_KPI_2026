@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
-import { projectCandidates, dedupeRows } from '../lib/projectCandidates';
+import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS } from '../lib/projectCandidates';
 import { ArrowLeft, RefreshCw, Save, Check, AlertTriangle } from 'lucide-react';
 
 interface SyncReleasePageProps {
@@ -13,21 +13,6 @@ interface SyncReleasePageProps {
 
 /* ===== Drawing Control (Google Drive): ambil Release otomatis ===== */
 const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
-
-const GOOGLE_DRIVE_SHEETS = [
-  { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)' },
-  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000304', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
-  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000305', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
-  { id: '19qiMBb1b7qmeRXkFNTbh-eKtVEKDUTgshloa116HQ48', projectKey: 'W000308', title: 'Drawing Control LPD UAE USED (W000308)' },
-  { id: '16rrjyU60BmzRIYFL3I1WRLkw_AfJPUwi8vZiJx2LYCg', projectKey: 'W000314', title: 'Drawing Control KSR 20 M ALU (W000314)' },
-  { id: '1uv2D4ECJ0z-NWP8byzXTkkM17MKD6f0r-RCtKjpG5Hs', projectKey: 'M000312', title: 'Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)' },
-  { id: '1eTO-dvVd3psdP4mFQc2ZQW_Z-lyooCb2TVjR4mYTbDw', projectKey: 'W000311', title: 'Drawing Control KSSR 18 M (W000311)' },
-  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000306', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
-  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000307', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
-  { id: '1l0ZoTCctHrmkruIkC4Gk1NtoqsugMVGABrsf3yb6PHo', projectKey: 'KSOT', title: 'Drawing Control KSOT' },
-  { id: '1jGNHh9HhSrPlEv7JZvtW8ToMU2ADrT0yE87tk9E53zY', projectKey: 'LCU', title: 'Drawing Control LCU LD PN 124 M' },
-  { id: '1XsrklFhcUkjgfEjuT4jDRWx6Uufsj8Jt', projectKey: 'FFBNW', title: 'Drawing Control FFBNW FRIGATE 140 M' },
-];
 
 interface DrawingControlRow {
   noDwg: string;
@@ -134,11 +119,20 @@ const dcRevNum = (v: any) => {
 
 // Cari tanggal Release (FINISH DATE) untuk gambar + Rev tertentu. Hasil "YYYY-MM-DD", atau '' bila tidak ada.
 function extractDrawingNumber(desc: string): string {
-  let s = (desc || '').replace(/\s+/g, ' ').trim();
-  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-–_:]\s*/i, '');
+  let s = (desc || '')
+    .replace(/(\b[A-Z]{1,4}\d{2,}[A-Z0-9]*)\s*\.\s*([A-Z0-9]+)/gi, '$1.$2')
+    .replace(/\s+/g, ' ')
+    .trim();
+  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-–_:\s]\s*/i, '');
+  // Hilangkan kode proyek di awal deskripsi (mis. "W000314 - E25291.01100_ R0_...")
+  s = s.replace(/^[WM]\d{4,6}\s*[-–—_:/]\s*/i, '');
+  s = s.replace(/^(?:KSOT|LCU|W?FFBNW\d*)\s*[-–—_:/]\s*/i, '');
+  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-–_:\s]\s*/i, '');
+  const mDot = s.match(/\b[A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+/i);
+  if (mDot) return mDot[0].toUpperCase();
   const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);
   if (m) return m[0].toUpperCase();
-  const first = s.split(/\s+-\s+|\s+/)[0] || '';
+  const first = s.split(/\s+-\s+|\s+|_/)[0] || '';
   return /\d/.test(first) && first.length >= 4 ? first.toUpperCase() : '';
 }
 const drawingKey = (v: string) => dcClean(extractDrawingNumber(v) || v);
@@ -146,9 +140,17 @@ const drawingKey = (v: string) => dcClean(extractDrawingNumber(v) || v);
 function findReleaseDate(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
   if (!rows.length || !taskName) return '';
   const wanted = drawingKey(taskName);
-  if (!wanted) return '';
+  const cleanTarget = dcClean(taskName);
+  if (!wanted && !cleanTarget) return '';
   const wantRev = dcRevNum(rev);
-  const hit = rows.find(r => dcRevNum(r.rev) === wantRev && drawingKey(r.noDwg) === wanted && parseToStandardDate(r.finishDate));
+  const hit = rows.find(r => {
+    if (dcRevNum(r.rev) !== wantRev) return false;
+    if (!parseToStandardDate(r.finishDate)) return false;
+    if (wanted && drawingKey(r.noDwg) === wanted) return true;
+    const cDwg = dcClean(r.noDwg);
+    if (cDwg && cDwg.length >= 5 && cleanTarget.includes(cDwg)) return true;
+    return false;
+  });
   return hit ? parseToStandardDate(hit.finishDate) : '';
 }
 
@@ -277,8 +279,9 @@ export default function SyncReleasePage({ user, onLogout, onBack }: SyncReleaseP
   }, [cards, month, year]);
 
   // 3) Baca Drawing Control otomatis untuk setiap proyek yang tampil (tanpa klik apa pun)
+  // Jika proyek adalah CORP2026, ambil kode proyek Drawing Control dari dalam deskripsi (mis. W000314)
   useEffect(() => {
-    const needed = Array.from(new Set(monthCards.map(c => c.project).filter(Boolean)));
+    const needed = Array.from(new Set(monthCards.map(c => resolveDrawingProject(c.project, c.task)).filter(Boolean)));
     const todo = needed.filter(p => !driveMap[p]);
     if (!todo.length) return;
     let cancelled = false;
@@ -309,10 +312,11 @@ export default function SyncReleasePage({ user, onLogout, onBack }: SyncReleaseP
   // 4) Cocokkan tiap job card dengan Drawing Control
   const analyzed = useMemo(() => {
     return monthCards.map(c => {
-      const d = c.project ? driveMap[c.project] : undefined;
+      const effProj = resolveDrawingProject(c.project, c.task);
+      const d = effProj ? driveMap[effProj] : undefined;
       let status: Status = 'loading';
       let drive = '';
-      if (!c.project || (d && d.state === 'empty')) status = 'noproj';
+      if (!effProj || (d && d.state === 'empty')) status = 'noproj';
       else if (d && d.state === 'ok') {
         drive = findReleaseDate(d.rows, c.task, c.rev);
         if (!drive) status = 'notfound';
