@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
-import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet } from '../lib/projectCandidates';
+import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
@@ -1980,21 +1980,33 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     let totalFound = 0;
     try {
       const targetProjOf = (t: TaskItem) => resolveDrawingProject(t.project, t.taskName);
-      const projects = Array.from(new Set(todo.map(targetProjOf).filter(Boolean))).sort((a, b) =>
+      const needsAllDriveSearch = todo.some(t => isCorpProject(targetProjOf(t)) && !!extractDrawingNumber(t.taskName));
+      const baseProjs = todo.map(targetProjOf).filter(p => p && !isCorpProject(p));
+      const projects = Array.from(new Set(needsAllDriveSearch ? [...baseProjs, ...ALL_DRIVE_PROJECT_KEYS] : baseProjs)).sort((a, b) =>
         (isKnownDriveProject(b) ? 1 : 0) - (isKnownDriveProject(a) ? 1 : 0)
       );
+      const rowsByProject = new Map<string, DrawingControlRow[]>();
+      const foundSoFar = new Set<string>();
       for (let i = 0; i < projects.length; i += 4) {
         const batchProjs = projects.slice(i, i + 4);
-        const rowsByProject = new Map<string, DrawingControlRow[]>();
         await Promise.all(batchProjs.map(async p => {
           try { rowsByProject.set(p, await fetchDrawingRowsFor(p)); } catch { rowsByProject.set(p, []); }
         }));
         const batchFound = new Map<string, string>();
-        todo.filter(t => batchProjs.includes(targetProjOf(t))).forEach(t => {
-          autoTried.current.add(`${t.id}|${t.rev || '0'}`);
+        todo.forEach(t => {
+          if (foundSoFar.has(t.id)) return;
           const effProj = targetProjOf(t);
-          const rel = findReleaseInRows(rowsByProject.get(effProj) || [], t.taskName, t.rev || '0');
-          if (rel) batchFound.set(t.id, rel);
+          if (!isCorpProject(effProj)) {
+            if (!batchProjs.includes(effProj)) return;
+            autoTried.current.add(`${t.id}|${t.rev || '0'}`);
+            const rel = findReleaseInRows(rowsByProject.get(effProj) || [], t.taskName, t.rev || '0');
+            if (rel) { batchFound.set(t.id, rel); foundSoFar.add(t.id); }
+          } else if (extractDrawingNumber(t.taskName)) {
+            for (const p of batchProjs) {
+              const rel = findReleaseInRows(rowsByProject.get(p) || [], t.taskName, t.rev || '0');
+              if (rel) { batchFound.set(t.id, rel); foundSoFar.add(t.id); break; }
+            }
+          }
         });
         if (batchFound.size > 0) {
           totalFound += batchFound.size;
@@ -2387,8 +2399,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       });
 
       // Ambil juga Release dari Drawing Control (Google Drive) untuk proyek yang ada
-      // Jika proyek adalah CORP2026, baca juga proyek Drawing Control dari dalam deskripsi
-      const uniqueProjs = Array.from(new Set(Array.from(taskGroups.values()).map(g => resolveDrawingProject(g.project, g.taskName)).filter(Boolean))).sort((a, b) =>
+      // Jika proyek adalah CORP2026:
+      // - bila ada kode proyek di deskripsi, baca proyek tersebut
+      // - bila tidak ada kode proyek di deskripsi tapi ada nomor gambar, baca semua proyek Drive agar bisa dicari satu per satu
+      const groupsArr = Array.from(taskGroups.values());
+      const needsAllDriveSearch = groupsArr.some(g => isCorpProject(resolveDrawingProject(g.project, g.taskName)) && !!extractDrawingNumber(g.taskName));
+      const baseProjs = groupsArr.map(g => resolveDrawingProject(g.project, g.taskName)).filter(p => p && !isCorpProject(p));
+      const uniqueProjs = Array.from(new Set(needsAllDriveSearch ? [...baseProjs, ...ALL_DRIVE_PROJECT_KEYS] : baseProjs)).sort((a, b) =>
         (isKnownDriveProject(b) ? 1 : 0) - (isKnownDriveProject(a) ? 1 : 0)
       );
       const driveRowsByProj = new Map<string, DrawingControlRow[]>();
@@ -2439,7 +2456,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const payloads = Array.from(taskGroups.values()).map(g => {
         const joStr = g.hasPlanJo && g.maxPlanJo > 0 ? String(fmtNum(g.maxPlanJo)) : (g.hasPlanJo ? String(fmtNum(g.maxPlanJo)) : '');
         const effProj = resolveDrawingProject(g.project, g.taskName);
-        const driveRel = findReleaseInRows(driveRowsByProj.get(effProj) || [], g.taskName, g.rev);
+        let driveRel = '';
+        if (!isCorpProject(effProj)) {
+          driveRel = findReleaseInRows(driveRowsByProj.get(effProj) || [], g.taskName, g.rev);
+        } else if (extractDrawingNumber(g.taskName)) {
+          for (const p of ALL_DRIVE_PROJECT_KEYS) {
+            const hit = findReleaseInRows(driveRowsByProj.get(p) || [], g.taskName, g.rev);
+            if (hit) { driveRel = hit; break; }
+          }
+        }
         const fallbackRel = prevReleaseByJc.get(cleanText(g.kodeJc)) || prevReleaseByDwg.get(`${cleanText(g.project)}|${drawingKey(g.taskName)}|${g.rev}`) || prevReleaseByDwg.get(`${cleanText(effProj)}|${drawingKey(g.taskName)}|${g.rev}`) || '';
         const releaseVal = driveRel || fallbackRel;
         return {
@@ -2902,22 +2927,25 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   const handleSyncReleaseFromDrive = async (task: TaskItem) => {
     const effProj = resolveDrawingProject(task.project, task.taskName);
-    const cleanProj = cleanText(effProj);
-    let rows: DrawingControlRow[] | undefined = drawingControlMap[cleanProj];
-    if (!rows || rows.length === 0) {
-      rows = await fetchDrawingRowsFor(effProj);
-      if (rows.length > 0) {
-        const fetched = rows;
-        setDrawingControlMap(prev => ({ ...prev, [cleanProj]: fetched }));
+    const projectsToTry = (!isCorpProject(effProj) && effProj) ? [effProj] : ALL_DRIVE_PROJECT_KEYS;
+    for (const proj of projectsToTry) {
+      const cleanProj = cleanText(proj);
+      let rows: DrawingControlRow[] | undefined = drawingControlMap[cleanProj];
+      if (!rows || rows.length === 0) {
+        rows = await fetchDrawingRowsFor(proj);
+        if (rows.length > 0) {
+          const fetched = rows;
+          setDrawingControlMap(prev => ({ ...prev, [cleanProj]: fetched }));
+        }
+      }
+      const rel = findReleaseInRows(rows || [], task.taskName, task.rev || '0');
+      if (rel) {
+        await handleQuickSaveRelease(task.id, rel);
+        alert(`Berhasil sinkronisasi dari Google Drive (${proj}): ${formatDisplayDate(rel)}`);
+        return;
       }
     }
-    const rel = findReleaseInRows(rows || [], task.taskName, task.rev || '0');
-    if (rel) {
-      await handleQuickSaveRelease(task.id, rel);
-      alert(`Berhasil sinkronisasi dari Google Drive (${effProj}): ${formatDisplayDate(rel)}`);
-      return;
-    }
-    alert(`Tidak ditemukan data FINISH DATE di Google Drive (${effProj || task.project}) untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
+    alert(`Tidak ditemukan data FINISH DATE di Google Drive (${!isCorpProject(effProj) ? effProj : 'semua proyek Drawing Control'}) untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
   };
 
   const handleSubmitForm = async (e: React.FormEvent) => {
