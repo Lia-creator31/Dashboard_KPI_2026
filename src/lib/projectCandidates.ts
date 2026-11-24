@@ -58,10 +58,11 @@ export const KNOWN_DRAWING_PROJECT_KEYS = [
 ];
 
 // Jika proyek adalah CORP2026 (atau proyek non-link lainnya), cek di dalam deskripsi
-// apakah ada kode proyek yang terdaftar di link Drawing Control (mis. "W000314 - E25291.01100...").
+// apakah ada kode proyek yang terdaftar di link Drawing Control (mis. "W000314 - E25291.01100...")
+// ATAU pola kode proyek baru di awal deskripsi (mis. "W000315 - ...", "M000314 - ...").
 export function findDrawingProjectInDescription(desc: string): string {
   if (!desc) return '';
-  const upper = desc.toUpperCase();
+  const upper = desc.toUpperCase().trim();
   // 1) Cek kandidat proyek dari token-token deskripsi terhadap daftar link Drawing Control
   const cands = projectCandidates(upper);
   for (const c of cands) {
@@ -72,6 +73,20 @@ export function findDrawingProjectInDescription(desc: string): string {
   for (const key of KNOWN_DRAWING_PROJECT_KEYS) {
     const re = new RegExp(`(?:^|[^A-Z0-9])${key}(?:$|[^A-Z0-9])`, 'i');
     if (re.test(upper)) return key;
+  }
+  // 3) Dinamis (otomatis untuk proyek baru yang ditambahkan di folder Google Drive / GAS):
+  //    Jika di awal deskripsi ada pola kode proyek (mis. "W000315 - E25..." atau "M000316 - ..."),
+  //    ambil kode proyek tersebut meskipun belum ditulis di KNOWN_DRAWING_PROJECT_KEYS.
+  const mLeadCode = upper.match(/^([WM]\d{4,6})\s*[-–—_:/]/);
+  if (mLeadCode) {
+    const norm = projectCandidates(mLeadCode[1]);
+    return norm.find(x => /^[WM]\d{6}$/.test(x)) || mLeadCode[1];
+  }
+  // 4) Atau jika di dalam deskripsi ada kode proyek standar W000xxx / M000xxx (tanpa titik di belakangnya, agar tidak tertukar dengan nomor gambar)
+  const mAnyCode = upper.match(/(?:^|[^A-Z0-9.])([WM]0{2,4}\d{2,4})(?![A-Z0-9.])/);
+  if (mAnyCode) {
+    const norm = projectCandidates(mAnyCode[1]);
+    return norm.find(x => /^[WM]\d{6}$/.test(x)) || mAnyCode[1];
   }
   return '';
 }
