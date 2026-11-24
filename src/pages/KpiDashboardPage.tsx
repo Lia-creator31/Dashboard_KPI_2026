@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import { departmentsData } from '../data';
 import { projectCandidates, dedupeRows, resolveDrawingProject, findDrawingProjectInDescription, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject } from '../lib/projectCandidates';
-import { Building2, ArrowLeft, ChevronRight, RefreshCw, Users, Layers, ArrowUpDown } from 'lucide-react';
+import { Building2, ArrowLeft, ChevronRight, RefreshCw, Users, Layers, ArrowUpDown, FileSpreadsheet, FileText } from 'lucide-react';
 
 interface KpiDashboardPageProps {
   user: UserSession;
@@ -1312,6 +1314,107 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
     return filtered;
   }, [allPersonsWithMeta, personnelSortOrder, personnelSearch]);
   const allPersons = useMemo(() => allPersonsWithMeta.map(x => x.person), [allPersonsWithMeta]);
+
+  const buildPersonnelExportData = () => {
+    const periodText = period === 'all' ? 'Semua Periode' : periodLabel(period);
+    const orderText = personnelSortOrder === 'desc' ? 'Tertinggi ke Terendah' : 'Terendah ke Tertinggi';
+    const head = [
+      'No',
+      'Nama Personel',
+      'Biro',
+      'Departemen',
+      'A - Efisiensi JO (%)',
+      'B - Release Drawing (%)',
+      'Drawing Release',
+      'Skor KPI',
+      'Kategori',
+      'Jumlah Tugas',
+    ];
+    const rows = sortedAllPersons.map((item, idx) => {
+      const p = item.person;
+      const cat = getCategory(p.kpi);
+      const descOnlyCount = p.cards.filter(c => !!(c as any).noJobcardDesc).length;
+      const realCardCount = p.cards.length - descOnlyCount;
+      return [
+        idx + 1,
+        p.name,
+        item.biroName,
+        item.deptName,
+        p.a !== null ? Number(p.a.toFixed(1)) : '-',
+        p.b !== null ? Number(p.b.toFixed(1)) : '-',
+        p.targetRev0 > 0 ? `${p.onTimeRev0}/${p.targetRev0}` : '-',
+        p.kpi !== null ? Number(p.kpi.toFixed(1)) : '-',
+        cat.label,
+        realCardCount,
+      ];
+    });
+    return { head, rows, periodText, orderText };
+  };
+
+  const exportPersonnelExcel = () => {
+    const { head, rows, periodText, orderText } = buildPersonnelExportData();
+    const ws = XLSX.utils.aoa_to_sheet([head, ...rows]);
+    ws['!cols'] = [
+      { wch: 6 },
+      { wch: 32 },
+      { wch: 36 },
+      { wch: 40 },
+      { wch: 20 },
+      { wch: 22 },
+      { wch: 16 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 14 },
+    ];
+    const wbOut = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wbOut, ws, 'Peringkat KPI');
+    const safePeriod = periodText.replace(/\s+/g, '_');
+    const safeOrder = personnelSortOrder === 'desc' ? 'Tertinggi_Terendah' : 'Terendah_Tertinggi';
+    XLSX.writeFile(wbOut, `Peringkat_KPI_Personel_Divisi_Desain_${safeOrder}_${safePeriod}.xlsx`);
+    void orderText;
+  };
+
+  const exportPersonnelPdf = () => {
+    const { head, rows, periodText, orderText } = buildPersonnelExportData();
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+
+    doc.setFontSize(13);
+    doc.text('PERINGKAT KPI SELURUH PERSONEL DIVISI DESAIN', 40, 34);
+    doc.setFontSize(8.5);
+    doc.text(
+      `Urutan: ${orderText}  |  Periode: ${periodText}  |  Total Personel: ${rows.length} orang  |  Dicetak: ${new Date().toLocaleDateString('id-ID')}`,
+      40,
+      49
+    );
+
+    autoTable(doc, {
+      head: [head],
+      body: rows,
+      startY: 58,
+      theme: 'grid',
+      styles: { fontSize: 7.5, cellPadding: 3.5, valign: 'middle' },
+      headStyles: { fillColor: [30, 41, 59], textColor: 255, halign: 'center' },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 28 },
+        4: { halign: 'right', cellWidth: 65 },
+        5: { halign: 'right', cellWidth: 70 },
+        6: { halign: 'center', cellWidth: 55 },
+        7: { halign: 'right', cellWidth: 50, fontStyle: 'bold' },
+        8: { halign: 'center', cellWidth: 65 },
+        9: { halign: 'center', cellWidth: 48 },
+      },
+      didDrawPage: () => {
+        const p = doc.getNumberOfPages();
+        doc.setFontSize(8);
+        doc.text(`Hal. ${p}`, doc.internal.pageSize.getWidth() - 60, doc.internal.pageSize.getHeight() - 18);
+      },
+    });
+
+    const safePeriod = periodText.replace(/\s+/g, '_');
+    const safeOrder = personnelSortOrder === 'desc' ? 'Tertinggi_Terendah' : 'Terendah_Tertinggi';
+    doc.save(`Peringkat_KPI_Personel_Divisi_Desain_${safeOrder}_${safePeriod}.pdf`);
+  };
+
   const divisionProjects = useMemo(
     () => buildProjectScores(deptScores.flatMap(d => d.biros.flatMap(b => b.persons.flatMap(p => p.cards)))),
     [deptScores]
@@ -1478,6 +1581,22 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                       >
                         <ArrowUpDown className="w-3.5 h-3.5" />
                         {personnelSortOrder === 'desc' ? 'Tertinggi → Terendah' : 'Terendah → Tertinggi'}
+                      </button>
+                      <button
+                        onClick={exportPersonnelExcel}
+                        className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-semibold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition"
+                        title="Download Peringkat KPI ke file Excel (.xlsx)"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5" />
+                        Export Excel
+                      </button>
+                      <button
+                        onClick={exportPersonnelPdf}
+                        className="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 font-semibold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition"
+                        title="Download Peringkat KPI ke file PDF (.pdf)"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        Export PDF
                       </button>
                     </>
                   )}
