@@ -3,7 +3,7 @@ import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
-import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS } from '../lib/projectCandidates';
+import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet } from '../lib/projectCandidates';
 import { ArrowLeft, FileSpreadsheet, Save, AlertTriangle, Check } from 'lucide-react';
 
 interface ImportJobcardPageProps {
@@ -343,7 +343,7 @@ async function fetchDrawingRows(project: string): Promise<DrawingControlRow[]> {
     }
   } catch { /* lanjut ke cadangan */ }
 
-  const match = GOOGLE_DRIVE_SHEETS.find(s => dcClean(s.projectKey) === proj || proj.includes(dcClean(s.projectKey)));
+  const match = findMatchingDriveSheet(project);
   if (match) {
     try {
       const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`);
