@@ -573,7 +573,12 @@ const drawingKey = (v: string) => cleanText(extractDrawingNumber(v) || v);
 function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
   if (!rows || rows.length === 0 || !taskName) return '';
   const wanted = drawingKey(taskName);
+  const strippedTask = (taskName || '')
+    .replace(/^[WM]\d{4,6}\s*[-–—_:/]\s*/i, '')
+    .replace(/^[A-Z0-9]{2,12}(?:-[A-Z0-9]{2,8})?\s*[-–—_:/]\s*/i, '')
+    .trim();
   const cleanTarget = cleanText(taskName);
+  const cleanStripped = cleanText(strippedTask);
   if (!wanted && !cleanTarget) return '';
   const toNum = (v: any) => { const n = parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10); return isNaN(n) ? 0 : n; };
   const wantRev = toNum(rev);
@@ -581,9 +586,11 @@ function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: str
     if (toNum(r.rev) !== wantRev) return false;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(r.finishDate))) return false;
     const rKey = drawingKey(r.noDwg);
-    if (wanted && rKey === wanted) return true;
+    if (wanted && rKey && rKey === wanted) return true;
     const cDwg = cleanText(r.noDwg);
     if (cDwg && cDwg.length >= 5 && cleanTarget.includes(cDwg)) return true;
+    const cName = cleanText(r.drawingName);
+    if (cName && cName.length >= 5 && (cName === cleanStripped || cleanTarget.includes(cName) || (cleanStripped.length >= 5 && cName.includes(cleanStripped)))) return true;
     return false;
   });
   return hit ? parseToStandardDate(hit.finishDate) : '';
@@ -1852,7 +1859,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   const loadAllJobCards = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from('job_cards').select('*').order('created_at', { ascending: true });
+      const data: any[] = [];
+      let error: any = null;
+      for (let from = 0; ; from += 1000) {
+        const res = await supabase.from('job_cards').select('*').order('created_at', { ascending: true }).range(from, from + 999);
+        if (res.error) { error = res.error; break; }
+        data.push(...(res.data || []));
+        if (!res.data || res.data.length < 1000) break;
+      }
       const grouped: { [biroKey: string]: TaskItem[] } = {};
       const seenIds = new Set<string>();
       const localHistory = loadSubconHistoryLocal();
@@ -2346,8 +2360,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         return;
       }
 
-      // 1. Baca data lama di tabel job_cards (simpan release yang sudah pernah terisi agar tidak hilang) lalu hapus
-      const { data: oldRows, error: fetchOldErr } = await supabase.from('job_cards').select('*');
+      // 1. Baca seluruh data lama di tabel job_cards (dengan paginasi agar lewat dari batas 1000 baris Supabase) lalu hapus
+      const oldRows: any[] = [];
+      let fetchOldErr: any = null;
+      for (let from = 0; ; from += 1000) {
+        const res = await supabase.from('job_cards').select('*').range(from, from + 999);
+        if (res.error) { fetchOldErr = res.error; break; }
+        oldRows.push(...(res.data || []));
+        if (!res.data || res.data.length < 1000) break;
+      }
       if (fetchOldErr) {
         alert('Gagal membaca data lama untuk dihapus: ' + fetchOldErr.message);
         return;
