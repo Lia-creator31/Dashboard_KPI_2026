@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
-import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet } from '../lib/projectCandidates';
+import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject } from '../lib/projectCandidates';
 import { ArrowLeft, RefreshCw, Save, Check, AlertTriangle } from 'lucide-react';
 
 interface SyncReleasePageProps {
@@ -280,9 +280,13 @@ export default function SyncReleasePage({ user, onLogout, onBack }: SyncReleaseP
   }, [cards, month, year]);
 
   // 3) Baca Drawing Control otomatis untuk setiap proyek yang tampil (tanpa klik apa pun)
-  // Jika proyek adalah CORP2026, ambil kode proyek Drawing Control dari dalam deskripsi (mis. W000314)
+  // Jika proyek adalah CORP2026:
+  // - bila ada kode proyek di deskripsi (mis. W000314), muat proyek itu
+  // - bila tidak ada kode proyek di deskripsi tapi ada nomor gambar, muat seluruh proyek Drive agar bisa dicari satu per satu
   useEffect(() => {
-    const needed = Array.from(new Set(monthCards.map(c => resolveDrawingProject(c.project, c.task)).filter(Boolean)));
+    const baseProjs = monthCards.map(c => resolveDrawingProject(c.project, c.task)).filter(p => p && !isCorpProject(p));
+    const hasUnresolvedCorp = monthCards.some(c => isCorpProject(resolveDrawingProject(c.project, c.task)) && !!extractDrawingNumber(c.task));
+    const needed = Array.from(new Set(hasUnresolvedCorp ? [...baseProjs, ...ALL_DRIVE_PROJECT_KEYS] : baseProjs));
     const todo = needed.filter(p => !driveMap[p]);
     if (!todo.length) return;
     let cancelled = false;
@@ -314,15 +318,34 @@ export default function SyncReleasePage({ user, onLogout, onBack }: SyncReleaseP
   const analyzed = useMemo(() => {
     return monthCards.map(c => {
       const effProj = resolveDrawingProject(c.project, c.task);
-      const d = effProj ? driveMap[effProj] : undefined;
       let status: Status = 'loading';
       let drive = '';
-      if (!effProj || (d && d.state === 'empty')) status = 'noproj';
-      else if (d && d.state === 'ok') {
-        drive = findReleaseDate(d.rows, c.task, c.rev);
-        if (!drive) status = 'notfound';
-        else if (!c.release) status = 'new';
-        else status = c.release === drive ? 'same' : 'diff';
+      if (!isCorpProject(effProj)) {
+        const d = effProj ? driveMap[effProj] : undefined;
+        if (!effProj || (d && d.state === 'empty')) status = 'noproj';
+        else if (d && d.state === 'ok') {
+          drive = findReleaseDate(d.rows, c.task, c.rev);
+          if (!drive) status = 'notfound';
+          else if (!c.release) status = 'new';
+          else status = c.release === drive ? 'same' : 'diff';
+        }
+      } else {
+        // CORP2026 tanpa kode proyek di deskripsi -> cari nomor gambar satu per satu di seluruh proyek Drive
+        const states = ALL_DRIVE_PROJECT_KEYS.map(k => driveMap[k]).filter(Boolean);
+        const anyLoading = ALL_DRIVE_PROJECT_KEYS.some(k => !driveMap[k] || driveMap[k].state === 'loading');
+        for (const st of states) {
+          if (st.state === 'ok') {
+            const hit = findReleaseDate(st.rows, c.task, c.rev);
+            if (hit) { drive = hit; break; }
+          }
+        }
+        if (drive) {
+          status = !c.release ? 'new' : (c.release === drive ? 'same' : 'diff');
+        } else if (anyLoading) {
+          status = 'loading';
+        } else {
+          status = 'notfound';
+        }
       }
       return { card: c, drive, status };
     });
