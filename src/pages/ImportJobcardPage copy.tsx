@@ -3,6 +3,7 @@ import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
+import { resolveDrawingProject } from '../lib/projectCandidates';
 import { ArrowLeft, FileSpreadsheet, Save, AlertTriangle, Check } from 'lucide-react';
 
 interface ImportJobcardPageProps {
@@ -593,15 +594,17 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
       });
 
       // Release otomatis dari Drawing Control (Google Drive), per proyek + nomor gambar + Rev
+      // Jika proyek adalah CORP2026, cek apakah ada kode proyek Drawing Control di dalam deskripsi
       const rowsByProject = new Map<string, DrawingControlRow[]>();
       await Promise.all(
-        Array.from(new Set(fresh.map(r => r.project).filter(Boolean))).map(async pr => {
+        Array.from(new Set(fresh.map(r => resolveDrawingProject(r.project, r.taskName)).filter(Boolean))).map(async pr => {
           try { rowsByProject.set(pr, await fetchDrawingRows(pr)); } catch { rowsByProject.set(pr, []); }
         })
       );
       const releaseByKey = new Map<string, string>();
       fresh.forEach(r => {
-        const rel = findReleaseDate(rowsByProject.get(r.project) || [], r.taskName, r.rev);
+        const effProj = resolveDrawingProject(r.project, r.taskName);
+        const rel = findReleaseDate(rowsByProject.get(effProj) || [], r.taskName, r.rev);
         if (rel) releaseByKey.set(r.key, rel);
       });
 
