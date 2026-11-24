@@ -1200,29 +1200,32 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
-        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+      <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800">
+        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => { setAccessMode('landing'); setSelectedDept(null); setSelectedFormBiro(null); setSubconSelectedBiro(null); setSubconSelectedDept(null); }}>
-            <div className="p-1.5 bg-blue-600 rounded-lg text-white">
+            <div className="p-1.5 bg-blue-600/15 border border-blue-500/30 rounded-md text-blue-400">
               <Building2 className="w-4 h-4" />
             </div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-sm text-white">PORTAL KABIRO</span>
+              <span className="font-bold text-sm text-white tracking-tight">DIVISI DESAIN</span>
+              <span className="text-slate-700">|</span>
+              <span className="text-xs font-medium text-slate-300">Kepala Biro</span>
               {accessMode !== 'landing' && (
-                <span className="text-xs px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-300 border border-slate-700">
-                  {accessMode === 'organik' ? 'Organik' : 'Subkon'}
+                <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-800 text-slate-300 border border-slate-700">
+                  {accessMode === 'organik' ? 'Pegawai Organik' : 'Mitra / Subkon'}
                 </span>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <span className="hidden md:inline text-xs text-slate-400 mr-1">{user.nama}</span>
             {accessMode !== 'landing' && (
               <button onClick={() => { setAccessMode('landing'); setSelectedDept(null); setSelectedFormBiro(null); setSubconSelectedBiro(null); setSubconSelectedDept(null); }}
-                className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer">
+                className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md border border-slate-700 cursor-pointer transition">
                 Ganti Portal
               </button>
             )}
-            <button onClick={onLogout} className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer">
+            <button onClick={onLogout} className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-rose-600/20 text-slate-300 hover:text-rose-300 rounded-md border border-slate-700 hover:border-rose-500/30 cursor-pointer transition">
               Keluar
             </button>
           </div>
@@ -1232,27 +1235,54 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
       <main className="max-w-6xl mx-auto px-4 py-8">
         {/* ================= 1. LANDING PAGE ================= */}
         {accessMode === 'landing' && (
-          <div className="max-w-2xl mx-auto text-center space-y-8 pt-8">
-            <div className="space-y-2">
-              <h1 className="text-2xl sm:text-3xl font-bold text-white">Sistem Penugasan Job Card</h1>
-              <p className="text-slate-400 text-sm">Pilih portal akses kerja Anda</p>
+          <div className="max-w-3xl mx-auto space-y-6 pt-4">
+            <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-400 mb-1">Portal Kepala Biro</div>
+                <h1 className="text-xl sm:text-2xl font-bold text-white">Pilih Kategori Penugasan Personel</h1>
+              </div>
+              <span className="text-xs text-slate-400">Masuk sebagai <b className="text-slate-200">{user.nama}</b></span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div onClick={() => setAccessMode('organik')}
-                className="bg-slate-900 border border-slate-800 hover:border-blue-500 rounded-2xl p-6 cursor-pointer text-left transition hover:bg-slate-900/80 group">
-                <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl w-fit mb-4 group-hover:bg-blue-600 group-hover:text-white transition">
-                  <Briefcase className="w-6 h-6" />
+                className="bg-slate-900 border border-slate-800 hover:border-blue-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex flex-col justify-between gap-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-lg">
+                      <Briefcase className="w-5 h-5" />
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-blue-400 group-hover:translate-x-0.5 transition" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Pegawai Organik</h3>
+                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                      Kelola penugasan Jobcard, pantau Realisasi JO, sinkronisasi tanggal Release gambar, dan lihat Dashboard KPI biro.
+                    </p>
+                  </div>
                 </div>
-                <h3 className="text-lg font-bold text-white">Pegawai Organik</h3>
-                <span className="text-xs text-slate-400">Pegawai PKWTT & PKWT Divisi Desain</span>
+                <div className="pt-3 border-t border-slate-800/80 text-[11px] font-medium text-blue-400">
+                  Buka Portal Organik →
+                </div>
               </div>
               <div onClick={() => setAccessMode('subkon')}
-                className="bg-slate-900 border border-slate-800 hover:border-amber-500 rounded-2xl p-6 cursor-pointer text-left transition hover:bg-slate-900/80 group">
-                <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl w-fit mb-4 group-hover:bg-amber-600 group-hover:text-white transition">
-                  <HardHat className="w-6 h-6" />
+                className="bg-slate-900 border border-slate-800 hover:border-amber-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex flex-col justify-between gap-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-lg">
+                      <HardHat className="w-5 h-5" />
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Mitra / Subkon</h3>
+                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                      Buat dan terbitkan Work Order (WO) dengan nomor JO otomatis serta pantau daftar pekerjaan personel outsourcing.
+                    </p>
+                  </div>
                 </div>
-                <h3 className="text-lg font-bold text-white">Mitra / Subkon</h3>
-                <span className="text-xs text-slate-400">Personil Outsourcing</span>
+                <div className="pt-3 border-t border-slate-800/80 text-[11px] font-medium text-amber-400">
+                  Buka Portal Mitra / Subkon →
+                </div>
               </div>
             </div>
           </div>
