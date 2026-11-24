@@ -8,12 +8,19 @@ export function projectCandidates(raw: string): string[] {
   const out = new Set<string>();
   const add = (s: string) => { const v = s.trim(); if (v) out.add(v); };
 
+  // Jika ada kode berstrip seperti "R41-PCC" atau "R41-FPB", tambahkan juga gabungan utuhnya ("R41PCC", "R41-PCC")
+  const hyphenCodes = (raw || '').toUpperCase().match(/\b[A-Z]\d{1,3}-[A-Z0-9]{2,6}\b/g) || [];
+  hyphenCodes.forEach(hc => {
+    add(hc);
+    add(hc.replace(/-/g, ''));
+  });
+
   const tokens = (raw || '').toUpperCase()
-    .split(/\s*(?:-|–|—|\/|,|;|&|\+|\bDAN\b)\s*/)
-    .map(t => t.replace(/[^A-Z0-9]/g, ''))
+    .split(/\s*(?:-|–|—|\/|,|;|&|\+|\(|\)|\bDAN\b)\s*/)
+    .map(t => t.replace(/\.XLSX$|\.XLS$/i, '').replace(/[^A-Z0-9]/g, ''))
     .filter(Boolean);
 
-  let prefix = ''; // huruf kode sebelumnya, untuk "W000304 - 305"
+  let prefix = ''; // huruf/awalan kode sebelumnya, untuk "W000304 - 305" atau "JW1 - JW2"
   for (const t of tokens) {
     // angka saja (mis. "305") -> pakai huruf dari kode sebelumnya
     if (/^\d+$/.test(t)) {
@@ -21,6 +28,18 @@ export function projectCandidates(raw: string): string[] {
       continue;
     }
     add(t);
+
+    // kode A26AOP01 / A26A0P01 -> tambahkan kedua variasi (O dan 0)
+    if (/^A\d{2}A[O0]P\d{2}$/.test(t)) {
+      add(t.replace(/A0P/, 'AOP'));
+      add(t.replace(/AOP/, 'A0P'));
+      add('KSOT');
+    }
+
+    // JW1 / JW2 -> berkaitan dengan LCU
+    if (/^JW\d+$/.test(t)) {
+      add('LCU');
+    }
 
     // kode standar: 1 huruf + angka -> W000304
     const code = t.match(/^([A-Z])0*(\d+)$/);
@@ -35,8 +54,9 @@ export function projectCandidates(raw: string): string[] {
     const base = fam ? fam[1] : (/^[A-Z]{3,}$/.test(t) ? t : '');
     if (base) {
       add(base);
-      // WFFBNW -> FFBNW (nama di daftar sheet tanpa W)
+      // WFFBNW -> FFBNW (atau sebaliknya FFBNW -> WFFBNW)
       if (base.startsWith('W') && base.length >= 5) add(base.slice(1));
+      if (base === 'FFBNW') add('WFFBNW');
     }
   }
   return Array.from(out);
@@ -46,61 +66,120 @@ export interface DrawingSheetConfig {
   id: string;
   projectKey: string;
   title: string;
+  aliases?: string[]; // kode proyek di dalam kurung atau nama alternatif pada judul file di Drive
 }
 
 // SATU-SATUNYA tempat daftar Link Google Sheet Drawing Control untuk seluruh aplikasi.
-// Jika ada link Google Sheet baru, cukup tambahkan 1 baris di sini -> otomatis berlaku di
-// RendalPage, KabiroPage, KpiDashboardPage, SyncReleasePage, dan ImportJobcardPage.
+// Sesuai isi folder Google Drive "DRAWING CONTROL ONLINE":
+// - Drawing Control KSR 20 M ALU (W000314)
+// - Drawing Control FRIGATE 140 M (W000304-305)
+// - Drawing Control KSOT (A26AOP01)
+// - Drawing Control LPD UAE USED (W000308)
+// - Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)
+// - Drawing Control LD PN 124 M. (W000306-307)
+// - Drawing Control GEOMARIN V (M000313)
+// - Drawing Control KSSR 18 M (W000311)
+// - Drawing Control LCU LD PN 124 M (JW1 - JW2)
+// - Drawing Control FFBNW FRIGATE 140 M (WFFBNW)
+// - Drawing Control R41-PCC.xlsx
+// - Drawing Control R41-FPB.xlsx
 export const GOOGLE_DRIVE_SHEETS: DrawingSheetConfig[] = [
-  { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)' },
+  { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)', aliases: ['GEOMARIN V', 'GEOMARIN'] },
   { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000304', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
   { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000305', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
-  { id: '19qiMBb1b7qmeRXkFNTbh-eKtVEKDUTgshloa116HQ48', projectKey: 'W000308', title: 'Drawing Control LPD UAE USED (W000308)' },
-  { id: '16rrjyU60BmzRIYFL3I1WRLkw_AfJPUwi8vZiJx2LYCg', projectKey: 'W000314', title: 'Drawing Control KSR 20 M ALU (W000314)' },
+  { id: '19qiMBb1b7qmeRXkFNTbh-eKtVEKDUTgshloa116HQ48', projectKey: 'W000308', title: 'Drawing Control LPD UAE USED (W000308)', aliases: ['LPD UAE'] },
+  { id: '16rrjyU60BmzRIYFL3I1WRLkw_AfJPUwi8vZiJx2LYCg', projectKey: 'W000314', title: 'Drawing Control KSR 20 M ALU (W000314)', aliases: ['KSR 20 M ALU', 'KSR 20 M'] },
   { id: '1uv2D4ECJ0z-NWP8byzXTkkM17MKD6f0r-RCtKjpG5Hs', projectKey: 'M000312', title: 'Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)' },
-  { id: '1eTO-dvVd3psdP4mFQc2ZQW_Z-lyooCb2TVjR4mYTbDw', projectKey: 'W000311', title: 'Drawing Control KSSR 18 M (W000311)' },
+  { id: '1eTO-dvVd3psdP4mFQc2ZQW_Z-lyooCb2TVjR4mYTbDw', projectKey: 'W000311', title: 'Drawing Control KSSR 18 M (W000311)', aliases: ['KSSR 18 M'] },
   { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000306', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
   { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000307', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
-  { id: '1l0ZoTCctHrmkruIkC4Gk1NtoqsugMVGABrsf3yb6PHo', projectKey: 'KSOT', title: 'Drawing Control KSOT' },
-  { id: '1jGNHh9HhSrPlEv7JZvtW8ToMU2ADrT0yE87tk9E53zY', projectKey: 'LCU', title: 'Drawing Control LCU LD PN 124 M' },
-  { id: '1XsrklFhcUkjgfEjuT4jDRWx6Uufsj8Jt', projectKey: 'FFBNW', title: 'Drawing Control FFBNW FRIGATE 140 M' },
+  { id: '1l0ZoTCctHrmkruIkC4Gk1NtoqsugMVGABrsf3yb6PHo', projectKey: 'KSOT', title: 'Drawing Control KSOT (A26AOP01)', aliases: ['A26AOP01', 'A26A0P01'] },
+  { id: '1jGNHh9HhSrPlEv7JZvtW8ToMU2ADrT0yE87tk9E53zY', projectKey: 'LCU', title: 'Drawing Control LCU LD PN 124 M (JW1 - JW2)', aliases: ['JW1', 'JW2', 'JW1 - JW2', 'LCU LD PN 124 M'] },
+  { id: '1XsrklFhcUkjgfEjuT4jDRWx6Uufsj8Jt', projectKey: 'FFBNW', title: 'Drawing Control FFBNW FRIGATE 140 M (WFFBNW)', aliases: ['WFFBNW', 'WFFBNW1', 'WFFBNW2'] },
+  { id: '', projectKey: 'R41-PCC', title: 'Drawing Control R41-PCC.xlsx', aliases: ['R41PCC', 'PCC'] },
+  { id: '', projectKey: 'R41-FPB', title: 'Drawing Control R41-FPB.xlsx', aliases: ['R41FPB', 'FPB'] },
 ];
 
-// Otomatis terbentuk dari GOOGLE_DRIVE_SHEETS (tidak perlu ketik 2 kali)
-export const KNOWN_DRAWING_PROJECT_KEYS: string[] = Array.from(
-  new Set(GOOGLE_DRIVE_SHEETS.map(s => s.projectKey.toUpperCase().trim()))
-);
+// Ekstrak seluruh kode proyek & kode di dalam tanda kurung (...) dari judul file di Drive
+function extractKeysFromDriveSheets(): string[] {
+  const keys = new Set<string>();
+  GOOGLE_DRIVE_SHEETS.forEach(s => {
+    const pk = s.projectKey.toUpperCase().trim();
+    if (pk) {
+      keys.add(pk);
+      keys.add(pk.replace(/[^A-Z0-9]/g, ''));
+    }
+    (s.aliases || []).forEach(a => {
+      const up = a.toUpperCase().trim();
+      if (up) {
+        keys.add(up);
+        keys.add(up.replace(/[^A-Z0-9]/g, ''));
+      }
+    });
+    // Ambil juga apa pun yang tertulis di dalam tanda kurung pada title, misal "(W000304-305)", "(A26AOP01)", "(JW1 - JW2)", "(WFFBNW)"
+    const inParens = s.title.match(/\(([^)]+)\)/g) || [];
+    inParens.forEach(p => {
+      projectCandidates(p.replace(/[()]/g, '')).forEach(c => keys.add(c));
+    });
+  });
+  return Array.from(keys);
+}
+
+// Otomatis terbentuk dari GOOGLE_DRIVE_SHEETS beserta seluruh kode di dalam kurung & aliasnya
+export const KNOWN_DRAWING_PROJECT_KEYS: string[] = extractKeysFromDriveSheets();
 
 // Jika proyek adalah CORP2026 (atau proyek non-link lainnya), cek di dalam deskripsi
 // apakah ada kode proyek yang terdaftar di link Drawing Control (mis. "W000314 - E25291.01100...")
-// ATAU pola kode proyek baru di awal deskripsi (mis. "W000315 - ...", "M000314 - ...").
+// ATAU format nama file Drawing Control di Drive:
+//   - Kode proyek standar: W000314, M000313, W000304-305
+//   - Kode alfanumerik / kontrak di dalam kurung: A26AOP01, JW1, JW2, WFFBNW
+//   - Kode berstrip: R41-PCC, R41-FPB
 export function findDrawingProjectInDescription(desc: string): string {
   if (!desc) return '';
   const upper = desc.toUpperCase().trim();
+
+  // 0) Cek kode berstrip seperti "R41-PCC" atau "R41-FPB" di dalam deskripsi
+  const mHyphen = upper.match(/\b([A-Z]\d{1,3}-[A-Z0-9]{2,6})\b/);
+  if (mHyphen) return mHyphen[1];
+
   // 1) Cek kandidat proyek dari token-token deskripsi terhadap daftar link Drawing Control
   const cands = projectCandidates(upper);
   for (const c of cands) {
-    const match = KNOWN_DRAWING_PROJECT_KEYS.find(k => k === c);
+    const match = KNOWN_DRAWING_PROJECT_KEYS.find(k => k === c || k.replace(/[^A-Z0-9]/g, '') === c);
     if (match) return match;
   }
-  // 2) Cek kecocokan kata utuh untuk tiap projectKey di link Drawing Control
+  // 2) Cek kecocokan kata utuh untuk tiap projectKey/alias di link Drawing Control
   for (const key of KNOWN_DRAWING_PROJECT_KEYS) {
-    const re = new RegExp(`(?:^|[^A-Z0-9])${key}(?:$|[^A-Z0-9])`, 'i');
+    if (key.length < 3) continue;
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(?:^|[^A-Z0-9])${escaped}(?:$|[^A-Z0-9])`, 'i');
     if (re.test(upper)) return key;
   }
-  // 3) Dinamis (otomatis untuk proyek baru yang ditambahkan di folder Google Drive / GAS):
-  //    Jika di awal deskripsi ada pola kode proyek (mis. "W000315 - E25..." atau "M000316 - ..."),
-  //    ambil kode proyek tersebut meskipun belum ditulis di KNOWN_DRAWING_PROJECT_KEYS.
+  // 3) Dinamis (otomatis untuk kapal/proyek baru yang ditambahkan di folder Google Drive "DRAWING CONTROL ONLINE"):
+  //    a) Format W000xxx / M000xxx di awal atau di tengah deskripsi
   const mLeadCode = upper.match(/^([WM]\d{4,6})\s*[-–—_:/]/);
   if (mLeadCode) {
     const norm = projectCandidates(mLeadCode[1]);
     return norm.find(x => /^[WM]\d{6}$/.test(x)) || mLeadCode[1];
   }
-  // 4) Atau jika di dalam deskripsi ada kode proyek standar W000xxx / M000xxx (tanpa titik di belakangnya, agar tidak tertukar dengan nomor gambar)
   const mAnyCode = upper.match(/(?:^|[^A-Z0-9.])([WM]0{2,4}\d{2,4})(?![A-Z0-9.])/);
   if (mAnyCode) {
     const norm = projectCandidates(mAnyCode[1]);
     return norm.find(x => /^[WM]\d{6}$/.test(x)) || mAnyCode[1];
+  }
+  //    b) Format kode proyek di dalam kurung pada judul Drive, seperti A26AOP01, JW1, JW2, R41-PCC, atau kode proyek di depan sebelum " - NOMOR_GAMBAR"
+  const mLeadPrefix = upper.match(/^([A-Z0-9]{2,12}(?:-[A-Z0-9]{2,8})?)\s*[-–—_:/]\s*([A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+)/);
+  if (mLeadPrefix && !/^R(?:EV)?\d*$/i.test(mLeadPrefix[1])) {
+    return mLeadPrefix[1];
+  }
+  //    c) Jika ada teks "Drawing Control <NAMA PROYEK> (<KODE>)" langsung di deskripsi
+  const mDcTitle = upper.match(/DRAWING\s+CONTROL\s+([A-Z0-9\s.&-]+?)(?:\s*\(([A-Z0-9\s-]+)\)|\.XLSX?|$)/i);
+  if (mDcTitle) {
+    if (mDcTitle[2]) {
+      const c = projectCandidates(mDcTitle[2]);
+      if (c.length > 0) return c[0];
+    }
+    return mDcTitle[1].trim();
   }
   return '';
 }
@@ -116,6 +195,21 @@ export function resolveDrawingProject(project: string, desc: string): string {
     if (fromDesc) return fromDesc;
   }
   return p;
+}
+
+const cleanAlnum = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+
+// Cari konfigurasi sheet Google Drive berdasarkan projectKey, alias (mis. A26AOP01, JW1, JW2, WFFBNW), atau judul
+export function findMatchingDriveSheet(projectCode: string): DrawingSheetConfig | undefined {
+  const cp = cleanAlnum(projectCode);
+  if (!cp) return undefined;
+  return GOOGLE_DRIVE_SHEETS.find(s => {
+    if (!s.id) return false;
+    const k = cleanAlnum(s.projectKey);
+    if (k === cp || cp.includes(k)) return true;
+    if ((s.aliases || []).some(a => { const ca = cleanAlnum(a); return ca && (ca === cp || cp.includes(ca)); })) return true;
+    return false;
+  });
 }
 
 export const dedupeRows = <T extends { noDwg: string; rev: string; finishDate: string }>(rows: T[]): T[] => {
