@@ -42,20 +42,34 @@ export function projectCandidates(raw: string): string[] {
   return Array.from(out);
 }
 
-export const KNOWN_DRAWING_PROJECT_KEYS = [
-  'M000313',
-  'W000304',
-  'W000305',
-  'W000308',
-  'W000314',
-  'M000312',
-  'W000311',
-  'W000306',
-  'W000307',
-  'KSOT',
-  'LCU',
-  'FFBNW',
+export interface DrawingSheetConfig {
+  id: string;
+  projectKey: string;
+  title: string;
+}
+
+// SATU-SATUNYA tempat daftar Link Google Sheet Drawing Control untuk seluruh aplikasi.
+// Jika ada link Google Sheet baru, cukup tambahkan 1 baris di sini -> otomatis berlaku di
+// RendalPage, KabiroPage, KpiDashboardPage, SyncReleasePage, dan ImportJobcardPage.
+export const GOOGLE_DRIVE_SHEETS: DrawingSheetConfig[] = [
+  { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)' },
+  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000304', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
+  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000305', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
+  { id: '19qiMBb1b7qmeRXkFNTbh-eKtVEKDUTgshloa116HQ48', projectKey: 'W000308', title: 'Drawing Control LPD UAE USED (W000308)' },
+  { id: '16rrjyU60BmzRIYFL3I1WRLkw_AfJPUwi8vZiJx2LYCg', projectKey: 'W000314', title: 'Drawing Control KSR 20 M ALU (W000314)' },
+  { id: '1uv2D4ECJ0z-NWP8byzXTkkM17MKD6f0r-RCtKjpG5Hs', projectKey: 'M000312', title: 'Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)' },
+  { id: '1eTO-dvVd3psdP4mFQc2ZQW_Z-lyooCb2TVjR4mYTbDw', projectKey: 'W000311', title: 'Drawing Control KSSR 18 M (W000311)' },
+  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000306', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
+  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000307', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
+  { id: '1l0ZoTCctHrmkruIkC4Gk1NtoqsugMVGABrsf3yb6PHo', projectKey: 'KSOT', title: 'Drawing Control KSOT' },
+  { id: '1jGNHh9HhSrPlEv7JZvtW8ToMU2ADrT0yE87tk9E53zY', projectKey: 'LCU', title: 'Drawing Control LCU LD PN 124 M' },
+  { id: '1XsrklFhcUkjgfEjuT4jDRWx6Uufsj8Jt', projectKey: 'FFBNW', title: 'Drawing Control FFBNW FRIGATE 140 M' },
 ];
+
+// Otomatis terbentuk dari GOOGLE_DRIVE_SHEETS (tidak perlu ketik 2 kali)
+export const KNOWN_DRAWING_PROJECT_KEYS: string[] = Array.from(
+  new Set(GOOGLE_DRIVE_SHEETS.map(s => s.projectKey.toUpperCase().trim()))
+);
 
 // Jika proyek adalah CORP2026 (atau proyek non-link lainnya), cek di dalam deskripsi
 // apakah ada kode proyek yang terdaftar di link Drawing Control (mis. "W000314 - E25291.01100...")
