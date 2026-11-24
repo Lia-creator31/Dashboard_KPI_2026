@@ -3,6 +3,7 @@ import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
+import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS } from '../lib/projectCandidates';
 import KpiDashboardPage from './KpiDashboardPage';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
@@ -16,21 +17,6 @@ const excelGlobUrls = import.meta.glob('./*.xlsx', {
 }) as Record<string, string>;
 
 const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
-
-const GOOGLE_DRIVE_SHEETS = [
-  { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)' },
-  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000304', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
-  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000305', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
-  { id: '19qiMBb1b7qmeRXkFNTbh-eKtVEKDUTgshloa116HQ48', projectKey: 'W000308', title: 'Drawing Control LPD UAE USED (W000308)' },
-  { id: '16rrjyU60BmzRIYFL3I1WRLkw_AfJPUwi8vZiJx2LYCg', projectKey: 'W000314', title: 'Drawing Control KSR 20 M ALU (W000314)' },
-  { id: '1uv2D4ECJ0z-NWP8byzXTkkM17MKD6f0r-RCtKjpG5Hs', projectKey: 'M000312', title: 'Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)' },
-  { id: '1eTO-dvVd3psdP4mFQc2ZQW_Z-lyooCb2TVjR4mYTbDw', projectKey: 'W000311', title: 'Drawing Control KSSR 18 M (W000311)' },
-  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000306', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
-  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000307', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
-  { id: '1l0ZoTCctHrmkruIkC4Gk1NtoqsugMVGABrsf3yb6PHo', projectKey: 'KSOT', title: 'Drawing Control KSOT' },
-  { id: '1jGNHh9HhSrPlEv7JZvtW8ToMU2ADrT0yE87tk9E53zY', projectKey: 'LCU', title: 'Drawing Control LCU LD PN 124 M' },
-  { id: '1XsrklFhcUkjgfEjuT4jDRWx6Uufsj8Jt', projectKey: 'FFBNW', title: 'Drawing Control FFBNW FRIGATE 140 M' },
-];
 
 export interface ParsedMember {
   nama: string;
@@ -923,11 +909,12 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
   };
 
   const handleSyncReleaseFromDrive = async (task: TaskItem) => {
-    const cleanProj = cleanText(task.project);
+    const effProj = resolveDrawingProject(task.project, task.taskName);
+    const cleanProj = cleanText(effProj);
     let rows = drawingControlMap[cleanProj];
     if (!rows || rows.length === 0) {
       try {
-        const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(task.project.trim())}`;
+        const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(effProj.trim())}`;
         const res = await fetch(url);
         if (res.ok) {
           const json = await res.json();
@@ -941,6 +928,26 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
           }
         }
       } catch (err) { console.error(err); }
+      if (!rows || rows.length === 0) {
+        const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(s.projectKey) === cleanProj || cleanProj.includes(cleanText(s.projectKey)));
+        if (match) {
+          try {
+            const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`);
+            if (res.ok) {
+              const wb = XLSX.read(await res.text(), { type: 'string' });
+              const rawRows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+              const rowsList: DrawingControlRow[] = [];
+              for (let r = 1; r < rawRows.length; r++) {
+                const row = rawRows[r]; if (!row) continue;
+                const noDwg = String(row[0] || '').trim(); const dwgName = String(row[1] || '').trim();
+                if (!noDwg && !dwgName) continue;
+                rowsList.push({ noDwg, drawingName: dwgName, fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg), rev: String(row[14] || '0').trim(), finishDate: String(row[15] || '').trim() });
+              }
+              if (rowsList.length > 0) { rows = rowsList; setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList })); }
+            }
+          } catch {}
+        }
+      }
     }
     if (rows && rows.length > 0) {
       const cleanTarget = cleanText(task.taskName);
@@ -949,17 +956,17 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
         const cFull = cleanText(r.fullDeskripsi); const cDwg = cleanText(r.noDwg); const cName = cleanText(r.drawingName);
         const rowRev = String(r.rev || '0').trim();
         const isRevMatch = rowRev === currentTaskRev;
-        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
-        return isNameMatch && isRevMatch;
+        const isNameMatch = (cDwg && cleanTarget.includes(cDwg)) || (cName && cleanTarget.includes(cName)) || (cFull && (cFull.includes(cleanTarget) || cleanTarget.includes(cFull)));
+        return isNameMatch && isRevMatch && parseToStandardDate(r.finishDate);
       });
       if (exactMatch && exactMatch.finishDate) {
         const standardDate = parseToStandardDate(exactMatch.finishDate);
         await handleQuickSaveRelease(task.id, standardDate);
-        alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(standardDate)}`);
+        alert(`Berhasil sinkronisasi dari Google Drive (${effProj}): ${formatDisplayDate(standardDate)}`);
         return;
       }
     }
-    alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
+    alert(`Tidak ditemukan data FINISH DATE di Google Drive (${effProj || task.project}) untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
   };
 
   const handleSubmitForm = async (e: React.FormEvent) => {
