@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
-import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS } from '../lib/projectCandidates';
+import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
@@ -494,7 +494,7 @@ async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlR
       }
     }
   } catch { /* lanjut ke cadangan CSV */ }
-  const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(s.projectKey) === cleanProj || cleanProj.includes(cleanText(s.projectKey)));
+  const match = findMatchingDriveSheet(projectCode);
   if (match) {
     try {
       const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`);
@@ -554,9 +554,10 @@ function normalizeDrawingSpacing(desc: string): string {
 function extractDrawingNumber(desc: string): string {
   let s = normalizeDrawingSpacing(desc);
   s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
-  // Hilangkan kode proyek di awal deskripsi (mis. "W000314 - E25291.01100_ R0_...") agar yang terambil adalah nomor gambarnya
+  // Hilangkan kode proyek di awal deskripsi (mis. "W000314 - E25291.01100_ R0_..." atau "KCR60M - E25291.01100...") agar yang terambil adalah nomor gambarnya
   s = s.replace(/^[WM]\d{4,6}\s*[-–—_:/]\s*/i, '');
   s = s.replace(/^(?:KSOT|LCU|W?FFBNW\d*)\s*[-–—_:/]\s*/i, '');
+  s = s.replace(/^[A-Z]{2,12}\d{0,6}\s*[-–—_:/]\s*(?=[A-Z]{1,4}\d{2,}[A-Z0-9]*\.)/i, '');
   s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
   // Prioritaskan nomor gambar berformat titik (mis. E25291.01100, EC123C.6) di mana pun posisinya
   const mDot = s.match(/\b[A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+/i);
