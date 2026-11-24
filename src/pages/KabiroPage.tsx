@@ -3,7 +3,7 @@ import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
-import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS } from '../lib/projectCandidates';
+import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet } from '../lib/projectCandidates';
 import KpiDashboardPage from './KpiDashboardPage';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
@@ -846,7 +846,7 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
       }
     } catch (err) { console.warn('Gagal koneksi ke Google Apps Script, mencoba fallback...', err); }
 
-    const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(s.projectKey) === cleanProj || cleanProj.includes(cleanText(s.projectKey)) || cleanText(s.title).includes(cleanProj));
+    const match = findMatchingDriveSheet(projectCode);
     if (match) {
       try {
         const csvUrl = `https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`;
@@ -929,7 +929,7 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
         }
       } catch (err) { console.error(err); }
       if (!rows || rows.length === 0) {
-        const match = GOOGLE_DRIVE_SHEETS.find(s => cleanText(s.projectKey) === cleanProj || cleanProj.includes(cleanText(s.projectKey)));
+        const match = findMatchingDriveSheet(effProj);
         if (match) {
           try {
             const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`);
