@@ -536,7 +536,14 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
   // Load All Job Cards from Supabase (+ sinkronisasi riwayat Work Order Subkon di localStorage)
   const loadAllJobCards = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from('job_cards').select('*').order('created_at', { ascending: true });
+      const data: any[] = [];
+      let error: any = null;
+      for (let from = 0; ; from += 1000) {
+        const res = await supabase.from('job_cards').select('*').order('created_at', { ascending: true }).range(from, from + 999);
+        if (res.error) { error = res.error; break; }
+        data.push(...(res.data || []));
+        if (!res.data || res.data.length < 1000) break;
+      }
       const grouped: { [biroKey: string]: TaskItem[] } = {};
       const seenIds = new Set<string>();
       const localHistory = loadSubconHistoryLocal();
