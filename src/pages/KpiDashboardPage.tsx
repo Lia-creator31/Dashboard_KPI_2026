@@ -3,8 +3,8 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import { departmentsData } from '../data';
-import { projectCandidates, dedupeRows, resolveDrawingProject, findDrawingProjectInDescription, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet } from '../lib/projectCandidates';
-import { Building2, ArrowLeft, ChevronRight, RefreshCw, Users, Layers } from 'lucide-react';
+import { projectCandidates, dedupeRows, resolveDrawingProject, findDrawingProjectInDescription, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject } from '../lib/projectCandidates';
+import { Building2, ArrowLeft, ChevronRight, RefreshCw, Users, Layers, ArrowUpDown } from 'lucide-react';
 
 interface KpiDashboardPageProps {
   user: UserSession;
@@ -908,6 +908,9 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
   const [selectedBiro, setSelectedBiro] = useState<string | null>(null);
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+  const [showAllPersonnel, setShowAllPersonnel] = useState(false);
+  const [personnelSortOrder, setPersonnelSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [personnelSearch, setPersonnelSearch] = useState('');
   const toggleProject = (k: string) => setExpandedProjects(prev => ({ ...prev, [k]: !prev[k] }));
 
   const loadData = useCallback(async () => {
@@ -1124,34 +1127,52 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
       setCards(rows);
 
       // Sinkronisasi otomatis tanggal Release dari Google Drive untuk kartu yang belum punya release
-      // Jika proyek adalah CORP2026, otomatis cek deskripsi apakah ada kode proyek Drawing Control (mis. W000314)
+      // 1) Jika proyek adalah CORP2026 dan di deskripsi ada nama proyek (mis. W000314), cari di proyek tsb.
+      // 2) Khusus CORP2026 yang tidak menulis kode proyek di deskripsi tapi punya nomor gambar (mis. "E90961.92009 - LIGHTWEIGHT ESTIMATION"),
+      //    cari satu per satu di seluruh proyek Drawing Control yang ada di link Google Drive.
       const missingRelease = rows.filter(r => (r.project || r.taskName) && r.taskName && !r.release);
       if (missingRelease.length > 0) {
         const targetProjOf = (r: JobCardRow) => resolveDrawingProject(r.project, r.taskName);
-        const projects = Array.from(new Set(missingRelease.map(targetProjOf).filter(Boolean))).sort((a, b) =>
+        const needsAllDriveSearch = missingRelease.some(r => isCorpProject(targetProjOf(r)) && !!extractDrawingNumber(r.taskName));
+        const baseProjs = missingRelease.map(targetProjOf).filter(p => p && !isCorpProject(p));
+        const projects = Array.from(new Set(needsAllDriveSearch ? [...baseProjs, ...ALL_DRIVE_PROJECT_KEYS] : baseProjs)).sort((a, b) =>
           (isKnownDriveProject(b) ? 1 : 0) - (isKnownDriveProject(a) ? 1 : 0)
         );
         (async () => {
+          const rowsByProj = new Map<string, DrawingControlRow[]>();
           for (let i = 0; i < projects.length; i += 4) {
             const batchProjs = projects.slice(i, i + 4);
-            const rowsByProj = new Map<string, DrawingControlRow[]>();
             await Promise.all(batchProjs.map(async p => {
               try { rowsByProj.set(p, await fetchDrawingRowsFor(p)); } catch { rowsByProj.set(p, []); }
             }));
             const batchFound = new Map<string, string>();
-            missingRelease.filter(r => batchProjs.includes(targetProjOf(r))).forEach(r => {
+            missingRelease.forEach(r => {
+              if (r.release || batchFound.has(r.id)) return;
               const effProj = targetProjOf(r);
-              const rel = findReleaseInRows(rowsByProj.get(effProj) || [], r.taskName, r.rev || '0');
-              if (rel) batchFound.set(r.id, rel);
+              if (!isCorpProject(effProj)) {
+                if (!batchProjs.includes(effProj)) return;
+                const rel = findReleaseInRows(rowsByProj.get(effProj) || [], r.taskName, r.rev || '0');
+                if (rel) batchFound.set(r.id, rel);
+              } else if (extractDrawingNumber(r.taskName)) {
+                // Proyek masih CORP2026 tapi ada nomor gambar -> cek satu per satu di setiap proyek Drive yang sudah dimuat
+                for (const p of batchProjs) {
+                  const rel = findReleaseInRows(rowsByProj.get(p) || [], r.taskName, r.rev || '0');
+                  if (rel) { batchFound.set(r.id, rel); break; }
+                }
+              }
             });
             if (batchFound.size > 0) {
+              batchFound.forEach((rel, id) => {
+                const card = missingRelease.find(x => x.id === id);
+                if (card) card.release = rel;
+              });
               setCards(prev => prev.map(c => batchFound.has(c.id) ? { ...c, release: batchFound.get(c.id)! } : c));
               const ids = Array.from(batchFound.keys());
               for (let j = 0; j < ids.length; j += 10) {
                 await Promise.all(ids.slice(j, j + 10).map(async id => {
                   const rel = batchFound.get(id)!;
                   saveLocalRelease(id, rel);
-                  if (!id.startsWith('realisasi-')) {
+                  if (!id.startsWith('realisasi-') && !id.startsWith('nojc-')) {
                     try { await supabase.from('job_cards').update({ release: rel }).eq('id', id); } catch {}
                   }
                 }));
@@ -1260,7 +1281,37 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
   const activeBiro = activeDept?.biros.find(b => b.id === selectedBiro) || null;
   const activePerson = activeBiro?.persons.find(p => p.name === selectedPerson) || null;
 
-  const allPersons = deptScores.flatMap(d => d.biros.flatMap(b => b.persons));
+  const allPersonsWithMeta = useMemo(() => {
+    return deptScores.flatMap(d =>
+      d.biros.flatMap(b =>
+        b.persons.map(p => ({ person: p, deptId: d.id, deptName: d.name, biroId: b.id, biroName: b.name }))
+      )
+    );
+  }, [deptScores]);
+
+  const sortedAllPersons = useMemo(() => {
+    const q = personnelSearch.trim().toLowerCase();
+    const filtered = q
+      ? allPersonsWithMeta.filter(x =>
+          x.person.name.toLowerCase().includes(q) ||
+          x.biroName.toLowerCase().includes(q) ||
+          x.deptName.toLowerCase().includes(q)
+        )
+      : [...allPersonsWithMeta];
+    filtered.sort((x, y) => {
+      const kx = x.person.kpi;
+      const ky = y.person.kpi;
+      // Personel yang belum punya nilai KPI (null) selalu ditaruh di bagian paling bawah
+      if (kx === null && ky === null) return x.person.name.localeCompare(y.person.name);
+      if (kx === null) return 1;
+      if (ky === null) return -1;
+      return personnelSortOrder === 'desc'
+        ? (ky - kx) || x.person.name.localeCompare(y.person.name)
+        : (kx - ky) || x.person.name.localeCompare(y.person.name);
+    });
+    return filtered;
+  }, [allPersonsWithMeta, personnelSortOrder, personnelSearch]);
+  const allPersons = useMemo(() => allPersonsWithMeta.map(x => x.person), [allPersonsWithMeta]);
   const divisionProjects = useMemo(
     () => buildProjectScores(deptScores.flatMap(d => d.biros.flatMap(b => b.persons.flatMap(p => p.cards)))),
     [deptScores]
@@ -1394,6 +1445,110 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
               </div>
             </div>
             <ProjectBarChart key="division" className="lg:col-span-8" title="KPI per proyek — Divisi Desain" rows={divisionProjects} />
+            </div>
+
+            {/* Tombol & Panel Peringkat KPI Seluruh Personel Divisi Desain */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-blue-500/10 text-blue-400 rounded-xl border border-blue-500/20">
+                    <Users className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-white">Peringkat KPI Seluruh Personel Divisi Desain ({allPersons.length} orang)</h2>
+                    <p className="text-[11px] text-slate-400">
+                      Urutkan seluruh personel organik dari KPI tertinggi hingga terendah (atau sebaliknya) · klik nama untuk rincian tugas
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {showAllPersonnel && (
+                    <>
+                      <input
+                        type="text"
+                        value={personnelSearch}
+                        onChange={(e) => setPersonnelSearch(e.target.value)}
+                        placeholder="Cari nama, biro, departemen..."
+                        className="px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500 w-56"
+                      />
+                      <button
+                        onClick={() => setPersonnelSortOrder(prev => (prev === 'desc' ? 'asc' : 'desc'))}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition"
+                        title="Balik urutan peringkat KPI"
+                      >
+                        <ArrowUpDown className="w-3.5 h-3.5" />
+                        {personnelSortOrder === 'desc' ? 'Tertinggi → Terendah' : 'Terendah → Tertinggi'}
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => setShowAllPersonnel(prev => !prev)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition flex items-center gap-1.5 ${
+                      showAllPersonnel
+                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500'
+                    }`}
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    {showAllPersonnel ? 'Sembunyikan Daftar Personel' : `Lihat Semua Personel (${allPersons.length})`}
+                  </button>
+                </div>
+              </div>
+
+              {showAllPersonnel && (
+                <div className="space-y-2 pt-2 border-t border-slate-800 max-h-[540px] overflow-y-auto pr-1">
+                  {sortedAllPersons.length === 0 ? (
+                    <div className="text-xs text-slate-500 italic py-6 text-center">Tidak ada personel yang cocok dengan pencarian.</div>
+                  ) : (
+                    sortedAllPersons.map((item, idx) => {
+                      const p = item.person;
+                      const cat = getCategory(p.kpi);
+                      const descOnlyCount = p.cards.filter(c => !!(c as any).noJobcardDesc).length;
+                      const realCardCount = p.cards.length - descOnlyCount;
+                      return (
+                        <div
+                          key={`${item.deptId}-${item.biroId}-${p.name}`}
+                          onClick={() => {
+                            setSelectedDept(item.deptId);
+                            setSelectedBiro(item.biroId);
+                            setSelectedPerson(p.name);
+                          }}
+                          className="p-3 bg-slate-950 border border-slate-800 hover:border-blue-500 rounded-xl cursor-pointer transition space-y-2"
+                        >
+                          <div className="flex items-center justify-between gap-3 flex-wrap">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 font-mono text-xs font-bold flex items-center justify-center shrink-0">
+                                {idx + 1}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="font-semibold text-sm text-white truncate">{p.name}</div>
+                                <div className="text-[11px] text-slate-400 truncate">
+                                  {item.biroName} · <span className="text-slate-500">{item.deptName}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <span className="font-extrabold text-white text-sm">{fmt(p.kpi)}</span>
+                              <Pill score={p.kpi} />
+                              <ChevronRight className="w-4 h-4 text-slate-500" />
+                            </div>
+                          </div>
+                          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-2 rounded-full" style={{ width: `${Math.max(0, Math.min(100, p.kpi ?? 0))}%`, background: cat.color }} />
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            A {fmt(p.a)}{p.a !== null && '%'} · B {fmt(p.b)}{p.b !== null && '%'}
+                            {realCardCount > 0 && <span className="text-slate-400"> · {realCardCount} tugas</span>}
+                            {p.cards.length === 0 && <span className="text-slate-600"> · belum ada penugasan</span>}
+                            {realCardCount === 0 && descOnlyCount > 0 && <span className="text-slate-400"> · {descOnlyCount} deskripsi kegiatan</span>}
+                            {realCardCount > 0 && descOnlyCount > 0 && <span className="text-slate-400"> · +{descOnlyCount} deskripsi kegiatan</span>}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
