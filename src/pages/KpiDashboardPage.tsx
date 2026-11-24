@@ -1456,25 +1456,27 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
 
   return (
     <div className="bg-slate-950 text-slate-100 min-h-screen font-sans">
-      <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur border-b border-slate-800">
-        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+      <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur border-b border-slate-800">
+        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <div className="p-1.5 bg-purple-600 rounded-lg text-white"><Building2 className="w-4 h-4" /></div>
-            <span className="font-bold text-sm text-white">DASHBOARD KPI INDIVIDUAL</span>
-            <span className="text-xs text-slate-400 hidden sm:inline">— {user.nama}</span>
+            <div className="p-1.5 bg-blue-600/15 border border-blue-500/30 rounded-md text-blue-400"><Building2 className="w-4 h-4" /></div>
+            <span className="font-bold text-sm text-white tracking-tight">DIVISI DESAIN</span>
+            <span className="text-slate-700">|</span>
+            <span className="text-xs font-medium text-slate-300">Dashboard KPI Individual</span>
           </div>
           <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400 hidden sm:inline mr-1">{user.nama}</span>
             {onBack && (
               <button onClick={onBack}
-                className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer">
-                Ke Portal
+                className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md border border-slate-700 cursor-pointer transition flex items-center gap-1">
+                <ArrowLeft className="w-3.5 h-3.5" /> Ke Portal
               </button>
             )}
             <button onClick={loadData} title="Muat ulang data"
-              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 cursor-pointer">
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md border border-slate-700 cursor-pointer transition">
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
             </button>
-            <button onClick={onLogout} className="px-3 py-1 text-xs bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 rounded-lg border border-rose-500/30 cursor-pointer">
+            <button onClick={onLogout} className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-rose-600/20 text-slate-300 hover:text-rose-300 rounded-md border border-slate-700 hover:border-rose-500/30 cursor-pointer transition">
               Keluar
             </button>
           </div>
