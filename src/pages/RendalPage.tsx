@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
-import { projectCandidates, dedupeRows } from '../lib/projectCandidates';
+import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
@@ -38,20 +38,6 @@ Object.entries(absensiCsvGlob).forEach(([path, raw]) => {
 });
 
 const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
-const GOOGLE_DRIVE_SHEETS = [
-  { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)' },
-  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000304', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
-  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000305', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
-  { id: '19qiMBb1b7qmeRXkFNTbh-eKtVEKDUTgshloa116HQ48', projectKey: 'W000308', title: 'Drawing Control LPD UAE USED (W000308)' },
-  { id: '16rrjyU60BmzRIYFL3I1WRLkw_AfJPUwi8vZiJx2LYCg', projectKey: 'W000314', title: 'Drawing Control KSR 20 M ALU (W000314)' },
-  { id: '1uv2D4ECJ0z-NWP8byzXTkkM17MKD6f0r-RCtKjpG5Hs', projectKey: 'M000312', title: 'Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)' },
-  { id: '1eTO-dvVd3psdP4mFQc2ZQW_Z-lyooCb2TVjR4mYTbDw', projectKey: 'W000311', title: 'Drawing Control KSSR 18 M (W000311)' },
-  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000306', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
-  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000307', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
-  { id: '1l0ZoTCctHrmkruIkC4Gk1NtoqsugMVGABrsf3yb6PHo', projectKey: 'KSOT', title: 'Drawing Control KSOT' },
-  { id: '1jGNHh9HhSrPlEv7JZvtW8ToMU2ADrT0yE87tk9E53zY', projectKey: 'LCU', title: 'Drawing Control LCU LD PN 124 M' },
-  { id: '1XsrklFhcUkjgfEjuT4jDRWx6Uufsj8Jt', projectKey: 'FFBNW', title: 'Drawing Control FFBNW FRIGATE 140 M' },
-];
 
 export interface ParsedMember {
   nama: string;
@@ -568,11 +554,16 @@ function normalizeDrawingSpacing(desc: string): string {
 function extractDrawingNumber(desc: string): string {
   let s = normalizeDrawingSpacing(desc);
   s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
+  // Hilangkan kode proyek di awal deskripsi (mis. "W000314 - E25291.01100_ R0_...") agar yang terambil adalah nomor gambarnya
+  s = s.replace(/^[WM]\d{4,6}\s*[-–—_:/]\s*/i, '');
+  s = s.replace(/^(?:KSOT|LCU|W?FFBNW\d*)\s*[-–—_:/]\s*/i, '');
+  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
+  // Prioritaskan nomor gambar berformat titik (mis. E25291.01100, EC123C.6) di mana pun posisinya
+  const mDot = s.match(/\b[A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+/i);
+  if (mDot) return mDot[0].toUpperCase();
   const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);
   if (m) return m[0].toUpperCase();
-  const mMid = s.match(/\b[A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+\b/i);
-  if (mMid) return mMid[0].toUpperCase();
-  const first = s.split(/\s+-\s+|\s+/)[0] || '';
+  const first = s.split(/\s+-\s+|\s+|_/)[0] || '';
   return /\d/.test(first) && first.length >= 4 ? first.toUpperCase() : '';
 }
 
@@ -1334,9 +1325,11 @@ function summarizeNoJobcard(rows: RealisasiRow[]): Map<string, NoJcSummary> {
   return m;
 }
 
-// "R0 - EC123C.6 - PROD. DWG ..." -> 0
+// "R0 - EC123C.6 - PROD. DWG ..." atau "W000314 - E25291.01100_ R0_EST..." -> 0
 function revFromTaskName(s: string): number | null {
-  const m = (s || '').trim().match(/^R(?:EV)?\.?\s*(\d{1,2})\b/i);
+  const str = (s || '').trim();
+  let m = str.match(/^R(?:EV)?\.?\s*(\d{1,2})\b/i);
+  if (!m) m = str.match(/(?:^|[\s_-])R(?:EV)?\.?\s*(\d{1,2})(?:$|[\s_-])/i);
   return m ? parseInt(m[1], 10) : null;
 }
 
@@ -1964,14 +1957,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     }
     const all = ([] as TaskItem[]).concat(...Object.values(manualTasks));
     const todo = all.filter(t =>
-      t.project && t.taskName &&
+      (t.project || t.taskName) && t.taskName &&
       !/^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(t.release)) &&
       (retryAll || !autoTried.current.has(`${t.id}|${t.rev || '0'}`)));
     if (todo.length === 0) return;
     autoRunning.current = true;
     let totalFound = 0;
     try {
-      const projects = Array.from(new Set(todo.map(t => t.project))).sort((a, b) =>
+      const targetProjOf = (t: TaskItem) => resolveDrawingProject(t.project, t.taskName);
+      const projects = Array.from(new Set(todo.map(targetProjOf).filter(Boolean))).sort((a, b) =>
         (isKnownDriveProject(b) ? 1 : 0) - (isKnownDriveProject(a) ? 1 : 0)
       );
       for (let i = 0; i < projects.length; i += 4) {
@@ -1981,9 +1975,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           try { rowsByProject.set(p, await fetchDrawingRowsFor(p)); } catch { rowsByProject.set(p, []); }
         }));
         const batchFound = new Map<string, string>();
-        todo.filter(t => batchProjs.includes(t.project)).forEach(t => {
+        todo.filter(t => batchProjs.includes(targetProjOf(t))).forEach(t => {
           autoTried.current.add(`${t.id}|${t.rev || '0'}`);
-          const rel = findReleaseInRows(rowsByProject.get(t.project) || [], t.taskName, t.rev || '0');
+          const effProj = targetProjOf(t);
+          const rel = findReleaseInRows(rowsByProject.get(effProj) || [], t.taskName, t.rev || '0');
           if (rel) batchFound.set(t.id, rel);
         });
         if (batchFound.size > 0) {
@@ -2370,7 +2365,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       });
 
       // Ambil juga Release dari Drawing Control (Google Drive) untuk proyek yang ada
-      const uniqueProjs = Array.from(new Set(Array.from(taskGroups.values()).map(g => g.project).filter(Boolean))).sort((a, b) =>
+      // Jika proyek adalah CORP2026, baca juga proyek Drawing Control dari dalam deskripsi
+      const uniqueProjs = Array.from(new Set(Array.from(taskGroups.values()).map(g => resolveDrawingProject(g.project, g.taskName)).filter(Boolean))).sort((a, b) =>
         (isKnownDriveProject(b) ? 1 : 0) - (isKnownDriveProject(a) ? 1 : 0)
       );
       const driveRowsByProj = new Map<string, DrawingControlRow[]>();
@@ -2420,8 +2416,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       // 3. Insert data baru ke job_cards (beserta tanggal Release dari Drive / data sebelumnya)
       const payloads = Array.from(taskGroups.values()).map(g => {
         const joStr = g.hasPlanJo && g.maxPlanJo > 0 ? String(fmtNum(g.maxPlanJo)) : (g.hasPlanJo ? String(fmtNum(g.maxPlanJo)) : '');
-        const driveRel = findReleaseInRows(driveRowsByProj.get(g.project) || [], g.taskName, g.rev);
-        const fallbackRel = prevReleaseByJc.get(cleanText(g.kodeJc)) || prevReleaseByDwg.get(`${cleanText(g.project)}|${drawingKey(g.taskName)}|${g.rev}`) || '';
+        const effProj = resolveDrawingProject(g.project, g.taskName);
+        const driveRel = findReleaseInRows(driveRowsByProj.get(effProj) || [], g.taskName, g.rev);
+        const fallbackRel = prevReleaseByJc.get(cleanText(g.kodeJc)) || prevReleaseByDwg.get(`${cleanText(g.project)}|${drawingKey(g.taskName)}|${g.rev}`) || prevReleaseByDwg.get(`${cleanText(effProj)}|${drawingKey(g.taskName)}|${g.rev}`) || '';
         const releaseVal = driveRel || fallbackRel;
         return {
           biro_id: getBiroId(g.biroName),
@@ -2740,8 +2737,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       || editingTask.taskName !== editFormData.taskName
       || String(editingTask.rev || '0') !== revVal;
     if (keyChanged) {
-      const cached = drawingControlMap[cleanText(editFormData.project)];
-      const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(editFormData.project);
+      const effProj = resolveDrawingProject(editFormData.project, editFormData.taskName);
+      const cached = drawingControlMap[cleanText(effProj)];
+      const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(effProj);
       releaseVal = findReleaseInRows(rows, editFormData.taskName, revVal);
     }
     const trimmedKodeJc = (editFormData.kodeJc || '').replace(/\s+/g, ' ').trim().toUpperCase();
@@ -2881,10 +2879,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   };
 
   const handleSyncReleaseFromDrive = async (task: TaskItem) => {
-    const cleanProj = cleanText(task.project);
+    const effProj = resolveDrawingProject(task.project, task.taskName);
+    const cleanProj = cleanText(effProj);
     let rows: DrawingControlRow[] | undefined = drawingControlMap[cleanProj];
     if (!rows || rows.length === 0) {
-      rows = await fetchDrawingRowsFor(task.project);
+      rows = await fetchDrawingRowsFor(effProj);
       if (rows.length > 0) {
         const fetched = rows;
         setDrawingControlMap(prev => ({ ...prev, [cleanProj]: fetched }));
@@ -2893,10 +2892,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     const rel = findReleaseInRows(rows || [], task.taskName, task.rev || '0');
     if (rel) {
       await handleQuickSaveRelease(task.id, rel);
-      alert(`Berhasil sinkronisasi dari Google Drive: ${formatDisplayDate(rel)}`);
+      alert(`Berhasil sinkronisasi dari Google Drive (${effProj}): ${formatDisplayDate(rel)}`);
       return;
     }
-    alert(`Tidak ditemukan data FINISH DATE di Google Drive untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
+    alert(`Tidak ditemukan data FINISH DATE di Google Drive (${effProj || task.project}) untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
   };
 
   const handleSubmitForm = async (e: React.FormEvent) => {
@@ -2935,9 +2934,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const revVal = (formData.rev && formData.rev.trim() !== '') ? formData.rev.trim() : '0';
       let releaseVal = '';
       if (formData.kodeProyek && formData.taskName) {
-        const cp = cleanText(formData.kodeProyek);
+        const effProj = resolveDrawingProject(formData.kodeProyek, formData.taskName);
+        const cp = cleanText(effProj);
         const cached = drawingControlMap[cp];
-        const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(formData.kodeProyek);
+        const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(effProj);
         releaseVal = findReleaseInRows(rows, formData.taskName, revVal);
       }
       const insertPayload: any = {
