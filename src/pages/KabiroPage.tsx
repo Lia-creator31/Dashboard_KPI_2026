@@ -3,7 +3,7 @@ import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
-import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet } from '../lib/projectCandidates';
+import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject } from '../lib/projectCandidates';
 import KpiDashboardPage from './KpiDashboardPage';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
@@ -917,63 +917,67 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
 
   const handleSyncReleaseFromDrive = async (task: TaskItem) => {
     const effProj = resolveDrawingProject(task.project, task.taskName);
-    const cleanProj = cleanText(effProj);
-    let rows = drawingControlMap[cleanProj];
-    if (!rows || rows.length === 0) {
-      try {
-        const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(effProj.trim())}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const json = await res.json();
-          if (json.success && Array.isArray(json.data)) {
-            rows = json.data.map((item: any) => ({
-              noDwg: String(item.noDwg || '').trim(), drawingName: String(item.drawingName || '').trim(),
-              fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
-              rev: String(item.rev || '0').trim(), finishDate: String(item.finishDate || '').trim(),
-            }));
-            setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rows }));
+    const projectsToTry = (!isCorpProject(effProj) && effProj) ? [effProj] : ALL_DRIVE_PROJECT_KEYS;
+    const cleanTarget = cleanText(task.taskName);
+    const currentTaskRev = String(task.rev || '0').trim();
+
+    for (const proj of projectsToTry) {
+      const cleanProj = cleanText(proj);
+      let rows = drawingControlMap[cleanProj];
+      if (!rows || rows.length === 0) {
+        try {
+          const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(proj.trim())}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success && Array.isArray(json.data)) {
+              rows = json.data.map((item: any) => ({
+                noDwg: String(item.noDwg || '').trim(), drawingName: String(item.drawingName || '').trim(),
+                fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
+                rev: String(item.rev || '0').trim(), finishDate: String(item.finishDate || '').trim(),
+              }));
+              setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rows }));
+            }
+          }
+        } catch (err) { console.error(err); }
+        if (!rows || rows.length === 0) {
+          const match = findMatchingDriveSheet(proj);
+          if (match) {
+            try {
+              const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`);
+              if (res.ok) {
+                const wb = XLSX.read(await res.text(), { type: 'string' });
+                const rawRows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+                const rowsList: DrawingControlRow[] = [];
+                for (let r = 1; r < rawRows.length; r++) {
+                  const row = rawRows[r]; if (!row) continue;
+                  const noDwg = String(row[0] || '').trim(); const dwgName = String(row[1] || '').trim();
+                  if (!noDwg && !dwgName) continue;
+                  rowsList.push({ noDwg, drawingName: dwgName, fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg), rev: String(row[14] || '0').trim(), finishDate: String(row[15] || '').trim() });
+                }
+                if (rowsList.length > 0) { rows = rowsList; setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList })); }
+              }
+            } catch {}
           }
         }
-      } catch (err) { console.error(err); }
-      if (!rows || rows.length === 0) {
-        const match = findMatchingDriveSheet(effProj);
-        if (match) {
-          try {
-            const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`);
-            if (res.ok) {
-              const wb = XLSX.read(await res.text(), { type: 'string' });
-              const rawRows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
-              const rowsList: DrawingControlRow[] = [];
-              for (let r = 1; r < rawRows.length; r++) {
-                const row = rawRows[r]; if (!row) continue;
-                const noDwg = String(row[0] || '').trim(); const dwgName = String(row[1] || '').trim();
-                if (!noDwg && !dwgName) continue;
-                rowsList.push({ noDwg, drawingName: dwgName, fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg), rev: String(row[14] || '0').trim(), finishDate: String(row[15] || '').trim() });
-              }
-              if (rowsList.length > 0) { rows = rowsList; setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList })); }
-            }
-          } catch {}
+      }
+      if (rows && rows.length > 0) {
+        const exactMatch = rows.find(r => {
+          const cFull = cleanText(r.fullDeskripsi); const cDwg = cleanText(r.noDwg); const cName = cleanText(r.drawingName);
+          const rowRev = String(r.rev || '0').trim();
+          const isRevMatch = rowRev === currentTaskRev;
+          const isNameMatch = (cDwg && cleanTarget.includes(cDwg)) || (cName && cleanTarget.includes(cName)) || (cFull && (cFull.includes(cleanTarget) || cleanTarget.includes(cFull)));
+          return isNameMatch && isRevMatch && parseToStandardDate(r.finishDate);
+        });
+        if (exactMatch && exactMatch.finishDate) {
+          const standardDate = parseToStandardDate(exactMatch.finishDate);
+          await handleQuickSaveRelease(task.id, standardDate);
+          alert(`Berhasil sinkronisasi dari Google Drive (${proj}): ${formatDisplayDate(standardDate)}`);
+          return;
         }
       }
     }
-    if (rows && rows.length > 0) {
-      const cleanTarget = cleanText(task.taskName);
-      const currentTaskRev = String(task.rev || '0').trim();
-      const exactMatch = rows.find(r => {
-        const cFull = cleanText(r.fullDeskripsi); const cDwg = cleanText(r.noDwg); const cName = cleanText(r.drawingName);
-        const rowRev = String(r.rev || '0').trim();
-        const isRevMatch = rowRev === currentTaskRev;
-        const isNameMatch = (cDwg && cleanTarget.includes(cDwg)) || (cName && cleanTarget.includes(cName)) || (cFull && (cFull.includes(cleanTarget) || cleanTarget.includes(cFull)));
-        return isNameMatch && isRevMatch && parseToStandardDate(r.finishDate);
-      });
-      if (exactMatch && exactMatch.finishDate) {
-        const standardDate = parseToStandardDate(exactMatch.finishDate);
-        await handleQuickSaveRelease(task.id, standardDate);
-        alert(`Berhasil sinkronisasi dari Google Drive (${effProj}): ${formatDisplayDate(standardDate)}`);
-        return;
-      }
-    }
-    alert(`Tidak ditemukan data FINISH DATE di Google Drive (${effProj || task.project}) untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
+    alert(`Tidak ditemukan data FINISH DATE di Google Drive (${!isCorpProject(effProj) ? effProj : 'semua proyek Drawing Control'}) untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
   };
 
   const handleSubmitForm = async (e: React.FormEvent) => {
