@@ -3,7 +3,7 @@ import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
-import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet } from '../lib/projectCandidates';
+import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject } from '../lib/projectCandidates';
 import { ArrowLeft, FileSpreadsheet, Save, AlertTriangle, Check } from 'lucide-react';
 
 interface ImportJobcardPageProps {
@@ -579,17 +579,30 @@ export default function ImportJobcardPage({ user, onLogout, onBack }: ImportJobc
       });
 
       // Release otomatis dari Drawing Control (Google Drive), per proyek + nomor gambar + Rev
-      // Jika proyek adalah CORP2026, cek apakah ada kode proyek Drawing Control di dalam deskripsi
+      // Jika proyek adalah CORP2026:
+      // - bila ada kode proyek di deskripsi, baca proyek tersebut
+      // - bila tidak ada kode proyek di deskripsi, baca semua proyek Drive lalu cari nomor gambar satu per satu
       const rowsByProject = new Map<string, DrawingControlRow[]>();
+      const baseProjs = fresh.map(r => resolveDrawingProject(r.project, r.taskName)).filter(p => p && !isCorpProject(p));
+      const hasUnresolvedCorp = fresh.some(r => isCorpProject(resolveDrawingProject(r.project, r.taskName)));
+      const projsToFetch = Array.from(new Set(hasUnresolvedCorp ? [...baseProjs, ...ALL_DRIVE_PROJECT_KEYS] : baseProjs));
       await Promise.all(
-        Array.from(new Set(fresh.map(r => resolveDrawingProject(r.project, r.taskName)).filter(Boolean))).map(async pr => {
+        projsToFetch.map(async pr => {
           try { rowsByProject.set(pr, await fetchDrawingRows(pr)); } catch { rowsByProject.set(pr, []); }
         })
       );
       const releaseByKey = new Map<string, string>();
       fresh.forEach(r => {
         const effProj = resolveDrawingProject(r.project, r.taskName);
-        const rel = findReleaseDate(rowsByProject.get(effProj) || [], r.taskName, r.rev);
+        let rel = '';
+        if (!isCorpProject(effProj)) {
+          rel = findReleaseDate(rowsByProject.get(effProj) || [], r.taskName, r.rev);
+        } else {
+          for (const p of ALL_DRIVE_PROJECT_KEYS) {
+            const hit = findReleaseDate(rowsByProject.get(p) || [], r.taskName, r.rev);
+            if (hit) { rel = hit; break; }
+          }
+        }
         if (rel) releaseByKey.set(r.key, rel);
       });
 
