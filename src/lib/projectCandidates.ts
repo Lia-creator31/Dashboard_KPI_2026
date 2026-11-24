@@ -197,6 +197,17 @@ export function resolveDrawingProject(project: string, desc: string): string {
   return p;
 }
 
+// Daftar projectKey unik dari seluruh proyek Drawing Control di Google Drive,
+// dipakai untuk mencari nomor gambar satu per satu di semua proyek ketika proyeknya CORP2026
+// tetapi di dalam deskripsi tidak tertulis kode proyeknya (mis. "E90961.92009 - LIGHTWEIGHT ESTIMATION").
+export const ALL_DRIVE_PROJECT_KEYS: string[] = Array.from(
+  new Set(GOOGLE_DRIVE_SHEETS.map(s => s.projectKey.toUpperCase().trim()).filter(Boolean))
+);
+
+export function isCorpProject(project: string): boolean {
+  return (project || '').toUpperCase().replace(/[^A-Z0-9]/g, '').startsWith('CORP');
+}
+
 const cleanAlnum = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 
 // Cari konfigurasi sheet Google Drive berdasarkan projectKey, alias (mis. A26AOP01, JW1, JW2, WFFBNW), atau judul
