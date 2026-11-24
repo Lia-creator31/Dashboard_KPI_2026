@@ -298,7 +298,13 @@ const drawingKey = (v: string) => cleanText(extractDrawingNumber(v) || v);
 function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: string | number): string {
   if (!rows || rows.length === 0 || !taskName) return '';
   const wanted = drawingKey(taskName);
+  // Hilangkan kode proyek di awal deskripsi (mis. "M000313 - Bonjean Table" -> "Bonjean Table") untuk pencocokan nama gambar
+  const strippedTask = (taskName || '')
+    .replace(/^[WM]\d{4,6}\s*[-–—_:/]\s*/i, '')
+    .replace(/^[A-Z0-9]{2,12}(?:-[A-Z0-9]{2,8})?\s*[-–—_:/]\s*/i, '')
+    .trim();
   const cleanTarget = cleanText(taskName);
+  const cleanStripped = cleanText(strippedTask);
   if (!wanted && !cleanTarget) return '';
   const toNum = (v: any) => { const n = parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10); return isNaN(n) ? 0 : n; };
   const wantRev = toNum(rev);
@@ -306,9 +312,12 @@ function findReleaseInRows(rows: DrawingControlRow[], taskName: string, rev: str
     if (toNum(r.rev) !== wantRev) return false;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(parseDriveDate(r.finishDate))) return false;
     const rKey = drawingKey(r.noDwg);
-    if (wanted && rKey === wanted) return true;
+    if (wanted && rKey && rKey === wanted) return true;
     const cDwg = cleanText(r.noDwg);
     if (cDwg && cDwg.length >= 5 && cleanTarget.includes(cDwg)) return true;
+    // Cadangan: jika di deskripsi tertulis Nama Gambar (mis. "M000313 - Bonjean Table"), cocokkan dengan kolom DRAWING NAME
+    const cName = cleanText(r.drawingName);
+    if (cName && cName.length >= 5 && (cName === cleanStripped || cleanTarget.includes(cName) || (cleanStripped.length >= 5 && cName.includes(cleanStripped)))) return true;
     return false;
   });
   return hit ? parseDriveDate(hit.finishDate) : '';
@@ -604,7 +613,8 @@ function scorePerson(name: string, biro: string, cards: JobCardRow[]): PersonSco
   const a = aCards.length ? Math.min((sumPlan / sumReal) * 100, CAP_EFFICIENCY) : null;
 
   // B = jumlah drawing yang sudah ada tanggal release / total list drawing x 100% (semua revisi)
-  const targets = valid.filter(c => !c.fromRealisasi);   // jobcard dari Realisasi saja tidak punya daftar drawing
+  // Hanya mengecualikan baris deskripsi kegiatan yang benar-benar tanpa kode Jobcard (noJobcardDesc)
+  const targets = valid.filter(c => !(c as any).noJobcardDesc);
   const onTime = targets.filter(c => c.release !== '');   // = drawing yang sudah release
   const b = targets.length ? (onTime.length / targets.length) * 100 : null;
 
@@ -679,7 +689,7 @@ function buildProjectScores(cards: JobCardRow[]): ProjectScore[] {
     persons.sort((x, y) => (y.kpi ?? -1) - (x.kpi ?? -1) || x.name.localeCompare(y.name));
     let total = 0, released = 0;
     persons.forEach(pr => {
-      const valid = pr.cards.filter(c => (!REQUIRE_JOBCARD_CODE || c.kodeJc.trim() !== '') && !c.fromRealisasi);
+      const valid = pr.cards.filter(c => (!REQUIRE_JOBCARD_CODE || c.kodeJc.trim() !== '') && !(c as any).noJobcardDesc);
       total += valid.length;
       released += valid.filter(c => c.release !== '').length;
     });
@@ -904,16 +914,26 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const [jcRes, tsRes, lineRes, wbRes, im4Wb, hourPlanner] = await Promise.all([
-        supabase.from('job_cards').select('*'),
+      // Ambil SELURUH baris job_cards dengan paginasi (karena Supabase membatasi 1000 baris per query jika tanpa range)
+      const fetchAllJcRows = async () => {
+        const all: any[] = [];
+        for (let from = 0; ; from += 1000) {
+          const { data, error } = await supabase.from('job_cards').select('*').range(from, from + 999);
+          if (error) throw error;
+          all.push(...(data || []));
+          if (!data || data.length < 1000) break;
+        }
+        return all;
+      };
+
+      const [jcAllData, tsRes, lineRes, wbRes, im4Wb, hourPlanner] = await Promise.all([
+        fetchAllJcRows(),
         supabase.from('outsourcing_timesheets').select('id, status'),
         supabase.from('outsourcing_timesheet_lines').select('timesheet_id, work_order_code, effective_hours, overtime_hours'),
         supabase.storage.from(MASTER_BUCKET).download('realisasi.xlsx'),
         loadIm4Workbook(),
         loadHourPlanner(),
       ]);
-
-      if (jcRes.error) throw jcRes.error;
 
       // Daftar pegawai organik (dan anggota per biro) dari master IM4
       const { organic, outsourcing, members: memberList } = parseMemberNames(im4Wb);
@@ -982,7 +1002,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
       const revLocal = getLocalMap('task_rev_map');
       const releaseLocal = getLocalMap('task_release_map');
 
-      const rows: JobCardRow[] = (jcRes.data || []).map((row: any) => {
+      const rows: JobCardRow[] = (jcAllData || []).map((row: any) => {
         const kodeJc = String(row.kode_jc || '').trim();
         const key = cleanText(kodeJc);
         const rawRev = row.rev !== undefined && row.rev !== null && String(row.rev).trim() !== ''
@@ -1019,14 +1039,23 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
         const existing = new Set(rows.filter(r => r.kodeJc).map(r => `${cleanText(r.pic)}|${cleanText(r.kodeJc)}`));
         const extra = new Map<string, JobCardRow>();
 
-        // === Baris DENGAN jobcard: sudah ada sebelumnya ===
+        // === Baris DENGAN jobcard: sudah ada kode Jobcard dari file yang diimpor ===
         realRows.filter(r => !r.noJobcard).forEach(r => {
           const m = resolveMember(r.nama);
           if (!m) return;   // bukan pegawai organik IM4
           const jcKey = cleanText(r.jobcard);
           const k = `${cleanText(m.nama)}|${jcKey}`;
-          if (existing.has(k) || extra.has(k)) return;
+          if (existing.has(k)) return;
+          if (extra.has(k)) {
+            // Jika baris sebelumnya di extra deskripsinya belum punya nomor gambar dan baris ini punya, perbarui deskripsinya
+            const cur = extra.get(k)!;
+            if (r.taskName && (!cur.taskName || (!extractDrawingNumber(cur.taskName) && extractDrawingNumber(r.taskName)))) {
+              cur.taskName = r.taskName;
+            }
+            return;
+          }
           const hp = hourPlanner[jcKey];
+          const revMatch = (r.taskName || '').match(/(?:^|[\s_-])R(?:EV)?\.?\s*(\d{1,2})(?:$|[\s_-])/i);
           extra.set(k, {
             id: `realisasi-${k}`,
             biro: m.biro || 'Tanpa Biro',
@@ -1037,10 +1066,10 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
             endDate: normalizeDate(hp?.end),
             plannedJo: planFromHourPlanner(jcKey),
             kodeJc: r.jobcard,
-            rev: '0',
+            rev: revMatch ? String(parseInt(revMatch[1], 10)) : '0',
             release: '',
             realJo: realHoursFor(m.nama, jcKey) + (tsMap.get(jcKey) || 0),
-            fromRealisasi: true,
+            fromRealisasi: false,
           });
         });
 
@@ -1262,7 +1291,6 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
   const cardStatus = (c: JobCardRow): { text: string; cls: string } => {
     if ((c as any).noJobcardDesc) return { text: 'Deskripsi kegiatan (tanpa Jobcard)', cls: 'text-slate-400' };
     if (REQUIRE_JOBCARD_CODE && !c.kodeJc) return { text: 'Menunggu Planner', cls: 'text-rose-300' };
-    if (c.fromRealisasi) return { text: 'Dari Realisasi JO (belum diinput di Form)', cls: 'text-sky-300' };
     if (!c.release) return { text: 'Belum release', cls: 'text-amber-300' };
     return { text: `Sudah release (Rev ${c.rev})`, cls: 'text-emerald-300' };
   };
@@ -1542,7 +1570,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                 if (!map.has(k)) map.set(k, { project: k, plan: 0, real: 0, total: 0, released: 0, cards: [] });
                 const r = map.get(k)!;
                 r.cards.push(c);
-                if (!c.fromRealisasi) {
+                if (!(c as any).noJobcardDesc) {
                   r.total += 1;
                   if (c.release !== '') r.released += 1;
                 }
