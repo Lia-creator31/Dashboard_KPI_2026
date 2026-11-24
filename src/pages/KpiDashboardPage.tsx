@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import { departmentsData } from '../data';
-import { projectCandidates, dedupeRows } from '../lib/projectCandidates';
+import { projectCandidates, dedupeRows, resolveDrawingProject, findDrawingProjectInDescription, GOOGLE_DRIVE_SHEETS } from '../lib/projectCandidates';
 import { Building2, ArrowLeft, ChevronRight, RefreshCw, Users, Layers } from 'lucide-react';
 
 interface KpiDashboardPageProps {
@@ -148,20 +148,6 @@ function saveLocalRelease(id: string, val: string) {
 
 /* ===== Sinkronisasi Release Drawing otomatis dari Google Drive ===== */
 const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
-const GOOGLE_DRIVE_SHEETS = [
-  { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)' },
-  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000304', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
-  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000305', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
-  { id: '19qiMBb1b7qmeRXkFNTbh-eKtVEKDUTgshloa116HQ48', projectKey: 'W000308', title: 'Drawing Control LPD UAE USED (W000308)' },
-  { id: '16rrjyU60BmzRIYFL3I1WRLkw_AfJPUwi8vZiJx2LYCg', projectKey: 'W000314', title: 'Drawing Control KSR 20 M ALU (W000314)' },
-  { id: '1uv2D4ECJ0z-NWP8byzXTkkM17MKD6f0r-RCtKjpG5Hs', projectKey: 'M000312', title: 'Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)' },
-  { id: '1eTO-dvVd3psdP4mFQc2ZQW_Z-lyooCb2TVjR4mYTbDw', projectKey: 'W000311', title: 'Drawing Control KSSR 18 M (W000311)' },
-  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKjpAMfo', projectKey: 'W000306', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
-  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000307', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
-  { id: '1l0ZoTCctHrmkruIkC4Gk1NtoqsugMVGABrsf3yb6PHo', projectKey: 'KSOT', title: 'Drawing Control KSOT' },
-  { id: '1jGNHh9HhSrPlEv7JZvtW8ToMU2ADrT0yE87tk9E53zY', projectKey: 'LCU', title: 'Drawing Control LCU LD PN 124 M' },
-  { id: '1XsrklFhcUkjgfEjuT4jDRWx6Uufsj8Jt', projectKey: 'FFBNW', title: 'Drawing Control FFBNW FRIGATE 140 M' },
-];
 
 interface DrawingControlRow {
   noDwg: string;
@@ -293,11 +279,16 @@ function normalizeDrawingSpacing(desc: string): string {
 function extractDrawingNumber(desc: string): string {
   let s = normalizeDrawingSpacing(desc);
   s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
+  // Hilangkan kode proyek di awal deskripsi (mis. "W000314 - E25291.01100_ R0_...") agar yang terambil adalah nomor gambarnya
+  s = s.replace(/^[WM]\d{4,6}\s*[-–—_:/]\s*/i, '');
+  s = s.replace(/^(?:KSOT|LCU|W?FFBNW\d*)\s*[-–—_:/]\s*/i, '');
+  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
+  // Prioritaskan nomor gambar berformat titik (mis. E25291.01100, EC123C.6) di mana pun posisinya
+  const mDot = s.match(/\b[A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+/i);
+  if (mDot) return mDot[0].toUpperCase();
   const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);
   if (m) return m[0].toUpperCase();
-  const mMid = s.match(/\b[A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+\b/i);
-  if (mMid) return mMid[0].toUpperCase();
-  const first = s.split(/\s+-\s+|\s+/)[0] || '';
+  const first = s.split(/\s+-\s+|\s+|_/)[0] || '';
   return /\d/.test(first) && first.length >= 4 ? first.toUpperCase() : '';
 }
 
@@ -503,9 +494,11 @@ function parseRealisasiRows(wb: XLSX.WorkBook | null): RealisasiRow[] {
   return out;
 }
 
-/* Ekstrak kode proyek dari deskripsi CORP2026 (misal "W000307 - INPUT PDM..." -> "W000307") */
+/* Ekstrak kode proyek dari deskripsi CORP2026 (misal "W000314 - E25291.01100..." -> "W000314") */
 function extractProjectFromDesc(desc: string): string {
   if (!desc) return '';
+  const known = findDrawingProjectInDescription(desc);
+  if (known) return known;
   // Cari kode proyek standar: 1 huruf + angka (M000312, W000307, E260N002, dsb.)
   const m = desc.match(/\b([A-Z]\d{4,}[A-Z0-9]*)\b/);
   if (m) return m[1];
@@ -1101,9 +1094,11 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
       setCards(rows);
 
       // Sinkronisasi otomatis tanggal Release dari Google Drive untuk kartu yang belum punya release
-      const missingRelease = rows.filter(r => r.project && r.taskName && !r.release);
+      // Jika proyek adalah CORP2026, otomatis cek deskripsi apakah ada kode proyek Drawing Control (mis. W000314)
+      const missingRelease = rows.filter(r => (r.project || r.taskName) && r.taskName && !r.release);
       if (missingRelease.length > 0) {
-        const projects = Array.from(new Set(missingRelease.map(r => r.project))).sort((a, b) =>
+        const targetProjOf = (r: JobCardRow) => resolveDrawingProject(r.project, r.taskName);
+        const projects = Array.from(new Set(missingRelease.map(targetProjOf).filter(Boolean))).sort((a, b) =>
           (isKnownDriveProject(b) ? 1 : 0) - (isKnownDriveProject(a) ? 1 : 0)
         );
         (async () => {
@@ -1114,8 +1109,9 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
               try { rowsByProj.set(p, await fetchDrawingRowsFor(p)); } catch { rowsByProj.set(p, []); }
             }));
             const batchFound = new Map<string, string>();
-            missingRelease.filter(r => batchProjs.includes(r.project)).forEach(r => {
-              const rel = findReleaseInRows(rowsByProj.get(r.project) || [], r.taskName, r.rev || '0');
+            missingRelease.filter(r => batchProjs.includes(targetProjOf(r))).forEach(r => {
+              const effProj = targetProjOf(r);
+              const rel = findReleaseInRows(rowsByProj.get(effProj) || [], r.taskName, r.rev || '0');
               if (rel) batchFound.set(r.id, rel);
             });
             if (batchFound.size > 0) {
