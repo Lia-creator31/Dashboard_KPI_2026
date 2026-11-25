@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
-import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow } from '../lib/projectCandidates';
+import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, findDrawingControlMatch, DrawingControlRow } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
@@ -1930,9 +1930,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       return;
     }
     const all = ([] as TaskItem[]).concat(...Object.values(manualTasks));
+    const isTaskMissingDriveFields = (t: TaskItem) => {
+      const noRelease = !/^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(t.release));
+      const noEnd = !/^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(t.endDate));
+      const rawJo = String(t.jo || '').replace(/^#+/, '').trim();
+      const noJo = !rawJo || rawJo === '-' || rawJo === '0';
+      return noRelease || noEnd || noJo;
+    };
     const todo = all.filter(t =>
       (t.project || t.taskName) && t.taskName &&
-      !/^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(t.release)) &&
+      isTaskMissingDriveFields(t) &&
       (retryAll || !autoTried.current.has(`${t.id}|${t.rev || '0'}`)));
     if (todo.length === 0) return;
     autoRunning.current = true;
@@ -1951,19 +1958,35 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         await Promise.all(batchProjs.map(async p => {
           try { rowsByProject.set(p, await fetchDrawingRowsFor(p)); } catch { rowsByProject.set(p, []); }
         }));
-        const batchFound = new Map<string, string>();
+        const batchFound = new Map<string, { release?: string; startDate?: string; endDate?: string; jo?: string }>();
         todo.forEach(t => {
           if (foundSoFar.has(t.id)) return;
           const effProj = targetProjOf(t);
+          const curRelValid = /^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(t.release));
+          const curStartValid = /^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(t.startDate));
+          const curEndValid = /^\d{4}-\d{2}-\d{2}$/.test(parseToStandardDate(t.endDate));
+          const rawJo = String(t.jo || '').replace(/^#+/, '').trim();
+          const curJoValid = !!rawJo && rawJo !== '-' && rawJo !== '0';
+
+          const checkMatch = (rows: DrawingControlRow[]) => {
+            const m = findDrawingControlMatch(rows, t.taskName, t.rev || '0');
+            const patch: { release?: string; startDate?: string; endDate?: string; jo?: string } = {};
+            if (!curRelValid && m.release) patch.release = m.release;
+            if (!curStartValid && m.planStart) patch.startDate = m.planStart;
+            if (!curEndValid && m.planFinish) patch.endDate = m.planFinish;
+            if (!curJoValid && m.jo && !SUBCON_WO_PREFIX_RE.test(String(t.kodeJc || '').trim())) patch.jo = m.jo;
+            return Object.keys(patch).length > 0 ? patch : null;
+          };
+
           if (!isCorpProject(effProj)) {
             if (!batchProjs.includes(effProj)) return;
             autoTried.current.add(`${t.id}|${t.rev || '0'}`);
-            const rel = findReleaseInRows(rowsByProject.get(effProj) || [], t.taskName, t.rev || '0');
-            if (rel) { batchFound.set(t.id, rel); foundSoFar.add(t.id); }
+            const patch = checkMatch(rowsByProject.get(effProj) || []);
+            if (patch) { batchFound.set(t.id, patch); foundSoFar.add(t.id); }
           } else if (extractDrawingNumber(t.taskName)) {
             for (const p of batchProjs) {
-              const rel = findReleaseInRows(rowsByProject.get(p) || [], t.taskName, t.rev || '0');
-              if (rel) { batchFound.set(t.id, rel); foundSoFar.add(t.id); break; }
+              const patch = checkMatch(rowsByProject.get(p) || []);
+              if (patch) { batchFound.set(t.id, patch); foundSoFar.add(t.id); break; }
             }
           }
         });
@@ -1972,22 +1995,32 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           const ids = Array.from(batchFound.keys());
           for (let j = 0; j < ids.length; j += 10) {
             await Promise.all(ids.slice(j, j + 10).map(async id => {
-              const rel = batchFound.get(id)!;
-              saveLocalRelease(id, rel);
-              try { await supabase.from('job_cards').update({ release: rel }).eq('id', id); } catch {}
+              const patch = batchFound.get(id)!;
+              if (patch.release) saveLocalRelease(id, patch.release);
+              const dbUpdate: any = {};
+              if (patch.release) dbUpdate.release = patch.release;
+              if (patch.startDate) dbUpdate.start_date = patch.startDate;
+              if (patch.endDate) dbUpdate.end_date = patch.endDate;
+              if (patch.jo) dbUpdate.jo = patch.jo;
+              if (Object.keys(dbUpdate).length > 0) {
+                try { await supabase.from('job_cards').update(dbUpdate).eq('id', id); } catch {}
+              }
             }));
           }
           setManualTasks(prev => {
             const updated = { ...prev };
             Object.keys(updated).forEach(k => {
-              updated[k] = updated[k].map(t => batchFound.has(t.id) ? { ...t, release: batchFound.get(t.id)! } : t);
+              updated[k] = updated[k].map(t => {
+                const patch = batchFound.get(t.id);
+                return patch ? { ...t, ...patch } : t;
+              });
             });
             return updated;
           });
         }
       }
       if (totalFound > 0) {
-        setAutoSyncMsg(`${totalFound} tanggal Release terisi otomatis dari Drawing Control`);
+        setAutoSyncMsg(`${totalFound} data (Plan JO / Plan Finish / Release) terisi otomatis dari Drawing Control`);
         setTimeout(() => setAutoSyncMsg(''), 8000);
       }
     } finally {
@@ -2411,21 +2444,24 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         return found ? found.id : biroList[0].id;
       };
 
-      // 3. Insert data baru ke job_cards (beserta tanggal Release dari Drive / data sebelumnya)
+      // 3. Insert data baru ke job_cards (beserta Plan JO, Plan Start, Plan Finish, dan tanggal Release dari Drive / data sebelumnya)
       const payloads = Array.from(taskGroups.values()).map(g => {
-        const joStr = g.hasPlanJo && g.maxPlanJo > 0 ? String(fmtNum(g.maxPlanJo)) : (g.hasPlanJo ? String(fmtNum(g.maxPlanJo)) : '');
         const effProj = resolveDrawingProject(g.project, g.taskName);
-        let driveRel = '';
+        let driveMatch = { release: '', planStart: '', planFinish: '', jo: '' };
         if (!isCorpProject(effProj)) {
-          driveRel = findReleaseInRows(driveRowsByProj.get(effProj) || [], g.taskName, g.rev);
+          driveMatch = findDrawingControlMatch(driveRowsByProj.get(effProj) || [], g.taskName, g.rev);
         } else if (extractDrawingNumber(g.taskName)) {
           for (const p of ALL_DRIVE_PROJECT_KEYS) {
-            const hit = findReleaseInRows(driveRowsByProj.get(p) || [], g.taskName, g.rev);
-            if (hit) { driveRel = hit; break; }
+            const hit = findDrawingControlMatch(driveRowsByProj.get(p) || [], g.taskName, g.rev);
+            if (hit.release || hit.planFinish || hit.jo || hit.planStart) { driveMatch = hit; break; }
           }
         }
+        const excelJoStr = g.hasPlanJo && g.maxPlanJo > 0 ? String(fmtNum(g.maxPlanJo)) : '';
+        const joStr = excelJoStr || driveMatch.jo || (g.hasPlanJo ? String(fmtNum(g.maxPlanJo)) : '');
+        const resolvedStart = g.startDate || driveMatch.planStart || '';
+        const resolvedEnd = g.endDate || driveMatch.planFinish || '';
         const fallbackRel = prevReleaseByJc.get(cleanText(g.kodeJc)) || prevReleaseByDwg.get(`${cleanText(g.project)}|${drawingKey(g.taskName)}|${g.rev}`) || prevReleaseByDwg.get(`${cleanText(effProj)}|${drawingKey(g.taskName)}|${g.rev}`) || '';
-        const releaseVal = driveRel || fallbackRel;
+        const releaseVal = driveMatch.release || fallbackRel;
         return {
           biro_id: getBiroId(g.biroName),
           biro_name: g.biroName,
@@ -2434,8 +2470,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           project_code: g.project,
           project: g.project,
           task_name: g.taskName,
-          start_date: g.startDate,
-          end_date: g.endDate || '',
+          start_date: resolvedStart,
+          end_date: resolvedEnd,
           jo: joStr,
           kode_jc: g.kodeJc,
           status: 'approved',
@@ -2959,25 +2995,26 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     const parts = splitTaskToDrawingParts(selectedDesc);
     const cleanProj = cleanText(formData.kodeProyek || '');
     const rowsForThisProj = drawingControlMap[cleanProj] || [];
-    let autoRelease = ''; let autoRev = formData.rev || '0';
+    let autoRelease = '';
+    let autoRev = formData.rev || '0';
+    let autoStart = formData.startDate;
+    let autoEnd = formData.endDate;
+    let autoJo = formData.jo;
     if (rowsForThisProj.length > 0 && selectedDesc) {
-      const cleanTarget = cleanText(selectedDesc);
-      const currentFormRev = String(formData.rev || '0').trim();
-      const exactMatch = rowsForThisProj.find(r => {
-        const cFull = cleanText(r.fullDeskripsi); const cDwg = cleanText(r.noDwg); const cName = cleanText(r.drawingName);
-        const rowRev = String(r.rev || '0').trim();
-        const isRevMatch = rowRev === currentFormRev;
-        const isNameMatch = cleanTarget.includes(cDwg) || cleanTarget.includes(cName) || cFull.includes(cleanTarget) || cleanTarget.includes(cFull);
-        return isNameMatch && isRevMatch;
-      });
-      if (exactMatch && exactMatch.finishDate) { autoRelease = parseToStandardDate(exactMatch.finishDate); if (exactMatch.rev) autoRev = exactMatch.rev; }
-      else { autoRelease = ''; }
+      const m = findDrawingControlMatch(rowsForThisProj, selectedDesc, formData.rev || '0');
+      if (m.release) autoRelease = m.release;
+      if (m.planStart) autoStart = m.planStart;
+      if (m.planFinish) autoEnd = m.planFinish;
+      if (accessMode === 'organik' && m.jo) autoJo = m.jo;
     }
     setFormData(prev => ({
       ...prev,
       taskName: selectedDesc,
       drawingNumber: parts.drawingNumber || prev.drawingNumber,
       drawingName: parts.drawingName || selectedDesc,
+      startDate: autoStart,
+      endDate: autoEnd,
+      jo: autoJo,
       release: autoRelease,
       rev: autoRev,
     }));
@@ -3008,14 +3045,47 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           setDrawingControlMap(prev => ({ ...prev, [cleanProj]: fetched }));
         }
       }
-      const rel = findReleaseInRows(rows || [], task.taskName, task.rev || '0');
-      if (rel) {
-        await handleQuickSaveRelease(task.id, rel);
-        alert(`Berhasil sinkronisasi dari Google Drive (${proj}): ${formatDisplayDate(rel)}`);
+      const m = findDrawingControlMatch(rows || [], task.taskName, task.rev || '0');
+      if (m.release || m.planFinish || m.jo || m.planStart) {
+        const dbUpdate: any = {};
+        const taskPatch: Partial<TaskItem> = {};
+        if (m.release) {
+          dbUpdate.release = m.release;
+          taskPatch.release = m.release;
+          saveLocalRelease(task.id, m.release);
+        }
+        if (m.planStart && !task.startDate) {
+          dbUpdate.start_date = m.planStart;
+          taskPatch.startDate = m.planStart;
+        }
+        if (m.planFinish) {
+          dbUpdate.end_date = m.planFinish;
+          taskPatch.endDate = m.planFinish;
+        }
+        if (m.jo && !SUBCON_WO_PREFIX_RE.test(String(task.kodeJc || '').trim())) {
+          dbUpdate.jo = m.jo;
+          taskPatch.jo = m.jo;
+        }
+        if (Object.keys(dbUpdate).length > 0) {
+          try { await supabase.from('job_cards').update(dbUpdate).eq('id', task.id); } catch {}
+          setManualTasks(prev => {
+            const updated = { ...prev };
+            Object.keys(updated).forEach(k => {
+              updated[k] = updated[k].map(t => t.id === task.id ? { ...t, ...taskPatch } : t);
+            });
+            return updated;
+          });
+        }
+        const details = [
+          m.jo ? `Plan JO: ${m.jo}` : '',
+          m.planFinish ? `Plan Finish: ${formatDisplayDate(m.planFinish)}` : '',
+          m.release ? `Release: ${formatDisplayDate(m.release)}` : '',
+        ].filter(Boolean).join(' • ');
+        alert(`Berhasil sinkronisasi dari Google Drive (${proj}):\n${details}`);
         return;
       }
     }
-    alert(`Tidak ditemukan data FINISH DATE di Google Drive (${!isCorpProject(effProj) ? effProj : 'semua proyek Drawing Control'}) untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
+    alert(`Tidak ditemukan data di Google Drive (${!isCorpProject(effProj) ? effProj : 'semua proyek Drawing Control'}) untuk gambar "${task.taskName}" dengan Rev ${task.rev}.`);
   };
 
   const handleSubmitForm = async (e: React.FormEvent) => {
@@ -3060,17 +3130,27 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       }
       const revVal = (formData.rev && formData.rev.trim() !== '') ? formData.rev.trim() : '0';
       let releaseVal = '';
+      let drivePlanStart = '';
+      let drivePlanFinish = '';
+      let driveJo = '';
       if (formData.kodeProyek && combinedTaskName) {
         const effProj = resolveDrawingProject(formData.kodeProyek, combinedTaskName);
         const cp = cleanText(effProj);
         const cached = drawingControlMap[cp];
         const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(effProj);
-        releaseVal = findReleaseInRows(rows, combinedTaskName, revVal);
+        const m = findDrawingControlMatch(rows, combinedTaskName, revVal);
+        releaseVal = m.release;
+        drivePlanStart = m.planStart;
+        drivePlanFinish = m.planFinish;
+        driveJo = m.jo;
       }
+      const finalStartDate = formData.startDate || drivePlanStart;
+      const finalEndDate = formData.endDate || drivePlanFinish;
+      const finalJo = accessMode === 'organik' ? (resolvedJo || driveJo) : resolvedJo;
       const insertPayload: any = {
         biro_id: validBiroId, biro_name: activeBiro, personil_name: formData.nama, project_code: formData.kodeProyek,
-        project: formData.kodeProyek, task_name: combinedTaskName, start_date: formData.startDate, end_date: formData.endDate,
-        pic: formData.nama, jo: resolvedJo, kode_jc: autoKode, status: accessMode === 'subkon' ? 'approved' : 'pending',
+        project: formData.kodeProyek, task_name: combinedTaskName, start_date: finalStartDate, end_date: finalEndDate,
+        pic: formData.nama, jo: finalJo, kode_jc: autoKode, status: accessMode === 'subkon' ? 'approved' : 'pending',
         rev: revVal, release: releaseVal,
       };
       let insertedRow: any = null;
@@ -3084,7 +3164,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       if (releaseVal) saveLocalRelease(insertedRow.id, releaseVal);
       const newTask: TaskItem = {
         id: insertedRow.id, biroName: activeBiro, project: formData.kodeProyek, taskName: combinedTaskName,
-        startDate: formData.startDate, endDate: formData.endDate, pic: formData.nama, jo: resolvedJo,
+        startDate: finalStartDate, endDate: finalEndDate, pic: formData.nama, jo: finalJo,
         kodeJc: autoKode, rev: revVal, release: releaseVal,
         status: accessMode === 'subkon' ? 'approved' : 'pending',
       };
