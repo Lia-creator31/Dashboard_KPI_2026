@@ -869,71 +869,75 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
 
     const match = findMatchingDriveSheet(projectCode);
     if (match && match.id) {
-      try {
-        const csvUrl = `https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`;
-        const res = await fetch(csvUrl);
-        if (res.ok) {
-          const csvText = await res.text();
-          const wb = XLSX.read(csvText, { type: 'string' });
-          const sheet = wb.Sheets[wb.SheetNames[0]];
-          const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-          let headerIdx = 0;
-          for (let r = 0; r < Math.min(10, rawRows.length); r++) {
-            const h = (rawRows[r] || []).map(v => String(v || '').trim().toLowerCase());
-            if (h.some(c => c.includes('no dwg') || c.includes('drawing name'))) { headerIdx = r; break; }
-          }
-          const hdr = (rawRows[headerIdx] || []).map(v => String(v || '').trim().toLowerCase());
-          const findCol = (pred: (h: string) => boolean, fallback: number) => {
-            const idx = hdr.findIndex(pred);
-            return idx !== -1 ? idx : fallback;
-          };
-          const cNoDwg = findCol(h => h.includes('no dwg') || h === 'no. dwg' || h === 'drawing number', 0);
-          const cName = findCol(h => h.includes('drawing name') || h === 'nama gambar', 1);
-          const cPlanStart = findCol(h => h.includes('plan start') || h === 'start date', 9);
-          const cPlanFinish = findCol(h => h.includes('plan finish') || h === 'plan end', 10);
-          const cRev = findCol(h => h === 'rev' || h === 'rev.' || h.startsWith('rev'), 13);
-          const cFinish = findCol(h => h.includes('finish date') || h === 'release date', 14);
-          const cJo = findCol(h => h === 'jo' || h === 'plan jo' || h.includes('jam orang') || h.includes('manhour') || h === 'mh' || h === 'durasi', 8);
-
-          const rowsList: DrawingControlRow[] = [];
-          for (let r = headerIdx + 1; r < rawRows.length; r++) {
-            const row = rawRows[r]; if (!row) continue;
-            const noDwg = String(row[cNoDwg] || '').trim();
-            const dwgName = String(row[cName] || '').trim();
-            if (!noDwg && !dwgName) continue;
-            if (noDwg.toLowerCase() === 'no dwg' || dwgName.toLowerCase() === 'drawing name') continue;
-            let rev = String(row[cRev] ?? '').trim();
-            let finishRaw = String(row[cFinish] ?? '').trim();
-            if (!parseToStandardDate(finishRaw) && row[15] && parseToStandardDate(row[15])) {
-              rev = String(row[14] ?? rev).trim();
-              finishRaw = String(row[15] ?? '').trim();
-            } else if (!parseToStandardDate(finishRaw) && row[14] && parseToStandardDate(row[14])) {
-              rev = String(row[13] ?? rev).trim();
-              finishRaw = String(row[14] ?? '').trim();
+      const sheetTabs = ['&sheet=Drawing%20Control%20(2)', '&sheet=Drawing%20Control', ''];
+      for (const tabParam of sheetTabs) {
+        try {
+          const csvUrl = `https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv${tabParam}`;
+          const res = await fetch(csvUrl);
+          if (res.ok) {
+            const csvText = await res.text();
+            const wb = XLSX.read(csvText, { type: 'string' });
+            const sheet = wb.Sheets[wb.SheetNames[0]];
+            const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+            let headerIdx = 0;
+            for (let r = 0; r < Math.min(10, rawRows.length); r++) {
+              const h = (rawRows[r] || []).map(v => String(v || '').trim().toLowerCase());
+              if (h.some(c => c.includes('no dwg') || c.includes('drawing name'))) { headerIdx = r; break; }
             }
-            const planStart = parseToStandardDate(row[cPlanStart]);
-            const planFinish = parseToStandardDate(row[cPlanFinish]);
-            const joRaw = cJo !== -1 ? String(row[cJo] ?? '').trim() : '';
-            const joClean = joRaw && joRaw !== '-' && joRaw.toLowerCase() !== 'nan' ? joRaw.replace(/[^0-9.,]/g, '').replace(',', '.') : '';
-            rowsList.push({
-              noDwg,
-              drawingName: dwgName,
-              fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg),
-              rev: rev || '0',
-              finishDate: finishRaw,
-              planStart,
-              planFinish,
-              jo: joClean,
-            });
+            const hdr = (rawRows[headerIdx] || []).map(v => String(v || '').trim().toLowerCase());
+            const findCol = (pred: (h: string) => boolean, fallback: number) => {
+              const idx = hdr.findIndex(pred);
+              return idx !== -1 ? idx : fallback;
+            };
+            const cNoDwg = findCol(h => h.includes('no dwg') || h === 'no. dwg' || h === 'drawing number', 0);
+            const cName = findCol(h => h.includes('drawing name') || h === 'nama gambar', 1);
+            const cPlanStart = findCol(h => h.includes('plan start') || h === 'start date', 9);
+            const cPlanFinish = findCol(h => h.includes('plan finish') || h === 'plan end', 10);
+            const cRev = findCol(h => h === 'rev' || h === 'rev.' || h.startsWith('rev'), 13);
+            const cFinish = findCol(h => h.includes('finish date') || h === 'release date', 14);
+            const cJoExact = hdr.findIndex(h => h === 'jo' || h === 'plan jo' || h.includes('jam orang') || h.includes('manhour') || h === 'mh');
+            const cJo = cJoExact !== -1 ? cJoExact : findCol(h => h === 'durasi' || h.includes('durasi'), 8);
+
+            const rowsList: DrawingControlRow[] = [];
+            for (let r = headerIdx + 1; r < rawRows.length; r++) {
+              const row = rawRows[r]; if (!row) continue;
+              const noDwg = String(row[cNoDwg] || '').trim();
+              const dwgName = String(row[cName] || '').trim();
+              if (!noDwg && !dwgName) continue;
+              if (noDwg.toLowerCase() === 'no dwg' || dwgName.toLowerCase() === 'drawing name') continue;
+              let rev = String(row[cRev] ?? '').trim();
+              let finishRaw = String(row[cFinish] ?? '').trim();
+              if (!parseToStandardDate(finishRaw) && row[15] && parseToStandardDate(row[15])) {
+                rev = String(row[14] ?? rev).trim();
+                finishRaw = String(row[15] ?? '').trim();
+              } else if (!parseToStandardDate(finishRaw) && row[14] && parseToStandardDate(row[14])) {
+                rev = String(row[13] ?? rev).trim();
+                finishRaw = String(row[14] ?? '').trim();
+              }
+              const planStart = parseToStandardDate(row[cPlanStart]);
+              const planFinish = parseToStandardDate(row[cPlanFinish]);
+              const joRaw = cJo !== -1 ? String(row[cJo] ?? '').trim() : '';
+              const joClean = joRaw && joRaw !== '-' && joRaw.toLowerCase() !== 'nan' ? joRaw.replace(/[^0-9.,]/g, '').replace(',', '.') : '';
+              rowsList.push({
+                noDwg,
+                drawingName: dwgName,
+                fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg),
+                rev: rev || '0',
+                finishDate: finishRaw,
+                planStart,
+                planFinish,
+                jo: joClean,
+              });
+            }
+            if (rowsList.length > 0) {
+              setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList }));
+              setActiveDrawingSheetTitle(match.title);
+              setIsFetchingDrawing(false);
+              return;
+            }
           }
-          if (rowsList.length > 0) {
-            setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList }));
-            setActiveDrawingSheetTitle(match.title);
-            setIsFetchingDrawing(false);
-            return;
-          }
-        }
-      } catch {}
+        } catch {}
+      }
     }
     if (gasRows.length > 0) {
       setDrawingControlMap(prev => ({ ...prev, [cleanProj]: gasRows }));
