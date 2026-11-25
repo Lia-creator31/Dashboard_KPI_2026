@@ -151,53 +151,37 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-4 font-sans">
-      {/* Top bar identitas korporat */}
-      <div className="max-w-5xl w-full mx-auto pt-3 px-2 flex items-center justify-between text-xs text-slate-400">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+      <header className="w-full px-6 h-14 border-b border-slate-800 bg-slate-900 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-md bg-blue-600/15 border border-blue-500/30 text-blue-400 flex items-center justify-center">
             <Compass className="w-4 h-4" />
           </div>
-          <div>
-            <span className="font-bold text-slate-200 tracking-tight">DIVISI DESAIN</span>
-            <span className="mx-2 text-slate-700">|</span>
-            <span className="text-slate-400">Sistem Penugasan &amp; Monitoring KPI</span>
-          </div>
+          <span className="font-bold text-sm text-white tracking-tight">DIVISI DESAIN</span>
         </div>
-        <span className="font-mono text-[11px] text-slate-500 hidden sm:inline">TA 2026</span>
-      </div>
+        <span className="font-mono text-xs text-slate-500">2026</span>
+      </header>
 
-      {/* Card Login Utama */}
-      <div className="max-w-sm w-full mx-auto my-8">
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 sm:p-7 space-y-6 shadow-xl">
-          <div className="space-y-1.5 border-b border-slate-800 pb-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5" /> Otentikasi Personel
-            </div>
-            <h1 className="text-lg font-bold text-white">Masuk ke Portal Kerja</h1>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Gunakan Nomor Induk Pegawai (NIP) untuk mengakses penugasan Jobcard, Work Order, atau Dashboard KPI.
-            </p>
-          </div>
+      <div className="flex-1 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-5 shadow-xl">
+          <h1 className="text-base font-bold text-white">Masuk Sistem</h1>
 
           {error && (
-            <div className="p-3 bg-rose-500/10 border border-rose-500/25 rounded-lg text-rose-300 text-xs leading-relaxed">
+            <div className="p-3 bg-rose-500/10 border border-rose-500/25 rounded-lg text-rose-300 text-xs">
               {error}
             </div>
           )}
 
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Nomor Induk Pegawai (NIP)
-              </label>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">NIP</label>
               <div className="relative">
                 <input
                   type="text"
                   inputMode="numeric"
                   value={nip}
                   onChange={(e) => { setNip(e.target.value); setError(''); }}
-                  placeholder="Masukkan NIP Anda"
+                  placeholder="Masukkan NIP"
                   required
                   autoFocus
                   className="w-full px-3.5 py-2.5 pl-9 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white font-mono placeholder:font-sans placeholder:text-slate-500 focus:outline-none focus:border-blue-500 transition"
@@ -211,21 +195,11 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               disabled={isLoading}
               className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 disabled:cursor-wait text-white text-xs font-semibold rounded-lg transition cursor-pointer flex items-center justify-center gap-2"
             >
-              <span>{isLoading ? 'Memverifikasi NIP...' : 'Masuk ke Sistem'}</span>
+              <span>{isLoading ? 'Memproses...' : 'Masuk'}</span>
               {!isLoading && <ArrowRight className="w-3.5 h-3.5" />}
             </button>
           </form>
-
-          <div className="pt-3 border-t border-slate-800/80 text-[11px] text-slate-500 flex items-center justify-between">
-            <span>Akses: Rendal · Kabiro · Mitra</span>
-            <span className="font-mono">IM4 &amp; Drawing Control</span>
-          </div>
         </div>
-      </div>
-
-      {/* Footer sederhana */}
-      <div className="max-w-5xl w-full mx-auto pb-3 px-2 text-center sm:text-left text-[11px] text-slate-600">
-        Divisi Desain — Sistem Informasi Penugasan, Realisasi Jam Orang (JO), dan Evaluasi KPI
       </div>
     </div>
   );
