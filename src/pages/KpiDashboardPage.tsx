@@ -1560,10 +1560,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                     <Users className="w-4 h-4" />
                   </div>
                   <div>
-                    <h2 className="text-sm font-bold text-white">Peringkat KPI Seluruh Personel Divisi Desain ({allPersons.length} orang)</h2>
-                    <p className="text-[11px] text-slate-400">
-                      Urutkan seluruh personel organik dari KPI tertinggi hingga terendah (atau sebaliknya) · klik nama untuk rincian tugas
-                    </p>
+                    <h2 className="text-sm font-bold text-white">Peringkat KPI Personel ({allPersons.length} orang)</h2>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
