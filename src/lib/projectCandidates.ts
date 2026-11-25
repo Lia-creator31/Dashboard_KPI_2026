@@ -519,7 +519,7 @@ export function parseDrawingControlSheetRows(rawRows: any[][]): DrawingControlRo
     cPlanStart !== -1 && combinedHdr[cPlanStart + 1]?.includes('finish') ? cPlanStart + 1 : 10 + offset
   );
   const cRev = findHdrCol(
-    (h, i) => i > cName && (h === 'rev' || /\brev(?:isi)?\b/.test(h)),
+    (h, i) => i > cName && (h === 'rev' || h === 'revisi' || h === 'rev.' || h === 'revision' || /\brev(?:isi(?:on)?)?\.?\b/i.test(h) || /\brev(?:isi)?\s*(?:no|ke)?\b/i.test(h)),
     13 + offset
   );
   const cFinish = findHdrCol(
@@ -826,11 +826,48 @@ export async function fetchDrawingControlRowsForProject(projectCode: string): Pr
   return deduped;
 }
 
+export const TASK_TYPE_OPTIONS = ['Drawing', 'Evatek', 'Tender', 'Modeling'] as const;
+export type TaskType = (typeof TASK_TYPE_OPTIONS)[number];
+
 export interface DrawingPlanInfo {
   row?: DrawingControlRow;
   planStart: string;
   planFinish: string;
   jo: string;
+  rev?: string;
+}
+
+// Hitung tanggal selesai otomatis berdasarkan Plan Start dan Plan JO (1 hari = 8 jam kerja)
+// Hari kerja dihitung Senin - Jumat (Sabtu dan Minggu dilewati)
+export function calculatePlanFinish(startDateStr: string, joHoursStr: string | number): string {
+  if (!startDateStr) return '';
+  const cleanJo = String(joHoursStr ?? '').trim().replace(/,/g, '.');
+  const hours = parseFloat(cleanJo);
+  if (isNaN(hours) || hours <= 0) return startDateStr;
+
+  const totalWorkingDays = Math.max(1, Math.ceil(hours / 8));
+
+  const parts = startDateStr.split('-');
+  if (parts.length !== 3) return startDateStr;
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10) - 1;
+  const d = parseInt(parts[2], 10);
+  if (isNaN(y) || isNaN(m) || isNaN(d)) return startDateStr;
+
+  const curr = new Date(y, m, d);
+  let daysCounted = 0;
+
+  while (daysCounted < totalWorkingDays) {
+    const dayOfWeek = curr.getDay(); // 0 = Minggu, 6 = Sabtu
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      daysCounted++;
+      if (daysCounted === totalWorkingDays) break;
+    }
+    curr.setDate(curr.getDate() + 1);
+  }
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${curr.getFullYear()}-${pad(curr.getMonth() + 1)}-${pad(curr.getDate())}`;
 }
 
 // Ambil Plan Start, Plan Finish (kolom PLAN FINISH) dan Plan JO (kolom JO) untuk satu gambar dari Drawing Control.
@@ -842,7 +879,7 @@ export function findDrawingPlanInfo(
   drawingName: string,
   rev?: string
 ): DrawingPlanInfo {
-  const empty: DrawingPlanInfo = { planStart: '', planFinish: '', jo: '' };
+  const empty: DrawingPlanInfo = { planStart: '', planFinish: '', jo: '', rev: '0' };
   if (!rows || rows.length === 0) return empty;
   const cNo = cleanAlnum(drawingNumber);
   const cName = cleanAlnum(drawingName);
@@ -865,6 +902,7 @@ export function findDrawingPlanInfo(
     planStart: pick(r => r.planStart),
     planFinish: pick(r => r.planFinish),
     jo: pick(r => r.jo),
+    rev: ordered[0]?.rev || pick(r => r.rev) || '0',
   };
 }
 
