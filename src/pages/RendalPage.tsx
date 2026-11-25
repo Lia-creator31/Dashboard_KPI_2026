@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
-import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions } from '../lib/projectCandidates';
+import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
@@ -62,17 +62,6 @@ interface TaskItem {
   realJo?: string;
   release?: string;
   status?: string;
-}
-
-interface DrawingControlRow {
-  noDwg: string;
-  drawingName: string;
-  fullDeskripsi: string;
-  rev: string;
-  finishDate: string;
-  planStart?: string;
-  planFinish?: string;
-  jo?: string;
 }
 
 interface SelectOption {
@@ -499,136 +488,15 @@ function getProjectNormKey(s: string): string {
   return k.replace(/0/g, 'o');
 }
 
-// Ekstrak Plan Start, Plan Finish, Rev, Finish Date, dan JO dari 1 baris CSV Drawing Control
-function parseCsvDrawingControlRows(rawRows: any[][]): DrawingControlRow[] {
-  if (!rawRows || rawRows.length === 0) return [];
-  let headerIdx = 0;
-  for (let r = 0; r < Math.min(10, rawRows.length); r++) {
-    const h = (rawRows[r] || []).map(v => String(v || '').trim().toLowerCase());
-    if (h.some(c => c.includes('no dwg') || c.includes('drawing name'))) {
-      headerIdx = r;
-      break;
-    }
-  }
-  const hdr = (rawRows[headerIdx] || []).map(v => String(v || '').trim().toLowerCase());
-  const findCol = (pred: (h: string) => boolean, fallback: number) => {
-    const idx = hdr.findIndex(pred);
-    return idx !== -1 ? idx : fallback;
-  };
-  const cNoDwg = findCol(h => h.includes('no dwg') || h === 'no. dwg' || h === 'drawing number', 0);
-  const cName = findCol(h => h.includes('drawing name') || h === 'nama gambar', 1);
-  const cPlanStart = findCol(h => h.includes('plan start') || h === 'start date', 9);
-  const cPlanFinish = findCol(h => h.includes('plan finish') || h === 'plan end', 10);
-  const cRev = findCol(h => h === 'rev' || h === 'rev.' || h.startsWith('rev'), 13);
-  const cFinish = findCol(h => h.includes('finish date') || h === 'release date', 14);
-  // Utamakan kolom yang berjudul JO / Plan JO / Jam Orang / Manhour terlebih dahulu, baru fallback ke Durasi
-  const cJoExact = hdr.findIndex(h => h === 'jo' || h === 'plan jo' || h.includes('jam orang') || h.includes('manhour') || h === 'mh');
-  const cJo = cJoExact !== -1 ? cJoExact : findCol(h => h === 'durasi' || h.includes('durasi'), 8);
-
-  const rows: DrawingControlRow[] = [];
-  for (let r = headerIdx + 1; r < rawRows.length; r++) {
-    const row = rawRows[r];
-    if (!row) continue;
-    const noDwg = String(row[cNoDwg] || '').trim();
-    const dwgName = String(row[cName] || '').trim();
-    if (!noDwg && !dwgName) continue;
-    if (noDwg.toLowerCase() === 'no dwg' || dwgName.toLowerCase() === 'drawing name') continue;
-
-    // Deteksi otomatis bila kolom Rev & Finish Date bergeser antara indeks 13/14 atau 14/15
-    let revRaw = String(row[cRev] ?? '').trim();
-    let finishRaw = String(row[cFinish] ?? '').trim();
-    if (!parseToStandardDate(finishRaw) && row[15] && parseToStandardDate(row[15])) {
-      revRaw = String(row[14] ?? revRaw).trim();
-      finishRaw = String(row[15] ?? '').trim();
-    } else if (!parseToStandardDate(finishRaw) && row[14] && parseToStandardDate(row[14])) {
-      revRaw = String(row[13] ?? revRaw).trim();
-      finishRaw = String(row[14] ?? '').trim();
-    }
-
-    const planStart = parseToStandardDate(row[cPlanStart]);
-    const planFinish = parseToStandardDate(row[cPlanFinish]);
-    const joRaw = cJo !== -1 ? String(row[cJo] ?? '').trim() : '';
-    const joClean = joRaw && joRaw !== '-' && joRaw.toLowerCase() !== 'nan' ? joRaw.replace(/[^0-9.,]/g, '').replace(',', '.') : '';
-
-    rows.push({
-      noDwg,
-      drawingName: dwgName,
-      fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg),
-      rev: revRaw || '0',
-      finishDate: finishRaw,
-      planStart,
-      planFinish,
-      jo: joClean,
-    });
-  }
-  return rows;
-}
-
-async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlRow[]> {
-  const cleanProj = cleanText(projectCode);
-  if (!cleanProj) return [];
-  let gasRows: DrawingControlRow[] = [];
-  try {
-    const res = await fetch(`${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`);
-    if (res.ok) {
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-        gasRows = json.data.map((item: any) => ({
-          noDwg: String(item.noDwg || '').trim(),
-          drawingName: String(item.drawingName || '').trim(),
-          fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
-          rev: String(item.rev ?? '0').trim(),
-          finishDate: String(item.finishDate || '').trim(),
-          planStart: parseToStandardDate(item.planStart || item.startDate || item.plan_start || ''),
-          planFinish: parseToStandardDate(item.planFinish || item.endDate || item.plan_finish || ''),
-          jo: String(item.jo || item.planJo || item.durasi || '').replace(/[^0-9.,]/g, '').replace(',', '.'),
-        }));
-      }
-    }
-  } catch { /* lanjut ke CSV */ }
-
-  const match = findMatchingDriveSheet(projectCode);
-  if (match && match.id) {
-    // Coba tab "Drawing Control (2)", "Drawing Control", lalu tab pertama sheet tersebut
-    const sheetTabs = ['&sheet=Drawing%20Control%20(2)', '&sheet=Drawing%20Control', ''];
-    for (const tabParam of sheetTabs) {
-      try {
-        const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv${tabParam}`);
-        if (res.ok) {
-          const wb = XLSX.read(await res.text(), { type: 'string' });
-          const rawRows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
-          const csvRows = parseCsvDrawingControlRows(rawRows);
-          if (csvRows.length > 0) return csvRows;
-        }
-      } catch { /* lanjut coba tab berikutnya */ }
-    }
-  }
-  return gasRows;
-}
-
-const drawingRowsCache = new Map<string, DrawingControlRow[]>();
-
 function isKnownDriveProject(projectCode: string): boolean {
+  if (findMatchingDriveSheet(projectCode)) return true;
   const cands = projectCandidates(projectCode);
   if (!cands.length) cands.push(projectCode);
-  return cands.some(c => {
-    const cp = cleanText(c);
-    return cp && GOOGLE_DRIVE_SHEETS.some(s => cleanText(s.projectKey) === cp || cp.includes(cleanText(s.projectKey)));
-  });
+  return cands.some(c => !!findMatchingDriveSheet(c));
 }
 
 async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlRow[]> {
-  const cacheKey = cleanText(projectCode);
-  if (cacheKey && drawingRowsCache.has(cacheKey)) {
-    const cached = drawingRowsCache.get(cacheKey)!;
-    if (cached.length > 0) return cached;
-  }
-  const cands = projectCandidates(projectCode);
-  if (!cands.length) cands.push(projectCode);
-  const results = await Promise.all(cands.map(c => fetchDrawingRowsRaw(c).catch(() => [] as DrawingControlRow[])));
-  const deduped = dedupeRows(results.flat());
-  if (cacheKey && deduped.length > 0) drawingRowsCache.set(cacheKey, deduped);
-  return deduped;
+  return fetchDrawingControlRowsForProject(projectCode);
 }
 
 function normalizeDrawingSpacing(desc: string): string {
@@ -2977,7 +2845,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const rows = await fetchDrawingRowsFor(projectCode);
       if (rows.length > 0) {
         setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rows }));
-        setActiveDrawingSheetTitle(`Drawing Control ${projectCode}`);
+        const match = findMatchingDriveSheet(projectCode);
+        setActiveDrawingSheetTitle(match?.title || `Drawing Control ${projectCode}`);
       }
     } finally {
       setIsFetchingDrawing(false);
