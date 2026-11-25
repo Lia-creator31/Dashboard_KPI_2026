@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
-import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject } from '../lib/projectCandidates';
+import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, fetchDrawingControlRowsForProject, clearDrawingControlCache, DrawingControlRow, parseDrawingControlDate } from '../lib/projectCandidates';
 import { ArrowLeft, RefreshCw, Save, Check, AlertTriangle } from 'lucide-react';
 
 interface SyncReleasePageProps {
@@ -14,102 +14,8 @@ interface SyncReleasePageProps {
 /* ===== Drawing Control (Google Drive): ambil Release otomatis ===== */
 const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
 
-interface DrawingControlRow {
-  noDwg: string;
-  drawingName: string;
-  fullDeskripsi: string;
-  rev: string;
-  finishDate: string;
-}
-
-const dcClean = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
-
-const DC_MONTHS: Record<string, string> = {
-  jan: '01', januari: '01', january: '01', feb: '02', februari: '02', february: '02',
-  mar: '03', maret: '03', march: '03', apr: '04', april: '04', mei: '05', may: '05',
-  jun: '06', juni: '06', june: '06', jul: '07', juli: '07', july: '07',
-  agu: '08', ags: '08', agustus: '08', aug: '08', august: '08',
-  sep: '09', september: '09', okt: '10', oktober: '10', oct: '10', october: '10',
-  nov: '11', november: '11', des: '12', desember: '12', dec: '12', december: '12',
-};
-
-// Tanggal teks apa pun (mis. "2026-Sep-10", "10 Sep 2026", "10/09/2026") -> "YYYY-MM-DD"
-function parseToStandardDate(val: any): string {
-  if (!val) return '';
-  let str = String(val).trim();
-  if (!str || str === '-' || str.toLowerCase() === 'nan') return '';
-  str = str.replace(/^(senin|selasa|rabu|kamis|jumat|sabtu|minggu|mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s*/i, '').trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
-  const mon = (k: string) => DC_MONTHS[k.toLowerCase()] || DC_MONTHS[k.toLowerCase().slice(0, 3)] || '';
-  const mYMon = str.match(/^(\d{4})[-/\s]+([A-Za-z]+)[-/\s]+(\d{1,2})/);
-  if (mYMon && mon(mYMon[2])) return `${mYMon[1]}-${mon(mYMon[2])}-${mYMon[3].padStart(2, '0')}`;
-  const mDdMon = str.match(/^(\d{1,2})[-/\s]+([A-Za-z]+)[-/\s]+(\d{2,4})/);
-  if (mDdMon && mon(mDdMon[2])) {
-    let y = mDdMon[3]; if (y.length === 2) y = '20' + y;
-    return `${y}-${mon(mDdMon[2])}-${mDdMon[1].padStart(2, '0')}`;
-  }
-  const mDmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-  if (mDmy) return `${mDmy[3]}-${mDmy[2].padStart(2, '0')}-${mDmy[1].padStart(2, '0')}`;
-  const mJs = str.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})/);
-  if (mJs && mon(mJs[1])) return `${mJs[3]}-${mon(mJs[1])}-${mJs[2].padStart(2, '0')}`;
-  const num = Number(str);
-  if (!isNaN(num) && num > 30000 && num < 60000) {
-    return new Date(Math.round((num - 25569) * 86400 * 1000)).toISOString().split('T')[0];
-  }
-  return '';
-}
-
-const dcCache = new Map<string, DrawingControlRow[]>();
-
-// Ambil seluruh baris Drawing Control satu nama proyek: Google Apps Script dulu, lalu CSV Google Sheets
 async function fetchDrawingRows(project: string): Promise<DrawingControlRow[]> {
-  const proj = dcClean(project);
-  if (!proj) return [];
-  if (dcCache.has(proj)) return dcCache.get(proj)!;
-
-  try {
-    const res = await fetch(`${GAS_DRAWING_API_URL}?project=${encodeURIComponent(project.trim())}`);
-    if (res.ok) {
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-        const rows: DrawingControlRow[] = json.data.map((item: any) => ({
-          noDwg: String(item.noDwg || '').trim(),
-          drawingName: String(item.drawingName || '').trim(),
-          fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
-          rev: String(item.rev || '0').trim(),
-          finishDate: String(item.finishDate || '').trim(),
-        }));
-        dcCache.set(proj, rows);
-        return rows;
-      }
-    }
-  } catch { /* lanjut ke cadangan */ }
-
-  const match = findMatchingDriveSheet(project);
-  if (match) {
-    try {
-      const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`);
-      if (res.ok) {
-        const wb = XLSX.read(await res.text(), { type: 'string' });
-        const raw: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
-        const rows: DrawingControlRow[] = [];
-        for (let r = 1; r < raw.length; r++) {
-          const row = raw[r]; if (!row) continue;
-          const noDwg = String(row[0] || '').trim();
-          const name = String(row[1] || '').trim();
-          if (!noDwg && !name) continue;
-          rows.push({
-            noDwg, drawingName: name,
-            fullDeskripsi: noDwg && name ? `${noDwg}-${name}` : (name || noDwg),
-            rev: String(row[14] || '0').trim(),
-            finishDate: String(row[15] || '').trim(),
-          });
-        }
-        if (rows.length > 0) { dcCache.set(proj, rows); return rows; }
-      }
-    } catch { /* tidak ada data */ }
-  }
-  return [];
+  return fetchDrawingControlRowsForProject(project);
 }
 
 const dcRevNum = (v: any) => {
@@ -156,7 +62,10 @@ function findReleaseDate(rows: DrawingControlRow[], taskName: string, rev: strin
 }
 
 
-function clearDrawingCache() { dcCache.clear(); }
+const dcClean = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+const parseToStandardDate = parseDrawingControlDate;
+
+function clearDrawingCache() { clearDrawingControlCache(); }
 
 const MONTH_NAMES = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
