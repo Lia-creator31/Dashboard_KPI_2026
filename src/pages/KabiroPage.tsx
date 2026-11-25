@@ -3,7 +3,7 @@ import { departmentsData, Department } from '../data';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
-import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts } from '../lib/projectCandidates';
+import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions } from '../lib/projectCandidates';
 import KpiDashboardPage from './KpiDashboardPage';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
@@ -48,6 +48,9 @@ interface DrawingControlRow {
   fullDeskripsi: string;
   rev: string;
   finishDate: string;
+  planStart?: string;
+  planFinish?: string;
+  jo?: string;
 }
 
 interface SelectOption {
@@ -838,30 +841,34 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
     }
   };
 
-  // Fetch Drawing Control
+  // Fetch Drawing Control (lengkap dengan Plan Start, Plan Finish, Rev, Finish Date, dan JO)
   const fetchDrawingControlForProject = useCallback(async (projectCode: string) => {
     const cleanProj = cleanText(projectCode); if (!cleanProj) return;
     setIsFetchingDrawing(true);
+    let gasRows: DrawingControlRow[] = [];
     try {
       const url = `${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`;
       const res = await fetch(url);
       if (res.ok) {
         const json = await res.json();
         if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-          const rowsList: DrawingControlRow[] = json.data.map((item: any) => ({
-            noDwg: String(item.noDwg || '').trim(), drawingName: String(item.drawingName || '').trim(),
+          gasRows = json.data.map((item: any) => ({
+            noDwg: String(item.noDwg || '').trim(),
+            drawingName: String(item.drawingName || '').trim(),
             fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
-            rev: String(item.rev || '0').trim(), finishDate: String(item.finishDate || '').trim(),
+            rev: String(item.rev ?? '0').trim(),
+            finishDate: String(item.finishDate || '').trim(),
+            planStart: parseToStandardDate(item.planStart || item.startDate || item.plan_start || ''),
+            planFinish: parseToStandardDate(item.planFinish || item.endDate || item.plan_finish || ''),
+            jo: String(item.jo || item.planJo || item.durasi || '').replace(/[^0-9.,]/g, '').replace(',', '.'),
           }));
-          setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList }));
           setActiveDrawingSheetTitle(json.fileName || `Drawing Control ${projectCode}`);
-          setIsFetchingDrawing(false); return;
         }
       }
-    } catch (err) { console.warn('Gagal koneksi ke Google Apps Script, mencoba fallback...', err); }
+    } catch (err) { console.warn('Gagal koneksi ke Google Apps Script, mencoba CSV...', err); }
 
     const match = findMatchingDriveSheet(projectCode);
-    if (match) {
+    if (match && match.id) {
       try {
         const csvUrl = `https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`;
         const res = await fetch(csvUrl);
@@ -870,23 +877,83 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
           const wb = XLSX.read(csvText, { type: 'string' });
           const sheet = wb.Sheets[wb.SheetNames[0]];
           const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-          const rowsList: DrawingControlRow[] = [];
-          for (let r = 1; r < rawRows.length; r++) {
-            const row = rawRows[r]; if (!row) continue;
-            const noDwg = String(row[0] || '').trim(); const dwgName = String(row[1] || '').trim();
-            const rev = String(row[14] || '0').trim(); const finishRaw = String(row[15] || '').trim();
-            if (!noDwg && !dwgName) continue;
-            rowsList.push({ noDwg, drawingName: dwgName, fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg), rev, finishDate: finishRaw });
+          let headerIdx = 0;
+          for (let r = 0; r < Math.min(10, rawRows.length); r++) {
+            const h = (rawRows[r] || []).map(v => String(v || '').trim().toLowerCase());
+            if (h.some(c => c.includes('no dwg') || c.includes('drawing name'))) { headerIdx = r; break; }
           }
-          if (rowsList.length > 0) { setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList })); setActiveDrawingSheetTitle(match.title); }
+          const hdr = (rawRows[headerIdx] || []).map(v => String(v || '').trim().toLowerCase());
+          const findCol = (pred: (h: string) => boolean, fallback: number) => {
+            const idx = hdr.findIndex(pred);
+            return idx !== -1 ? idx : fallback;
+          };
+          const cNoDwg = findCol(h => h.includes('no dwg') || h === 'no. dwg' || h === 'drawing number', 0);
+          const cName = findCol(h => h.includes('drawing name') || h === 'nama gambar', 1);
+          const cPlanStart = findCol(h => h.includes('plan start') || h === 'start date', 9);
+          const cPlanFinish = findCol(h => h.includes('plan finish') || h === 'plan end', 10);
+          const cRev = findCol(h => h === 'rev' || h === 'rev.' || h.startsWith('rev'), 13);
+          const cFinish = findCol(h => h.includes('finish date') || h === 'release date', 14);
+          const cJo = findCol(h => h === 'jo' || h === 'plan jo' || h.includes('jam orang') || h.includes('manhour') || h === 'mh' || h === 'durasi', 8);
+
+          const rowsList: DrawingControlRow[] = [];
+          for (let r = headerIdx + 1; r < rawRows.length; r++) {
+            const row = rawRows[r]; if (!row) continue;
+            const noDwg = String(row[cNoDwg] || '').trim();
+            const dwgName = String(row[cName] || '').trim();
+            if (!noDwg && !dwgName) continue;
+            if (noDwg.toLowerCase() === 'no dwg' || dwgName.toLowerCase() === 'drawing name') continue;
+            let rev = String(row[cRev] ?? '').trim();
+            let finishRaw = String(row[cFinish] ?? '').trim();
+            if (!parseToStandardDate(finishRaw) && row[15] && parseToStandardDate(row[15])) {
+              rev = String(row[14] ?? rev).trim();
+              finishRaw = String(row[15] ?? '').trim();
+            } else if (!parseToStandardDate(finishRaw) && row[14] && parseToStandardDate(row[14])) {
+              rev = String(row[13] ?? rev).trim();
+              finishRaw = String(row[14] ?? '').trim();
+            }
+            const planStart = parseToStandardDate(row[cPlanStart]);
+            const planFinish = parseToStandardDate(row[cPlanFinish]);
+            const joRaw = cJo !== -1 ? String(row[cJo] ?? '').trim() : '';
+            const joClean = joRaw && joRaw !== '-' && joRaw.toLowerCase() !== 'nan' ? joRaw.replace(/[^0-9.,]/g, '').replace(',', '.') : '';
+            rowsList.push({
+              noDwg,
+              drawingName: dwgName,
+              fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg),
+              rev: rev || '0',
+              finishDate: finishRaw,
+              planStart,
+              planFinish,
+              jo: joClean,
+            });
+          }
+          if (rowsList.length > 0) {
+            setDrawingControlMap(prev => ({ ...prev, [cleanProj]: rowsList }));
+            setActiveDrawingSheetTitle(match.title);
+            setIsFetchingDrawing(false);
+            return;
+          }
         }
       } catch {}
+    }
+    if (gasRows.length > 0) {
+      setDrawingControlMap(prev => ({ ...prev, [cleanProj]: gasRows }));
     }
     setIsFetchingDrawing(false);
   }, []);
 
   const handleProjectChange = (newProject: string) => {
-    setFormData(prev => ({ ...prev, kodeProyek: newProject, taskName: '', drawingNumber: '', drawingName: '', release: '' }));
+    setFormData(prev => ({
+      ...prev,
+      kodeProyek: newProject,
+      taskName: '',
+      drawingNumber: '',
+      drawingName: '',
+      rev: '0',
+      startDate: '',
+      endDate: '',
+      ...(accessMode === 'organik' ? { jo: '' } : {}),
+      release: '',
+    }));
     fetchDrawingControlForProject(newProject);
   };
 
@@ -896,6 +963,9 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
     let nextName = formData.drawingName;
     let autoRelease = '';
     let autoRev = formData.rev || '0';
+    let autoStart = formData.startDate;
+    let autoEnd = formData.endDate;
+    let autoJo = formData.jo;
     const cNo = cleanText(selectedNoDwg);
     if (cNo && rowsForThisProj.length > 0) {
       const currentFormRev = String(formData.rev || '0').trim();
@@ -904,7 +974,10 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
       if (matchAny) {
         if (matchAny.drawingName) nextName = matchAny.drawingName;
         if (matchAny.finishDate) autoRelease = parseToStandardDate(matchAny.finishDate);
-        if (matchAny.rev) autoRev = matchAny.rev;
+        if (matchAny.rev !== undefined && matchAny.rev !== '') autoRev = matchAny.rev;
+        if (matchAny.planStart) autoStart = matchAny.planStart;
+        if (matchAny.planFinish) autoEnd = matchAny.planFinish;
+        if (accessMode === 'organik' && matchAny.jo) autoJo = matchAny.jo;
       }
     } else if (selectedNoDwg && (!nextName || !cNo)) {
       const parts = splitTaskToDrawingParts(selectedNoDwg);
@@ -919,6 +992,9 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
       drawingNumber: selectedNoDwg,
       drawingName: nextName,
       taskName: combined,
+      startDate: autoStart,
+      endDate: autoEnd,
+      jo: autoJo,
       release: autoRelease || prev.release,
       rev: autoRev,
     }));
@@ -930,6 +1006,9 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
     let nextNo = formData.drawingNumber;
     let autoRelease = '';
     let autoRev = formData.rev || '0';
+    let autoStart = formData.startDate;
+    let autoEnd = formData.endDate;
+    let autoJo = formData.jo;
     const cName = cleanText(selectedName);
     if (cName && rowsForThisProj.length > 0) {
       const currentFormRev = String(formData.rev || '0').trim();
@@ -938,7 +1017,10 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
       if (matchAny) {
         if (matchAny.noDwg) nextNo = matchAny.noDwg;
         if (matchAny.finishDate) autoRelease = parseToStandardDate(matchAny.finishDate);
-        if (matchAny.rev) autoRev = matchAny.rev;
+        if (matchAny.rev !== undefined && matchAny.rev !== '') autoRev = matchAny.rev;
+        if (matchAny.planStart) autoStart = matchAny.planStart;
+        if (matchAny.planFinish) autoEnd = matchAny.planFinish;
+        if (accessMode === 'organik' && matchAny.jo) autoJo = matchAny.jo;
       }
     } else if (selectedName && !nextNo) {
       const parts = splitTaskToDrawingParts(selectedName);
@@ -953,6 +1035,9 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
       drawingNumber: nextNo,
       drawingName: selectedName,
       taskName: combined,
+      startDate: autoStart,
+      endDate: autoEnd,
+      jo: autoJo,
       release: autoRelease || prev.release,
       rev: autoRev,
     }));
@@ -1187,47 +1272,10 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
     );
   }, [currentActiveBiroTasks, currentBiroMembers, selectedFormBiro]);
 
+  // Pilihan Kode Proyek di Form: hanya menampilkan kode di dalam kurung dari file Drawing Control di Google Drive
   const projectOptions = useMemo((): string[] => {
-    const projectMap = new Map<string, string>();
-    GOOGLE_DRIVE_SHEETS.forEach(s => {
-      const cleaned = cleanProjectString(s.projectKey);
-      const normKey = getProjectNormKey(cleaned);
-      if (cleaned && normKey && !projectMap.has(normKey)) projectMap.set(normKey, cleaned);
-    });
-    if (jobcardWorkbook) {
-      try {
-        jobcardWorkbook.SheetNames.forEach(sheetName => {
-          const sheet = jobcardWorkbook.Sheets[sheetName]; if (!sheet) return;
-          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-          let projCol = 2;
-          for (let r = 0; r < Math.min(5, rows.length); r++) {
-            const rowVals = (rows[r] || []).map(v => String(v).trim().toLowerCase());
-            const foundIdx = rowVals.findIndex(v => v.includes('proyek') || v.includes('project'));
-            if (foundIdx !== -1) { projCol = foundIdx; break; }
-          }
-          rows.forEach((row, idx) => {
-            if (idx < 1 || !row) return;
-            const raw = String(row[projCol] || '').trim();
-            if (!raw || raw.toLowerCase() === 'nan' || raw.toLowerCase().includes('kode proyek') || raw.toLowerCase() === 'proyek' || raw.toLowerCase() === 'project') return;
-            const cleaned = cleanProjectString(raw);
-            const normKey = getProjectNormKey(cleaned);
-            if (cleaned && normKey && !projectMap.has(normKey)) projectMap.set(normKey, cleaned);
-          });
-        });
-      } catch {}
-    }
-    Object.values(manualTasks).forEach(tasks => {
-      tasks.forEach(t => {
-        const raw = String(t.project || '').trim();
-        if (raw) {
-          const cleaned = cleanProjectString(raw);
-          const normKey = getProjectNormKey(cleaned);
-          if (cleaned && normKey && !projectMap.has(normKey)) projectMap.set(normKey, cleaned);
-        }
-      });
-    });
-    return Array.from(projectMap.values()).sort((a, b) => a.localeCompare(b));
-  }, [jobcardWorkbook, manualTasks]);
+    return getFormDriveProjectOptions();
+  }, []);
 
   const dynamicTaskOptions = useMemo((): string[] => {
     const cleanProj = cleanText(formData.kodeProyek || '');
@@ -1276,6 +1324,7 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [formData.kodeProyek, drawingControlMap, jobcardWorkbook, customDescriptions, manualTasks]);
 
+  // Pilihan Drawing Number & Drawing Name di Form: HANYA diambil dari file Drawing Control proyek kapal yang sedang dipilih
   const buildDrawingNumberAndNameOptions = useCallback((projectCode: string) => {
     const cleanProj = cleanText(projectCode || '');
     const rowsForProj = drawingControlMap[cleanProj] || [];
@@ -1299,33 +1348,11 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
       }
     });
 
-    dynamicTaskOptions.forEach(desc => {
-      const parts = splitTaskToDrawingParts(desc);
-      if (parts.drawingNumber) {
-        const k = cleanText(parts.drawingNumber);
-        if (k && !numMap.has(k)) {
-          numMap.set(k, {
-            value: parts.drawingNumber,
-            label: parts.drawingName ? `${parts.drawingNumber} — ${parts.drawingName}` : parts.drawingNumber,
-          });
-        }
-      }
-      if (parts.drawingName) {
-        const k = cleanText(parts.drawingName);
-        if (k && !nameMap.has(k)) {
-          nameMap.set(k, {
-            value: parts.drawingName,
-            label: parts.drawingNumber ? `${parts.drawingName} (${parts.drawingNumber})` : parts.drawingName,
-          });
-        }
-      }
-    });
-
     return {
-      numberOptions: Array.from(numMap.values()).sort((a, b) => a.value.localeCompare(b.value)),
-      nameOptions: Array.from(nameMap.values()).sort((a, b) => a.value.localeCompare(b.value)),
+      numberOptions: Array.from(numMap.values()),
+      nameOptions: Array.from(nameMap.values()),
     };
-  }, [drawingControlMap, dynamicTaskOptions]);
+  }, [drawingControlMap]);
 
   const formDrawingOpts = useMemo(
     () => buildDrawingNumberAndNameOptions(formData.kodeProyek),
@@ -2213,7 +2240,18 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                         }
                       }
                       const combined = combineDrawingParts(val, nextName);
-                      setEditFormData(prev => ({ ...prev, drawingNumber: val, drawingName: nextName, taskName: combined, release: newRelease, rev: newRev }));
+                      const matchedRow = rows.find(r => cleanText(r.noDwg) === cNo);
+                      setEditFormData(prev => ({
+                        ...prev,
+                        drawingNumber: val,
+                        drawingName: nextName,
+                        taskName: combined,
+                        release: newRelease,
+                        rev: newRev,
+                        startDate: matchedRow?.planStart || prev.startDate,
+                        endDate: matchedRow?.planFinish || prev.endDate,
+                        jo: (accessMode === 'organik' && matchedRow?.jo) ? matchedRow.jo : prev.jo,
+                      }));
                     }}
                     allowCustom
                     placeholder="Ketik nomor gambar..."
@@ -2242,7 +2280,18 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                         }
                       }
                       const combined = combineDrawingParts(nextNo, val);
-                      setEditFormData(prev => ({ ...prev, drawingNumber: nextNo, drawingName: val, taskName: combined, release: newRelease, rev: newRev }));
+                      const matchedRow = rows.find(r => cleanText(r.drawingName) === cName);
+                      setEditFormData(prev => ({
+                        ...prev,
+                        drawingNumber: nextNo,
+                        drawingName: val,
+                        taskName: combined,
+                        release: newRelease,
+                        rev: newRev,
+                        startDate: matchedRow?.planStart || prev.startDate,
+                        endDate: matchedRow?.planFinish || prev.endDate,
+                        jo: (accessMode === 'organik' && matchedRow?.jo) ? matchedRow.jo : prev.jo,
+                      }));
                     }}
                     allowCustom
                     placeholder="Ketik nama gambar..."
