@@ -30,4 +30,5 @@ export interface JobCard {
   created_at: string;
   rev?: string;
   release?: string;
+  type?: string;
 }
