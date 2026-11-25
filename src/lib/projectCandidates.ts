@@ -197,6 +197,43 @@ export function resolveDrawingProject(project: string, desc: string): string {
   return p;
 }
 
+// Pilihan Kode Proyek untuk Form (diambil dari kode di dalam tanda kurung pada judul file di folder Google Drive "DRAWING CONTROL ONLINE")
+// - Drawing Control KSR 20 M ALU (W000314)                -> W000314
+// - Drawing Control FRIGATE 140 M (W000304-305)           -> W000304, W000305
+// - Drawing Control KSOT (A26AOP01)                       -> A26AOP01
+// - Drawing Control LPD UAE USED (W000308)                -> W000308
+// - Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)-> M000312
+// - Drawing Control LD PN 124 M. (W000306-307)            -> W000306, W000307
+// - Drawing Control GEOMARIN V (M000313)                  -> M000313
+// - Drawing Control KSSR 18 M (W000311)                   -> W000311
+// - Drawing Control LCU LD PN 124 M (JW1 - JW2)           -> JW1 - JW2
+// - Drawing Control FFBNW FRIGATE 140 M (WFFBNW)          -> WFFBNW
+// - Drawing Control R41-PCC.xlsx                          -> R41-PCC
+// - Drawing Control R41-FPB.xlsx                          -> R41-FPB
+export function getFormDriveProjectOptions(): string[] {
+  const out: string[] = [];
+  const add = (v: string) => {
+    const clean = v.trim();
+    if (clean && !out.includes(clean)) out.push(clean);
+  };
+  GOOGLE_DRIVE_SHEETS.forEach(s => {
+    const m = s.title.match(/\(([^)]+)\)/);
+    if (m) {
+      const inside = m[1].trim();
+      // Jika di dalam kurung adalah rentang angka kode W/M (mis. "W000304-305" atau "W000306-307"),
+      // pecah menjadi kode proyek masing-masing (W000304, W000305)
+      if (/^[WM]\d{6}\s*-\s*\d{3}$/i.test(inside)) {
+        projectCandidates(inside).filter(c => /^[WM]\d{6}$/.test(c)).forEach(add);
+      } else {
+        add(inside);
+      }
+    } else {
+      add(s.projectKey);
+    }
+  });
+  return out;
+}
+
 // Daftar projectKey unik dari seluruh proyek Drawing Control di Google Drive,
 // dipakai untuk mencari nomor gambar satu per satu di semua proyek ketika proyeknya CORP2026
 // tetapi di dalam deskripsi tidak tertulis kode proyeknya (mis. "E90961.92009 - LIGHTWEIGHT ESTIMATION").
