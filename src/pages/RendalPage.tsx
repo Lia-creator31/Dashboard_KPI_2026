@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
-import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow, findDrawingPlanInfo } from '../lib/projectCandidates';
+import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow, findDrawingPlanInfo, calculatePlanFinish, TASK_TYPE_OPTIONS } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
@@ -62,6 +62,7 @@ interface TaskItem {
   realJo?: string;
   release?: string;
   status?: string;
+  type?: string;
 }
 
 interface SelectOption {
@@ -333,6 +334,21 @@ function saveLocalRelease(id: string, val: string) {
     const map = JSON.parse(localStorage.getItem('task_release_map') || '{}');
     map[id] = val;
     localStorage.setItem('task_release_map', JSON.stringify(map));
+  } catch {}
+}
+
+function getLocalType(id: string, defaultVal: string = 'Drawing'): string {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_type_map') || '{}');
+    return map[id] !== undefined ? String(map[id]) : defaultVal;
+  } catch { return defaultVal; }
+}
+
+function saveLocalType(id: string, val: string) {
+  try {
+    const map = JSON.parse(localStorage.getItem('task_type_map') || '{}');
+    map[id] = val;
+    localStorage.setItem('task_type_map', JSON.stringify(map));
   } catch {}
 }
 
@@ -1794,10 +1810,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     kodeJc: '',
     rev: '0',
     release: '',
+    type: 'Drawing',
   });
   const [formData, setFormData] = useState({
     nama: '', kodeProyek: '', taskName: '', drawingNumber: '', drawingName: '', startDate: '', endDate: '',
-    pic: '', jo: '', rev: '0', realJo: '', release: '',
+    pic: '', jo: '', rev: '0', realJo: '', release: '', type: 'Drawing',
   });
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
@@ -1841,7 +1858,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             id: row.id, biroName: row.biro_name || '', project: row.project || '', taskName: row.task_name || '',
             startDate: row.start_date || '', endDate: row.end_date || '', pic: row.pic || '', jo: row.jo || '',
             kodeJc: row.kode_jc || '', rev: persistedRev, release: persistedRelease, realJo: row.real_jc || row.realJo || '',
-            status: row.status || '',
+            status: row.status || '', type: row.type || getLocalType(row.id, 'Drawing'),
           };
           grouped[biroKey].push(item);
           seenIds.add(String(row.id));
@@ -2734,8 +2751,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       endDate: task.endDate || drivePlan.planFinish || '',
       jo: rawJo || (accessMode === 'organik' ? drivePlan.jo : '') || '',
       kodeJc: task.kodeJc || '',
-      rev: task.rev || '0',
+      rev: task.rev || drivePlan.rev || '0',
       release: task.release || '',
+      type: task.type || getLocalType(task.id, 'Drawing'),
     });
     if (task.project) fetchDrawingControlForProject(task.project);
   };
@@ -2761,6 +2779,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       ? String(hpEntry.hour)
       : editFormData.jo;
     const nextStatus = trimmedKodeJc ? 'approved' : (editingTask.status || 'pending');
+    const typeVal = editFormData.type || 'Drawing';
     const updatePayload: any = {
       project: editFormData.project,
       project_code: editFormData.project,
@@ -2772,12 +2791,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       status: nextStatus,
       rev: revVal,
       release: releaseVal,
+      type: typeVal,
     };
     let { error } = await supabase
       .from('job_cards')
       .update(updatePayload)
       .eq('id', editingTask.id);
-    if (error && (error.message?.includes('rev') || error.message?.includes('release') || (error as any).details?.includes('rev') || (error as any).details?.includes('release'))) {
+    if (error && (error.message?.includes('rev') || error.message?.includes('release') || error.message?.includes('type') || (error as any).details?.includes('rev') || (error as any).details?.includes('release') || (error as any).details?.includes('type'))) {
+      delete updatePayload.type;
       delete updatePayload.rev;
       delete updatePayload.release;
       const retry = await supabase.from('job_cards').update(updatePayload).eq('id', editingTask.id);
@@ -2788,6 +2809,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       return;
     }
     saveLocalRelease(editingTask.id, releaseVal);
+    saveLocalType(editingTask.id, typeVal);
     const updatedItem: TaskItem = {
       ...editingTask,
       project: editFormData.project,
@@ -2799,6 +2821,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       status: nextStatus,
       rev: revVal,
       release: releaseVal,
+      type: typeVal,
     };
     if (accessMode === 'subkon' || SUBCON_WO_PREFIX_RE.test(String(updatedItem.kodeJc || '').trim())) {
       upsertSubconHistoryItem(updatedItem);
@@ -2882,17 +2905,22 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     let autoJo = formData.jo;
     const cNo = cleanText(selectedNoDwg);
     if (cNo && rowsForThisProj.length > 0) {
-      const currentFormRev = String(formData.rev || '0').trim();
-      const matchWithRev = rowsForThisProj.find(r => cleanText(r.noDwg) === cNo && String(r.rev || '0').trim() === currentFormRev);
-      const matchAny = matchWithRev || rowsForThisProj.find(r => cleanText(r.noDwg) === cNo);
-      if (matchAny) {
-        if (matchAny.drawingName) nextName = matchAny.drawingName;
-        if (matchAny.finishDate) autoRelease = parseToStandardDate(matchAny.finishDate);
-        if (matchAny.rev !== undefined && matchAny.rev !== '') autoRev = matchAny.rev;
-        const plan = findDrawingPlanInfo(rowsForThisProj, selectedNoDwg, nextName, autoRev);
-        if (plan.planStart) autoStart = plan.planStart;
-        if (plan.planFinish) autoEnd = plan.planFinish;
-        if (accessMode === 'organik' && plan.jo) autoJo = plan.jo;
+      const matchingRows = rowsForThisProj.filter(r => cleanText(r.noDwg) === cNo);
+      if (matchingRows.length > 0) {
+        // Ambil revisi dari kolom rev pada Drawing Control
+        const currentFormRev = String(formData.rev || '0').trim();
+        const matchWithRev = matchingRows.find(r => String(r.rev || '0').trim() === currentFormRev);
+        const matchAny = matchWithRev || matchingRows[matchingRows.length - 1];
+        if (matchAny) {
+          if (matchAny.drawingName) nextName = matchAny.drawingName;
+          if (matchAny.finishDate) autoRelease = parseToStandardDate(matchAny.finishDate);
+          if (matchAny.rev !== undefined && matchAny.rev !== '') autoRev = matchAny.rev;
+          const plan = findDrawingPlanInfo(rowsForThisProj, selectedNoDwg, nextName, autoRev);
+          if (plan.planStart) autoStart = plan.planStart;
+          if (plan.planFinish) autoEnd = plan.planFinish;
+          if (accessMode === 'organik' && plan.jo) autoJo = plan.jo;
+          if (plan.rev) autoRev = plan.rev;
+        }
       }
     } else if (selectedNoDwg && (!nextName || !cNo)) {
       const parts = splitTaskToDrawingParts(selectedNoDwg);
@@ -2900,6 +2928,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         selectedNoDwg = parts.drawingNumber;
         nextName = parts.drawingName;
       }
+    }
+    // Jika ada Plan Start dan Plan JO, hitung Plan Finish otomatis (1 hari = 8 jam kerja)
+    const effectiveStart = autoStart || formData.startDate;
+    if (effectiveStart && autoJo) {
+      const calcFinish = calculatePlanFinish(effectiveStart, autoJo);
+      if (calcFinish) autoEnd = calcFinish;
     }
     const combined = combineDrawingParts(selectedNoDwg, nextName);
     setFormData(prev => ({
@@ -2926,17 +2960,21 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     let autoJo = formData.jo;
     const cName = cleanText(selectedName);
     if (cName && rowsForThisProj.length > 0) {
-      const currentFormRev = String(formData.rev || '0').trim();
-      const matchWithRev = rowsForThisProj.find(r => cleanText(r.drawingName) === cName && String(r.rev || '0').trim() === currentFormRev);
-      const matchAny = matchWithRev || rowsForThisProj.find(r => cleanText(r.drawingName) === cName);
-      if (matchAny) {
-        if (matchAny.noDwg) nextNo = matchAny.noDwg;
-        if (matchAny.finishDate) autoRelease = parseToStandardDate(matchAny.finishDate);
-        if (matchAny.rev !== undefined && matchAny.rev !== '') autoRev = matchAny.rev;
-        const plan = findDrawingPlanInfo(rowsForThisProj, nextNo, selectedName, autoRev);
-        if (plan.planStart) autoStart = plan.planStart;
-        if (plan.planFinish) autoEnd = plan.planFinish;
-        if (accessMode === 'organik' && plan.jo) autoJo = plan.jo;
+      const matchingRows = rowsForThisProj.filter(r => cleanText(r.drawingName) === cName);
+      if (matchingRows.length > 0) {
+        const currentFormRev = String(formData.rev || '0').trim();
+        const matchWithRev = matchingRows.find(r => String(r.rev || '0').trim() === currentFormRev);
+        const matchAny = matchWithRev || matchingRows[matchingRows.length - 1];
+        if (matchAny) {
+          if (matchAny.noDwg) nextNo = matchAny.noDwg;
+          if (matchAny.finishDate) autoRelease = parseToStandardDate(matchAny.finishDate);
+          if (matchAny.rev !== undefined && matchAny.rev !== '') autoRev = matchAny.rev;
+          const plan = findDrawingPlanInfo(rowsForThisProj, nextNo, selectedName, autoRev);
+          if (plan.planStart) autoStart = plan.planStart;
+          if (plan.planFinish) autoEnd = plan.planFinish;
+          if (accessMode === 'organik' && plan.jo) autoJo = plan.jo;
+          if (plan.rev) autoRev = plan.rev;
+        }
       }
     } else if (selectedName && !nextNo) {
       const parts = splitTaskToDrawingParts(selectedName);
@@ -2944,6 +2982,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         nextNo = parts.drawingNumber;
         selectedName = parts.drawingName;
       }
+    }
+    // Jika ada Plan Start dan Plan JO, hitung Plan Finish otomatis (1 hari = 8 jam kerja)
+    const effectiveStart = autoStart || formData.startDate;
+    if (effectiveStart && autoJo) {
+      const calcFinish = calculatePlanFinish(effectiveStart, autoJo);
+      if (calcFinish) autoEnd = calcFinish;
     }
     const combined = combineDrawingParts(nextNo, selectedName);
     setFormData(prev => ({
@@ -3071,33 +3115,36 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(effProj);
         releaseVal = findReleaseInRows(rows, combinedTaskName, revVal);
       }
+      const typeVal = formData.type || 'Drawing';
       const insertPayload: any = {
         biro_id: validBiroId, biro_name: activeBiro, personil_name: formData.nama, project_code: formData.kodeProyek,
         project: formData.kodeProyek, task_name: combinedTaskName, start_date: formData.startDate, end_date: formData.endDate,
         pic: formData.nama, jo: resolvedJo, kode_jc: autoKode, status: accessMode === 'subkon' ? 'approved' : 'pending',
-        rev: revVal, release: releaseVal,
+        rev: revVal, release: releaseVal, type: typeVal,
       };
       let insertedRow: any = null;
       const { data: resData, error } = await supabase.from('job_cards').insert(insertPayload).select().single();
       if (error) {
-        delete insertPayload.rev; delete insertPayload.release;
+        delete insertPayload.type; delete insertPayload.rev; delete insertPayload.release;
         const { data: retryData, error: retryError } = await supabase.from('job_cards').insert(insertPayload).select().single();
         if (retryError) { alert('Gagal simpan: ' + retryError.message); return; }
         insertedRow = retryData;
       } else { insertedRow = resData; }
       if (releaseVal) saveLocalRelease(insertedRow.id, releaseVal);
+      saveLocalType(insertedRow.id, typeVal);
       const newTask: TaskItem = {
         id: insertedRow.id, biroName: activeBiro, project: formData.kodeProyek, taskName: combinedTaskName,
         startDate: formData.startDate, endDate: formData.endDate, pic: formData.nama, jo: resolvedJo,
         kodeJc: autoKode, rev: revVal, release: releaseVal,
         status: accessMode === 'subkon' ? 'approved' : 'pending',
+        type: typeVal,
       };
       if (accessMode === 'subkon') {
         upsertSubconHistoryItem(newTask);
       }
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
-      setFormData({ nama: '', kodeProyek: '', taskName: '', drawingNumber: '', drawingName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '', release: '' });
+      setFormData({ nama: '', kodeProyek: '', taskName: '', drawingNumber: '', drawingName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '', release: '', type: 'Drawing' });
       if (accessMode === 'subkon') {
         alert(`Tugas tersimpan! Work Order "${autoKode}" (Nomor JO: ${resolvedJo}) langsung terbit dan tersimpan di History.`);
       } else {
@@ -3367,6 +3414,23 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     () => buildDrawingNumberAndNameOptions(editFormData.project),
     [buildDrawingNumberAndNameOptions, editFormData.project]
   );
+
+  // Ketika nomor drawing nya sudah ada di data Drawing Control, kolom Plan JO, Drawing Name, dan Revisi dibuat tidak bisa diedit
+  const isDrawingNumberExisting = useMemo(() => {
+    if (!formData.drawingNumber || !formData.drawingNumber.trim()) return false;
+    const cNo = cleanText(formData.drawingNumber);
+    const cleanProj = cleanText(formData.kodeProyek || '');
+    const rows = drawingControlMap[cleanProj] || [];
+    return rows.some(r => cleanText(r.noDwg) === cNo);
+  }, [formData.drawingNumber, formData.kodeProyek, drawingControlMap]);
+
+  const isEditDrawingNumberExisting = useMemo(() => {
+    if (!editFormData.drawingNumber || !editFormData.drawingNumber.trim()) return false;
+    const cNo = cleanText(editFormData.drawingNumber);
+    const cleanProj = cleanText(editFormData.project || '');
+    const rows = drawingControlMap[cleanProj] || [];
+    return rows.some(r => cleanText(r.noDwg) === cNo);
+  }, [editFormData.drawingNumber, editFormData.project, drawingControlMap]);
 
   // Planner hanya menampilkan tugas hasil isian Form (status 'pending') yang belum punya kode Jobcard.
   // Baris dari Excel Realisasi JO tidak pernah masuk ke sini.
@@ -3677,6 +3741,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         />
                       </div>
                       <div>
+                        <label className="block text-slate-400 mb-1">Type</label>
+                        <select
+                          value={formData.type || 'Drawing'}
+                          onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                        >
+                          {TASK_TYPE_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
                         <label className="block text-slate-400 mb-1">Kode Proyek</label>
                         <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
                           placeholder="Ketik kode proyek..." required />
@@ -3722,26 +3798,53 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         />
                       </div>
                       <div>
-                        <label className="block text-slate-400 mb-1">Drawing Name</label>
-                        <SearchableSelect
-                          options={formDrawingOpts.nameOptions}
-                          value={formData.drawingName}
-                          onChange={handleDrawingNameChange}
-                          allowCustom
-                          customAddLabel="+ Tambah Drawing Name"
-                          onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
-                          placeholder="Ketik / pilih nama gambar..."
-                          required={!formData.drawingNumber}
-                        />
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Drawing Name</label>
+                          {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari Drawing Control</span>}
+                        </div>
+                        {isDrawingNumberExisting ? (
+                          <input
+                            type="text"
+                            readOnly
+                            value={formData.drawingName}
+                            title="Otomatis terkunci dari data Drawing Control"
+                            className="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-400 cursor-not-allowed font-medium"
+                          />
+                        ) : (
+                          <SearchableSelect
+                            options={formDrawingOpts.nameOptions}
+                            value={formData.drawingName}
+                            onChange={handleDrawingNameChange}
+                            allowCustom
+                            customAddLabel="+ Tambah Drawing Name"
+                            onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
+                            placeholder="Ketik / pilih nama gambar..."
+                            required={!formData.drawingNumber}
+                          />
+                        )}
                       </div>
                       <div>
                         <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
-                        <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                          required style={{ colorScheme: 'dark' }}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                        <input
+                          type="date"
+                          value={formData.startDate}
+                          onChange={(e) => {
+                            const newStart = e.target.value;
+                            const calcFinish = calculatePlanFinish(newStart, formData.jo);
+                            setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
+                          }}
+                          required
+                          style={{ colorScheme: 'dark' }}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                        />
                       </div>
                       <div>
-                        <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Tanggal Selesai</label>
+                          {formData.jo && formData.startDate && (
+                            <span className="text-[10px] text-cyan-400 font-mono">Otomatis (1 hari = 8 jam) · Bisa diedit</span>
+                          )}
+                        </div>
                         <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
                           required style={{ colorScheme: 'dark' }}
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
@@ -4127,6 +4230,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                 <thead><tr className="text-slate-400 border-b border-slate-800">
                                   <th className="py-2 px-2.5 w-8">#</th>
                                   <th className="py-2 px-2.5 font-mono text-amber-400">Jobcard</th>
+                                  <th className="py-2 px-2.5">Type</th>
                                   <th className="py-2 px-2.5">Proyek</th>
                                   <th className="py-2 px-2.5">Deskripsi</th>
                                   <th className="py-2 px-2.5 text-center font-mono">Rev</th>
@@ -4152,6 +4256,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                       <tr key={task.id} className="hover:bg-slate-900/40">
                                         <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
                                         <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}</td>
+                                        <td className="py-2 px-2.5">
+                                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
+                                            task.type === 'Evatek' ? 'bg-purple-500/10 text-purple-300 border-purple-500/30' :
+                                            task.type === 'Tender' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' :
+                                            task.type === 'Modeling' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
+                                            'bg-blue-500/10 text-blue-300 border-blue-500/30'
+                                          }`}>
+                                            {task.type || 'Drawing'}
+                                          </span>
+                                        </td>
                                         <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
                                         <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
                                         <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
@@ -4235,16 +4349,40 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         placeholder="Ketik nama personel organik..." required />
                     </div>
                     <div>
+                      <label className="block text-slate-400 mb-1">Type</label>
+                      <select
+                        value={formData.type || 'Drawing'}
+                        onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                      >
+                        {TASK_TYPE_OPTIONS.map(opt => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
                       <label className="block text-slate-400 mb-1">Kode Proyek</label>
                       <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
                         placeholder="Ketik kode proyek (contoh: M000313)..." required />
                     </div>
                     <div>
-                      <label className="block text-slate-400 mb-1">Plan JO</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Plan JO</label>
+                        {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari Drawing Control</span>}
+                      </div>
                       <input type="text" inputMode="decimal" value={formData.jo}
-                        onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
+                        onChange={(e) => {
+                          const newJo = e.target.value.replace(/[^0-9.]/g, '');
+                          const calcFinish = calculatePlanFinish(formData.startDate, newJo);
+                          setFormData(prev => ({ ...prev, jo: newJo, endDate: calcFinish || prev.endDate }));
+                        }}
                         placeholder="Contoh: 300426" required
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
+                        readOnly={isDrawingNumberExisting}
+                        className={`w-full px-3 py-2 rounded-lg font-mono ${
+                          isDrawingNumberExisting
+                            ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
+                            : 'bg-slate-950 border border-slate-700 text-white'
+                        }`} />
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">
@@ -4262,20 +4400,36 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-400 mb-1">Drawing Name</label>
-                      <SearchableSelect
-                        options={formDrawingOpts.nameOptions}
-                        value={formData.drawingName}
-                        onChange={handleDrawingNameChange}
-                        allowCustom
-                        customAddLabel="+ Tambah Drawing Name"
-                        onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
-                        placeholder="Ketik / pilih nama gambar (misal: Shaft Protection)..."
-                        required={!formData.drawingNumber}
-                      />
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Drawing Name</label>
+                        {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari Drawing Control</span>}
+                      </div>
+                      {isDrawingNumberExisting ? (
+                        <input
+                          type="text"
+                          readOnly
+                          value={formData.drawingName}
+                          title="Otomatis terkunci dari data Drawing Control"
+                          className="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-400 cursor-not-allowed font-medium"
+                        />
+                      ) : (
+                        <SearchableSelect
+                          options={formDrawingOpts.nameOptions}
+                          value={formData.drawingName}
+                          onChange={handleDrawingNameChange}
+                          allowCustom
+                          customAddLabel="+ Tambah Drawing Name"
+                          onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
+                          placeholder="Ketik / pilih nama gambar (misal: Shaft Protection)..."
+                          required={!formData.drawingNumber}
+                        />
+                      )}
                     </div>
                     <div>
-                      <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Rev (Revisi)</label>
+                        {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari kolom rev</span>}
+                      </div>
                       <input type="text" value={formData.rev}
                         onChange={(e) => {
                           const newRev = e.target.value;
@@ -4292,7 +4446,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                           else autoRel = '';
                           setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
                         }}
-                        placeholder="0" className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
+                        readOnly={isDrawingNumberExisting}
+                        placeholder="0"
+                        className={`w-full px-3 py-2 rounded-lg font-mono ${
+                          isDrawingNumberExisting
+                            ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
+                            : 'bg-slate-950 border border-slate-700 text-white'
+                        }`} />
                     </div>
                     <div className="hidden">
                       <div className="flex items-center justify-between mb-1">
@@ -4310,12 +4470,22 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     </div>
                     <div>
                       <label className="block text-slate-400 mb-1">Plan Start</label>
-                      <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                      <input type="date" value={formData.startDate}
+                        onChange={(e) => {
+                          const newStart = e.target.value;
+                          const calcFinish = calculatePlanFinish(newStart, formData.jo);
+                          setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
+                        }}
                         required style={{ colorScheme: 'dark' }}
                         className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
                     </div>
                     <div>
-                      <label className="block text-slate-400 mb-1">Plan Finish</label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Plan Finish</label>
+                        {formData.jo && formData.startDate && (
+                          <span className="text-[10px] text-cyan-400 font-mono">Otomatis (Plan JO ÷ 8 jam) · Bisa diedit</span>
+                        )}
+                      </div>
                       <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
                         required style={{ colorScheme: 'dark' }}
                         className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
@@ -4356,32 +4526,58 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </button>
             </div>
             <form onSubmit={handleSaveEdit} className="p-4 space-y-3.5 text-xs">
-              <div>
-                <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                <SearchableSelect
-                  options={projectOptions}
-                  value={editFormData.project}
-                  onChange={(val) => {
-                    setEditFormData(prev => ({ ...prev, project: val }));
-                    fetchDrawingControlForProject(val);
-                  }}
-                  placeholder="Ketik kode proyek..."
-                  required
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">Type</label>
+                  <select
+                    value={editFormData.type || 'Drawing'}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, type: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                  >
+                    {TASK_TYPE_OPTIONS.map(opt => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">Kode Proyek</label>
+                  <SearchableSelect
+                    options={projectOptions}
+                    value={editFormData.project}
+                    onChange={(val) => {
+                      setEditFormData(prev => ({ ...prev, project: val }));
+                      fetchDrawingControlForProject(val);
+                    }}
+                    placeholder="Ketik kode proyek..."
+                    required
+                  />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan JO' : 'Nomor JO'}
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-400">
+                      {accessMode === 'organik' ? 'Plan JO' : 'Nomor JO'}
+                    </label>
+                    {isEditDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci</span>}
+                  </div>
                   <input
                     type="text"
                     inputMode="decimal"
                     value={editFormData.jo}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
+                    onChange={(e) => {
+                      const newJo = e.target.value.replace(/[^0-9.]/g, '');
+                      const calcFinish = calculatePlanFinish(editFormData.startDate, newJo);
+                      setEditFormData(prev => ({ ...prev, jo: newJo, endDate: calcFinish || prev.endDate }));
+                    }}
+                    readOnly={isEditDrawingNumberExisting}
                     required={accessMode !== 'organik'}
                     placeholder={accessMode === 'organik' ? 'Otomatis dari Hour Planner / ketik manual' : ''}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                    className={`w-full px-3 py-2 rounded-lg font-mono ${
+                      isEditDrawingNumberExisting
+                        ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
+                        : 'bg-slate-950 border border-slate-700 text-white'
+                    }`}
                   />
                 </div>
                 <div>
@@ -4419,27 +4615,37 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       let newRev = editFormData.rev;
                       const cNo = cleanText(val);
                       if (cNo && rows.length > 0) {
-                        const currentEditRev = String(editFormData.rev || '0').trim();
-                        const matchRev = rows.find(r => cleanText(r.noDwg) === cNo && String(r.rev || '0').trim() === currentEditRev);
-                        const matchAny = matchRev || rows.find(r => cleanText(r.noDwg) === cNo);
-                        if (matchAny) {
-                          if (matchAny.drawingName) nextName = matchAny.drawingName;
-                          if (matchAny.finishDate) newRelease = parseToStandardDate(matchAny.finishDate);
-                          if (matchAny.rev) newRev = matchAny.rev;
+                        const matchingRows = rows.filter(r => cleanText(r.noDwg) === cNo);
+                        if (matchingRows.length > 0) {
+                          const currentEditRev = String(editFormData.rev || '0').trim();
+                          const matchRev = matchingRows.find(r => String(r.rev || '0').trim() === currentEditRev);
+                          const matchAny = matchRev || matchingRows[matchingRows.length - 1];
+                          if (matchAny) {
+                            if (matchAny.drawingName) nextName = matchAny.drawingName;
+                            if (matchAny.finishDate) newRelease = parseToStandardDate(matchAny.finishDate);
+                            if (matchAny.rev !== undefined && matchAny.rev !== '') newRev = matchAny.rev;
+                          }
                         }
                       }
                       const combined = combineDrawingParts(val, nextName);
                       const plan = findDrawingPlanInfo(rows, val, nextName, newRev);
+                      const resolvedJo = (accessMode === 'organik' && plan.jo) ? plan.jo : editFormData.jo;
+                      const effectiveStart = plan.planStart || editFormData.startDate;
+                      let autoEnd = plan.planFinish || editFormData.endDate;
+                      if (effectiveStart && resolvedJo) {
+                        const calcFinish = calculatePlanFinish(effectiveStart, resolvedJo);
+                        if (calcFinish) autoEnd = calcFinish;
+                      }
                       setEditFormData(prev => ({
                         ...prev,
                         drawingNumber: val,
                         drawingName: nextName,
                         taskName: combined,
                         release: newRelease,
-                        rev: newRev,
-                        startDate: plan.planStart || prev.startDate,
-                        endDate: plan.planFinish || prev.endDate,
-                        jo: (accessMode === 'organik' && plan.jo) ? plan.jo : prev.jo,
+                        rev: plan.rev || newRev,
+                        startDate: effectiveStart,
+                        endDate: autoEnd,
+                        jo: resolvedJo,
                       }));
                     }}
                     allowCustom
@@ -4449,53 +4655,79 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Drawing Name</label>
-                  <SearchableSelect
-                    options={editDrawingOpts.nameOptions}
-                    value={editFormData.drawingName}
-                    onChange={(val) => {
-                      const cleanProj = cleanText(editFormData.project || '');
-                      const rows = drawingControlMap[cleanProj] || [];
-                      let nextNo = editFormData.drawingNumber;
-                      let newRelease = editFormData.release;
-                      let newRev = editFormData.rev;
-                      const cName = cleanText(val);
-                      if (cName && rows.length > 0) {
-                        const currentEditRev = String(editFormData.rev || '0').trim();
-                        const matchRev = rows.find(r => cleanText(r.drawingName) === cName && String(r.rev || '0').trim() === currentEditRev);
-                        const matchAny = matchRev || rows.find(r => cleanText(r.drawingName) === cName);
-                        if (matchAny) {
-                          if (matchAny.noDwg) nextNo = matchAny.noDwg;
-                          if (matchAny.finishDate) newRelease = parseToStandardDate(matchAny.finishDate);
-                          if (matchAny.rev) newRev = matchAny.rev;
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-400">Drawing Name</label>
+                    {isEditDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci</span>}
+                  </div>
+                  {isEditDrawingNumberExisting ? (
+                    <input
+                      type="text"
+                      readOnly
+                      value={editFormData.drawingName}
+                      title="Otomatis terkunci dari data Drawing Control"
+                      className="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-400 cursor-not-allowed font-medium"
+                    />
+                  ) : (
+                    <SearchableSelect
+                      options={editDrawingOpts.nameOptions}
+                      value={editFormData.drawingName}
+                      onChange={(val) => {
+                        const cleanProj = cleanText(editFormData.project || '');
+                        const rows = drawingControlMap[cleanProj] || [];
+                        let nextNo = editFormData.drawingNumber;
+                        let newRelease = editFormData.release;
+                        let newRev = editFormData.rev;
+                        const cName = cleanText(val);
+                        if (cName && rows.length > 0) {
+                          const matchingRows = rows.filter(r => cleanText(r.drawingName) === cName);
+                          if (matchingRows.length > 0) {
+                            const currentEditRev = String(editFormData.rev || '0').trim();
+                            const matchRev = matchingRows.find(r => String(r.rev || '0').trim() === currentEditRev);
+                            const matchAny = matchRev || matchingRows[matchingRows.length - 1];
+                            if (matchAny) {
+                              if (matchAny.noDwg) nextNo = matchAny.noDwg;
+                              if (matchAny.finishDate) newRelease = parseToStandardDate(matchAny.finishDate);
+                              if (matchAny.rev !== undefined && matchAny.rev !== '') newRev = matchAny.rev;
+                            }
+                          }
                         }
-                      }
-                      const combined = combineDrawingParts(nextNo, val);
-                      const plan = findDrawingPlanInfo(rows, nextNo, val, newRev);
-                      setEditFormData(prev => ({
-                        ...prev,
-                        drawingNumber: nextNo,
-                        drawingName: val,
-                        taskName: combined,
-                        release: newRelease,
-                        rev: newRev,
-                        startDate: plan.planStart || prev.startDate,
-                        endDate: plan.planFinish || prev.endDate,
-                        jo: (accessMode === 'organik' && plan.jo) ? plan.jo : prev.jo,
-                      }));
-                    }}
-                    allowCustom
-                    customAddLabel="+ Tambah Drawing Name"
-                    onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
-                    placeholder="Ketik nama gambar..."
-                    required={!editFormData.drawingNumber}
-                  />
+                        const combined = combineDrawingParts(nextNo, val);
+                        const plan = findDrawingPlanInfo(rows, nextNo, val, newRev);
+                        const resolvedJo = (accessMode === 'organik' && plan.jo) ? plan.jo : editFormData.jo;
+                        const effectiveStart = plan.planStart || editFormData.startDate;
+                        let autoEnd = plan.planFinish || editFormData.endDate;
+                        if (effectiveStart && resolvedJo) {
+                          const calcFinish = calculatePlanFinish(effectiveStart, resolvedJo);
+                          if (calcFinish) autoEnd = calcFinish;
+                        }
+                        setEditFormData(prev => ({
+                          ...prev,
+                          drawingNumber: nextNo,
+                          drawingName: val,
+                          taskName: combined,
+                          release: newRelease,
+                          rev: plan.rev || newRev,
+                          startDate: effectiveStart,
+                          endDate: autoEnd,
+                          jo: resolvedJo,
+                        }));
+                      }}
+                      allowCustom
+                      customAddLabel="+ Tambah Drawing Name"
+                      onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
+                      placeholder="Ketik nama gambar..."
+                      required={!editFormData.drawingNumber}
+                    />
+                  )}
                 </div>
               </div>
               {accessMode === 'organik' && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-slate-400">Rev (Revisi)</label>
+                      {isEditDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci</span>}
+                    </div>
                     <input
                       type="text"
                       value={editFormData.rev}
@@ -4520,8 +4752,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         }
                         setEditFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
                       }}
+                      readOnly={isEditDrawingNumberExisting}
                       placeholder="0"
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                      className={`w-full px-3 py-2 rounded-lg font-mono ${
+                        isEditDrawingNumberExisting
+                          ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
+                          : 'bg-slate-950 border border-slate-700 text-white'
+                      }`}
                     />
                   </div>
                   <div className="hidden">
@@ -4544,16 +4781,25 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <input
                     type="date"
                     value={editFormData.startDate}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                    onChange={(e) => {
+                      const newStart = e.target.value;
+                      const calcFinish = calculatePlanFinish(newStart, editFormData.jo);
+                      setEditFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
+                    }}
                     required
                     style={{ colorScheme: 'dark' }}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'}
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-400">
+                      {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'}
+                    </label>
+                    {editFormData.jo && editFormData.startDate && (
+                      <span className="text-[10px] text-cyan-400 font-mono">Otomatis · Bisa diedit</span>
+                    )}
+                  </div>
                   <input
                     type="date"
                     value={editFormData.endDate}
