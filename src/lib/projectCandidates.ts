@@ -232,3 +232,58 @@ export const dedupeRows = <T extends { noDwg: string; rev: string; finishDate: s
     return true;
   });
 };
+
+// Pecah teks deskripsi gabungan (mis. "E25291.01100 - ESTIMATION MATERIAL..." atau "R0 - E25291.01100 - ...")
+// menjadi 2 bagian terpisah: Drawing Number (noDwg) dan Drawing Name (drawingName).
+export function splitTaskToDrawingParts(raw: string): { drawingNumber: string; drawingName: string } {
+  const s = (raw || '')
+    .replace(/(\b[A-Z]{1,4}\d{2,}[A-Z0-9]*)\s*\.\s*([A-Z0-9]+)/gi, '$1.$2')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!s) return { drawingNumber: '', drawingName: '' };
+
+  // Hilangkan awalan R0 / REV 1 / Kode Proyek di depan bila ada
+  let rest = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-–—_:]\s*/i, '');
+  rest = rest.replace(/^[WM]\d{4,6}\s*[-–—_:/]\s*/i, '');
+  rest = rest.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-–—_:]\s*/i, '');
+
+  // 1) Pola "NO_DWG - DRAWING_NAME" atau "NO_DWG_R0_DRAWING_NAME"
+  const mLead = rest.match(/^([A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+|[A-Z]{1,4}\d{3,}[A-Z0-9]*)\s*(?:[-–—_:]\s*(?:R(?:EV)?\.?\s*\d{1,2}\s*[-–—_:]\s*)?|\s+-\s+)(.+)$/i);
+  if (mLead) {
+    return {
+      drawingNumber: mLead[1].trim().toUpperCase(),
+      drawingName: mLead[2].trim(),
+    };
+  }
+
+  // 2) Jika seluruh teks hanya berisi nomor gambar (mis. "E25291.01100")
+  if (/^([A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+|[A-Z]{1,4}\d{3,}[A-Z0-9]*)$/i.test(rest)) {
+    return { drawingNumber: rest.toUpperCase(), drawingName: '' };
+  }
+
+  // 3) Cari nomor gambar berformat titik di tengah teks
+  const mDot = rest.match(/\b([A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+)\b/i);
+  if (mDot) {
+    const num = mDot[1].toUpperCase();
+    const name = rest
+      .replace(mDot[0], '')
+      .replace(/^[\s\-–—_:]+|[\s\-–—_:]+$/g, '')
+      .replace(/\s*[-–—_:]\s*R(?:EV)?\.?\s*\d{1,2}\s*[-–—_:]/i, ' - ')
+      .trim();
+    return { drawingNumber: num, drawingName: name };
+  }
+
+  return { drawingNumber: '', drawingName: s };
+}
+
+// Gabungkan kembali Drawing Number dan Drawing Name menjadi teks task_name untuk disimpan di database
+export function combineDrawingParts(drawingNumber: string, drawingName: string): string {
+  const num = (drawingNumber || '').trim();
+  const name = (drawingName || '').trim();
+  if (num && name) {
+    // Hindari duplikasi jika di dalam name sudah diawali num
+    if (name.toUpperCase().startsWith(num.toUpperCase())) return name;
+    return `${num} - ${name}`;
+  }
+  return num || name;
+}
