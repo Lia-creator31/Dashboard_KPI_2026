@@ -98,6 +98,7 @@ function SearchableSelect({
   required = false,
   allowCustom = false,
   onAddCustom,
+  customAddLabel = '+ Tambah',
 }: {
   options: (string | SelectOption)[];
   value: string;
@@ -106,6 +107,7 @@ function SearchableSelect({
   required?: boolean;
   allowCustom?: boolean;
   onAddCustom?: (val: string) => void;
+  customAddLabel?: string;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -144,13 +146,19 @@ function SearchableSelect({
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        if (isOpen && allowCustom && trimmedSearch && filtered.length === 0) {
+          if (onAddCustom) onAddCustom(trimmedSearch);
+          onChange(trimmedSearch);
+          setSearch(trimmedSearch);
+        } else {
+          setSearch(selectedOption ? selectedOption.label : (value || ''));
+        }
         setIsOpen(false);
-        setSearch(selectedOption ? selectedOption.label : (value || ''));
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [selectedOption, value]);
+  }, [selectedOption, value, isOpen, allowCustom, trimmedSearch, filtered.length, onAddCustom, onChange]);
 
   return (
     <div ref={wrapperRef} className="relative w-full">
@@ -169,7 +177,7 @@ function SearchableSelect({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && isOpen) {
               e.preventDefault();
-              if (allowCustom && trimmedSearch && filtered.length === 0) {
+              if (allowCustom && trimmedSearch && !hasExactMatch) {
                 if (onAddCustom) onAddCustom(trimmedSearch);
                 onChange(trimmedSearch);
                 setSearch(trimmedSearch);
@@ -219,7 +227,7 @@ function SearchableSelect({
                     }}
                     className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-md text-[11px] shrink-0 cursor-pointer transition"
                   >
-                    + Tambah Deskripsi
+                    {customAddLabel}
                   </button>
                 </div>
               )}
@@ -243,7 +251,7 @@ function SearchableSelect({
                   }}
                   className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-md text-[11px] shrink-0 cursor-pointer transition"
                 >
-                  + Tambah Deskripsi
+                  {customAddLabel}
                 </button>
               )}
             </div>
@@ -444,27 +452,37 @@ function removeSubconHistoryItem(taskId: string) {
 }
 
 const SUBCON_CUSTOM_DESC_KEY = 'subcon_custom_descriptions_v1';
+const CUSTOM_DWG_NO_KEY = 'custom_drawing_numbers_v1';
+const CUSTOM_DWG_NAME_KEY = 'custom_drawing_names_v1';
 
-function loadCustomDescriptionsLocal(): string[] {
+function loadCustomListByKey(storageKey: string): string[] {
   try {
-    const raw = localStorage.getItem(SUBCON_CUSTOM_DESC_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.filter(x => typeof x === 'string' && x.trim()) : [];
   } catch { return []; }
 }
 
-function addCustomDescriptionLocal(desc: string): string[] {
-  const trimmed = (desc || '').trim();
-  if (!trimmed) return loadCustomDescriptionsLocal();
-  const list = loadCustomDescriptionsLocal();
+function addCustomListByKey(storageKey: string, val: string): string[] {
+  const trimmed = (val || '').trim();
+  if (!trimmed) return loadCustomListByKey(storageKey);
+  const list = loadCustomListByKey(storageKey);
   if (!list.some(x => cleanText(x) === cleanText(trimmed))) {
     list.push(trimmed);
     try {
-      localStorage.setItem(SUBCON_CUSTOM_DESC_KEY, JSON.stringify(list));
+      localStorage.setItem(storageKey, JSON.stringify(list));
     } catch {}
   }
   return list;
+}
+
+function loadCustomDescriptionsLocal(): string[] {
+  return loadCustomListByKey(SUBCON_CUSTOM_DESC_KEY);
+}
+
+function addCustomDescriptionLocal(desc: string): string[] {
+  return addCustomListByKey(SUBCON_CUSTOM_DESC_KEY, desc);
 }
 
 function cleanProjectString(raw: any): string {
@@ -1927,6 +1945,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [sisaCuti, setSisaCuti] = useState<SisaCutiData | null>(null);
   const [isSubmittingTask, setIsSubmittingTask] = useState<boolean>(false);
   const [customDescriptions, setCustomDescriptions] = useState<string[]>(() => loadCustomDescriptionsLocal());
+  const [customDrawingNumbers, setCustomDrawingNumbers] = useState<string[]>(() => loadCustomListByKey(CUSTOM_DWG_NO_KEY));
+  const [customDrawingNames, setCustomDrawingNames] = useState<string[]>(() => loadCustomListByKey(CUSTOM_DWG_NAME_KEY));
 
   const loadAllJobCards = useCallback(async () => {
     try {
@@ -3149,6 +3169,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         ? (formData.jo || generateAutoSubconJo(activeBiro, formData.nama, getSubconMembersForBiro(activeBiro), currentList))
         : formData.jo;
       const combinedTaskName = combineDrawingParts(formData.drawingNumber, formData.drawingName) || formData.taskName;
+      if (formData.drawingNumber.trim()) {
+        setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, formData.drawingNumber.trim()));
+      }
+      if (formData.drawingName.trim()) {
+        setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, formData.drawingName.trim()));
+      }
       if (accessMode === 'subkon') {
         const prefix = getBiroPrefix(activeBiro);
         const existingNums = currentList
@@ -3357,7 +3383,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     return Array.from(taskMap.values()).sort((a, b) => a.localeCompare(b));
   }, [jobcardWorkbook, customDescriptions, manualTasks]);
 
-  // Pilihan Drawing Number & Drawing Name di Form: HANYA diambil dari file Drawing Control proyek kapal yang sedang dipilih
+  // Pilihan Drawing Number & Drawing Name di Form: diambil dari tab Drawing Control proyek kapal terpilih + tambahan custom jika tidak ditemukan saat dicari
   const buildDrawingNumberAndNameOptions = useCallback((projectCode: string) => {
     const cleanProj = cleanText(projectCode || '');
     const rowsForProj = drawingControlMap[cleanProj] || [];
@@ -3370,14 +3396,30 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       if (no) {
         const k = cleanText(no);
         if (k && !numMap.has(k)) {
-          numMap.set(k, { value: no, label: nm ? `${no} — ${nm}` : no });
+          numMap.set(k, { value: no, label: no });
         }
       }
       if (nm) {
         const k = cleanText(nm);
         if (k && !nameMap.has(k)) {
-          nameMap.set(k, { value: nm, label: no ? `${nm} (${no})` : nm });
+          nameMap.set(k, { value: nm, label: nm });
         }
+      }
+    });
+
+    customDrawingNumbers.forEach(no => {
+      const trimmed = (no || '').trim();
+      const k = cleanText(trimmed);
+      if (trimmed && k && !numMap.has(k)) {
+        numMap.set(k, { value: trimmed, label: trimmed });
+      }
+    });
+
+    customDrawingNames.forEach(nm => {
+      const trimmed = (nm || '').trim();
+      const k = cleanText(trimmed);
+      if (trimmed && k && !nameMap.has(k)) {
+        nameMap.set(k, { value: trimmed, label: trimmed });
       }
     });
 
@@ -3385,7 +3427,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       numberOptions: Array.from(numMap.values()),
       nameOptions: Array.from(nameMap.values()),
     };
-  }, [drawingControlMap]);
+  }, [drawingControlMap, customDrawingNumbers, customDrawingNames]);
 
   const formDrawingOpts = useMemo(
     () => buildDrawingNumberAndNameOptions(formData.kodeProyek),
@@ -3744,7 +3786,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                           value={formData.drawingNumber}
                           onChange={handleDrawingNumberChange}
                           allowCustom
-                          onAddCustom={(val) => setCustomDescriptions(addCustomDescriptionLocal(val))}
+                          customAddLabel="+ Tambah Drawing Number"
+                          onAddCustom={(val) => setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, val))}
                           placeholder="Ketik / pilih nomor gambar (misal: E25291.01100)..."
                         />
                       </div>
@@ -3755,7 +3798,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                           value={formData.drawingName}
                           onChange={handleDrawingNameChange}
                           allowCustom
-                          onAddCustom={(val) => setCustomDescriptions(addCustomDescriptionLocal(val))}
+                          customAddLabel="+ Tambah Drawing Name"
+                          onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
                           placeholder="Ketik / pilih nama gambar..."
                           required={!formData.drawingNumber}
                         />
@@ -4279,7 +4323,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         value={formData.drawingNumber}
                         onChange={handleDrawingNumberChange}
                         allowCustom
-                        onAddCustom={(val) => setCustomDescriptions(addCustomDescriptionLocal(val))}
+                        customAddLabel="+ Tambah Drawing Number"
+                        onAddCustom={(val) => setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, val))}
                         placeholder="Ketik / pilih no dwg (misal: E25291.01100)..."
                       />
                     </div>
@@ -4290,7 +4335,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         value={formData.drawingName}
                         onChange={handleDrawingNameChange}
                         allowCustom
-                        onAddCustom={(val) => setCustomDescriptions(addCustomDescriptionLocal(val))}
+                        customAddLabel="+ Tambah Drawing Name"
+                        onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
                         placeholder="Ketik / pilih nama gambar (misal: Shaft Protection)..."
                         required={!formData.drawingNumber}
                       />
@@ -4464,6 +4510,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       }));
                     }}
                     allowCustom
+                    customAddLabel="+ Tambah Drawing Number"
+                    onAddCustom={(val) => setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, val))}
                     placeholder="Ketik nomor gambar..."
                   />
                 </div>
@@ -4504,6 +4552,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       }));
                     }}
                     allowCustom
+                    customAddLabel="+ Tambah Drawing Name"
+                    onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
                     placeholder="Ketik nama gambar..."
                     required={!editFormData.drawingNumber}
                   />
