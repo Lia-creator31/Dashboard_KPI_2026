@@ -5,7 +5,7 @@ import autoTable from 'jspdf-autotable';
 import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import { departmentsData } from '../data';
-import { projectCandidates, dedupeRows, resolveDrawingProject, findDrawingProjectInDescription, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject } from '../lib/projectCandidates';
+import { projectCandidates, dedupeRows, resolveDrawingProject, findDrawingProjectInDescription, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, fetchDrawingControlRowsForProject, DrawingControlRow, parseDrawingControlDate } from '../lib/projectCandidates';
 import { Building2, ArrowLeft, ChevronRight, RefreshCw, Users, Layers, ArrowUpDown, FileSpreadsheet, FileText } from 'lucide-react';
 
 interface KpiDashboardPageProps {
@@ -149,126 +149,17 @@ function saveLocalRelease(id: string, val: string) {
 }
 
 /* ===== Sinkronisasi Release Drawing otomatis dari Google Drive ===== */
-const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
-
-interface DrawingControlRow {
-  noDwg: string;
-  drawingName: string;
-  fullDeskripsi: string;
-  rev: string;
-  finishDate: string;
-}
-
-const indoMonthsMap: Record<string, string> = {
-  jan: '01', januari: '01', january: '01', feb: '02', februari: '02', february: '02',
-  mar: '03', maret: '03', march: '03', apr: '04', april: '04', mei: '05', may: '05',
-  jun: '06', juni: '06', june: '06', jul: '07', juli: '07', july: '07',
-  agu: '08', ags: '08', agustus: '08', aug: '08', august: '08',
-  sep: '09', september: '09', okt: '10', oktober: '10', oct: '10', october: '10',
-  nov: '11', november: '11', des: '12', desember: '12', dec: '12', december: '12'
-};
-
-function parseDriveDate(val: any): string {
-  if (!val) return '';
-  let str = String(val).trim();
-  if (!str || str === '-' || str.toLowerCase() === 'nan') return '';
-  str = str.replace(/^(senin|selasa|rabu|kamis|jumat|sabtu|minggu|mon|tue|wed|thu|fri|sat|sun)[a-z]*,?\s*/i, '').trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
-  const mJs = str.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})/);
-  if (mJs) {
-    const mon = indoMonthsMap[mJs[1].toLowerCase()] || indoMonthsMap[mJs[1].toLowerCase().slice(0, 3)] || '01';
-    return `${mJs[3]}-${mon}-${mJs[2].padStart(2, '0')}`;
-  }
-  const mDdMon = str.match(/^(\d{1,2})[-/\s]+([A-Za-z]+)[-/\s]+(\d{2,4})/);
-  if (mDdMon) {
-    let y = mDdMon[3]; if (y.length === 2) y = '20' + y;
-    const mon = indoMonthsMap[mDdMon[2].toLowerCase()] || indoMonthsMap[mDdMon[2].toLowerCase().slice(0, 3)] || '01';
-    return `${y}-${mon}-${mDdMon[1].padStart(2, '0')}`;
-  }
-  const mYMon = str.match(/^(\d{4})[-/\s]+([A-Za-z]+)[-/\s]+(\d{1,2})/);
-  if (mYMon) {
-    const mon = indoMonthsMap[mYMon[2].toLowerCase()] || indoMonthsMap[mYMon[2].toLowerCase().slice(0, 3)] || '01';
-    return `${mYMon[1]}-${mon}-${mYMon[3].padStart(2, '0')}`;
-  }
-  const mDmy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-  if (mDmy) return `${mDmy[3]}-${mDmy[2].padStart(2, '0')}-${mDmy[1].padStart(2, '0')}`;
-  const mYmd = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (mYmd) return `${mYmd[1]}-${mYmd[2].padStart(2, '0')}-${mYmd[3].padStart(2, '0')}`;
-  const num = Number(str);
-  if (!isNaN(num) && num > 30000 && num < 60000) {
-    return new Date(Math.round((num - 25569) * 86400 * 1000)).toISOString().split('T')[0];
-  }
-  return '';
-}
-
-const kpiDrawingCache = new Map<string, DrawingControlRow[]>();
+const parseDriveDate = parseDrawingControlDate;
 
 function isKnownDriveProject(projectCode: string): boolean {
+  if (findMatchingDriveSheet(projectCode)) return true;
   const cands = projectCandidates(projectCode);
   if (!cands.length) cands.push(projectCode);
-  return cands.some(c => {
-    const cp = cleanText(c);
-    return cp && GOOGLE_DRIVE_SHEETS.some(s => cleanText(s.projectKey) === cp || cp.includes(cleanText(s.projectKey)));
-  });
-}
-
-async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlRow[]> {
-  const cleanProj = cleanText(projectCode);
-  if (!cleanProj) return [];
-  try {
-    const res = await fetch(`${GAS_DRAWING_API_URL}?project=${encodeURIComponent(projectCode.trim())}`);
-    if (res.ok) {
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-        return json.data.map((item: any) => ({
-          noDwg: String(item.noDwg || '').trim(),
-          drawingName: String(item.drawingName || '').trim(),
-          fullDeskripsi: String(item.deskripsi || item.fullDeskripsi || `${item.noDwg || ''}-${item.drawingName || ''}`).trim(),
-          rev: String(item.rev || '0').trim(),
-          finishDate: String(item.finishDate || '').trim(),
-        }));
-      }
-    }
-  } catch {}
-  const match = findMatchingDriveSheet(projectCode);
-  if (match) {
-    try {
-      const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`);
-      if (res.ok) {
-        const wb = XLSX.read(await res.text(), { type: 'string' });
-        const rawRows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
-        const rows: DrawingControlRow[] = [];
-        for (let r = 1; r < rawRows.length; r++) {
-          const row = rawRows[r]; if (!row) continue;
-          const noDwg = String(row[0] || '').trim();
-          const dwgName = String(row[1] || '').trim();
-          if (!noDwg && !dwgName) continue;
-          rows.push({
-            noDwg, drawingName: dwgName,
-            fullDeskripsi: (noDwg && dwgName) ? `${noDwg}-${dwgName}` : (dwgName || noDwg),
-            rev: String(row[14] || '0').trim(),
-            finishDate: String(row[15] || '').trim(),
-          });
-        }
-        if (rows.length > 0) return rows;
-      }
-    } catch {}
-  }
-  return [];
+  return cands.some(c => !!findMatchingDriveSheet(c));
 }
 
 async function fetchDrawingRowsFor(projectCode: string): Promise<DrawingControlRow[]> {
-  const cacheKey = cleanText(projectCode);
-  if (cacheKey && kpiDrawingCache.has(cacheKey)) {
-    const cached = kpiDrawingCache.get(cacheKey)!;
-    if (cached.length > 0) return cached;
-  }
-  const cands = projectCandidates(projectCode);
-  if (!cands.length) cands.push(projectCode);
-  const results = await Promise.all(cands.map(c => fetchDrawingRowsRaw(c).catch(() => [] as DrawingControlRow[])));
-  const deduped = dedupeRows(results.flat());
-  if (cacheKey && deduped.length > 0) kpiDrawingCache.set(cacheKey, deduped);
-  return deduped;
+  return fetchDrawingControlRowsForProject(projectCode);
 }
 
 function normalizeDrawingSpacing(desc: string): string {
