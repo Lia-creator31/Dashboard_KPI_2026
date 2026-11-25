@@ -503,7 +503,9 @@ function parseCsvDrawingControlRows(rawRows: any[][]): DrawingControlRow[] {
   const cPlanFinish = findCol(h => h.includes('plan finish') || h === 'plan end', 10);
   const cRev = findCol(h => h === 'rev' || h === 'rev.' || h.startsWith('rev'), 13);
   const cFinish = findCol(h => h.includes('finish date') || h === 'release date', 14);
-  const cJo = findCol(h => h === 'jo' || h === 'plan jo' || h.includes('jam orang') || h.includes('manhour') || h === 'mh' || h === 'durasi', 8);
+  // Utamakan kolom yang berjudul JO / Plan JO / Jam Orang / Manhour terlebih dahulu, baru fallback ke Durasi
+  const cJoExact = hdr.findIndex(h => h === 'jo' || h === 'plan jo' || h.includes('jam orang') || h.includes('manhour') || h === 'mh');
+  const cJo = cJoExact !== -1 ? cJoExact : findCol(h => h === 'durasi' || h.includes('durasi'), 8);
 
   const rows: DrawingControlRow[] = [];
   for (let r = headerIdx + 1; r < rawRows.length; r++) {
@@ -569,15 +571,19 @@ async function fetchDrawingRowsRaw(projectCode: string): Promise<DrawingControlR
 
   const match = findMatchingDriveSheet(projectCode);
   if (match && match.id) {
-    try {
-      const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv&sheet=Drawing%20Control%20(2)`);
-      if (res.ok) {
-        const wb = XLSX.read(await res.text(), { type: 'string' });
-        const rawRows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
-        const csvRows = parseCsvDrawingControlRows(rawRows);
-        if (csvRows.length > 0) return csvRows;
-      }
-    } catch { /* tidak ada data CSV */ }
+    // Coba tab "Drawing Control (2)", "Drawing Control", lalu tab pertama sheet tersebut
+    const sheetTabs = ['&sheet=Drawing%20Control%20(2)', '&sheet=Drawing%20Control', ''];
+    for (const tabParam of sheetTabs) {
+      try {
+        const res = await fetch(`https://docs.google.com/spreadsheets/d/${match.id}/gviz/tq?tqx=out:csv${tabParam}`);
+        if (res.ok) {
+          const wb = XLSX.read(await res.text(), { type: 'string' });
+          const rawRows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+          const csvRows = parseCsvDrawingControlRows(rawRows);
+          if (csvRows.length > 0) return csvRows;
+        }
+      } catch { /* lanjut coba tab berikutnya */ }
+    }
   }
   return gasRows;
 }
