@@ -84,16 +84,16 @@ export interface DrawingSheetConfig {
 // - Drawing Control R41-PCC.xlsx
 // - Drawing Control R41-FPB.xlsx
 export const GOOGLE_DRIVE_SHEETS: DrawingSheetConfig[] = [
-  { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)', aliases: ['GEOMARIN V', 'GEOMARIN'] },
-  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000304', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
-  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000305', title: 'Drawing Control FRIGATE 140 M (W000304-305)' },
   { id: '19qiMBb1b7qmeRXkFNTbh-eKtVEKDUTgshloa116HQ48', projectKey: 'W000308', title: 'Drawing Control LPD UAE USED (W000308)', aliases: ['LPD UAE'] },
+  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000304', title: 'Drawing Control FRIGATE 140 M (W000304-305)', aliases: ['W000304-305'] },
+  { id: '1OLxSphh-jiqmUGIHE9QSXkRCVfwoVhkRsyP3InRzAgk', projectKey: 'W000305', title: 'Drawing Control FRIGATE 140 M (W000304-305)', aliases: ['W000304-305'] },
+  { id: '1CBL96MejQnswfg_sLIkwkK9K594S9hDWoSGDBIeIBNo', projectKey: 'M000313', title: 'Drawing Control GEOMARIN V (M000313)', aliases: ['GEOMARIN V', 'GEOMARIN'] },
   { id: '16rrjyU60BmzRIYFL3I1WRLkw_AfJPUwi8vZiJx2LYCg', projectKey: 'W000314', title: 'Drawing Control KSR 20 M ALU (W000314)', aliases: ['KSR 20 M ALU', 'KSR 20 M'] },
-  { id: '1uv2D4ECJ0z-NWP8byzXTkkM17MKD6f0r-RCtKjpG5Hs', projectKey: 'M000312', title: 'Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)' },
-  { id: '1eTO-dvVd3psdP4mFQc2ZQW_Z-lyooCb2TVjR4mYTbDw', projectKey: 'W000311', title: 'Drawing Control KSSR 18 M (W000311)', aliases: ['KSSR 18 M'] },
-  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000306', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
-  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000307', title: 'Drawing Control LD PN 124 M. (W000306-307)' },
   { id: '1l0ZoTCctHrmkruIkC4Gk1NtoqsugMVGABrsf3yb6PHo', projectKey: 'KSOT', title: 'Drawing Control KSOT (A26AOP01)', aliases: ['A26AOP01', 'A26A0P01'] },
+  { id: '1uv2D4ECJ0z-NWP8byzXTkkM17MKD6f0r-RCtKjpG5Hs', projectKey: 'M000312', title: 'Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)' },
+  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000306', title: 'Drawing Control LD PN 124 M. (W000306-307)', aliases: ['W000306-307'] },
+  { id: '1ea2z7gEfavWoxZp9nBTc19A2PSq_GjkXP11tKvpAMfo', projectKey: 'W000307', title: 'Drawing Control LD PN 124 M. (W000306-307)', aliases: ['W000306-307'] },
+  { id: '1eTO-dvVd3psdP4mFQc2ZQW_Z-lyooCb2TVjR4mYTbDw', projectKey: 'W000311', title: 'Drawing Control KSSR 18 M (W000311)', aliases: ['KSSR 18 M'] },
   { id: '1jGNHh9HhSrPlEv7JZvtW8ToMU2ADrT0yE87tk9E53zY', projectKey: 'LCU', title: 'Drawing Control LCU LD PN 124 M (JW1 - JW2)', aliases: ['JW1', 'JW2', 'JW1 - JW2', 'LCU LD PN 124 M'] },
   { id: '1XsrklFhcUkjgfEjuT4jDRWx6Uufsj8Jt', projectKey: 'FFBNW', title: 'Drawing Control FFBNW FRIGATE 140 M (WFFBNW)', aliases: ['WFFBNW', 'WFFBNW1', 'WFFBNW2'] },
   { id: '', projectKey: 'R41-PCC', title: 'Drawing Control R41-PCC.xlsx', aliases: ['R41PCC', 'PCC'] },
@@ -197,19 +197,19 @@ export function resolveDrawingProject(project: string, desc: string): string {
   return p;
 }
 
-// Pilihan Kode Proyek untuk Form (diambil dari kode di dalam tanda kurung pada judul file di folder Google Drive "DRAWING CONTROL ONLINE")
-// - Drawing Control KSR 20 M ALU (W000314)                -> W000314
-// - Drawing Control FRIGATE 140 M (W000304-305)           -> W000304, W000305
-// - Drawing Control KSOT (A26AOP01)                       -> A26AOP01
-// - Drawing Control LPD UAE USED (W000308)                -> W000308
-// - Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312)-> M000312
-// - Drawing Control LD PN 124 M. (W000306-307)            -> W000306, W000307
-// - Drawing Control GEOMARIN V (M000313)                  -> M000313
-// - Drawing Control KSSR 18 M (W000311)                   -> W000311
-// - Drawing Control LCU LD PN 124 M (JW1 - JW2)           -> JW1 - JW2
-// - Drawing Control FFBNW FRIGATE 140 M (WFFBNW)          -> WFFBNW
-// - Drawing Control R41-PCC.xlsx                          -> R41-PCC
-// - Drawing Control R41-FPB.xlsx                          -> R41-FPB
+// Pilihan Kode Proyek untuk Form:
+// Persis mengikuti urutan dan teks di dalam tanda kurung (...) pada folder Google Drive "DRAWING CONTROL ONLINE":
+// 1. Drawing Control LPD UAE USED (W000308)                 -> W000308
+// 2. Drawing Control FRIGATE 140 M (W000304-305)            -> W000304-305
+// 3. Drawing Control GEOMARIN V (M000313)                   -> M000313
+// 4. Drawing Control KSR 20 M ALU (W000314)                 -> W000314
+// 5. Drawing Control KSOT (A26AOP01)                        -> A26AOP01
+// 6. Drawing Control PENGAWASAN & PELAYANAN PULAU (M000312) -> M000312
+// 7. Drawing Control LD PN 124 M. (W000306-307)             -> W000306-307
+// 8. Drawing Control KSSR 18 M (W000311)                    -> W000311
+// 9. Drawing Control LCU LD PN 124 M (JW1 - JW2)            -> JW1 - JW2
+// 10. Drawing Control FFBNW FRIGATE 140 M (WFFBNW)          -> WFFBNW
+// (File R41-PCC.xlsx & R41-FPB.xlsx tidak memiliki tanda kurung kode proyek)
 export function getFormDriveProjectOptions(): string[] {
   const out: string[] = [];
   const add = (v: string) => {
@@ -219,16 +219,7 @@ export function getFormDriveProjectOptions(): string[] {
   GOOGLE_DRIVE_SHEETS.forEach(s => {
     const m = s.title.match(/\(([^)]+)\)/);
     if (m) {
-      const inside = m[1].trim();
-      // Jika di dalam kurung adalah rentang angka kode W/M (mis. "W000304-305" atau "W000306-307"),
-      // pecah menjadi kode proyek masing-masing (W000304, W000305)
-      if (/^[WM]\d{6}\s*-\s*\d{3}$/i.test(inside)) {
-        projectCandidates(inside).filter(c => /^[WM]\d{6}$/.test(c)).forEach(add);
-      } else {
-        add(inside);
-      }
-    } else {
-      add(s.projectKey);
+      add(m[1].trim());
     }
   });
   return out;
