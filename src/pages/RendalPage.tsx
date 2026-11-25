@@ -3288,56 +3288,39 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
           </div>
         </div>
       </header>
-      <main className="max-w-6xl mx-auto px-4 py-8">
+      <main className="w-full px-6 py-6">
         {accessMode === 'landing' && (
-          <div className="max-w-3xl mx-auto space-y-6 pt-4">
-            <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-400 mb-1">Portal Perencanaan &amp; Pengendalian</div>
-                <h1 className="text-xl sm:text-2xl font-bold text-white">Pilih Kategori Penugasan Personel</h1>
-              </div>
-              <span className="text-xs text-slate-400">Masuk sebagai <b className="text-slate-200">{user.nama}</b></span>
+          <div className="w-full space-y-5 pt-2">
+            <div className="border-b border-slate-800 pb-3 flex items-center justify-between gap-2">
+              <h1 className="text-lg font-bold text-white">Pilih Portal</h1>
+              <span className="text-xs text-slate-400">{user.nama}</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div onClick={() => setAccessMode('organik')}
-                className="bg-slate-900 border border-slate-800 hover:border-blue-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex flex-col justify-between gap-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-lg">
-                      <Briefcase className="w-5 h-5" />
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-blue-400 group-hover:translate-x-0.5 transition" />
+                className="bg-slate-900 border border-slate-800 hover:border-blue-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-lg">
+                    <Briefcase className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-white">Pegawai Organik</h3>
-                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                      Penugasan Jobcard, pemantauan Realisasi JO, Drawing Control, Rekap Absensi, dan Evaluasi KPI pegawai PKWTT &amp; PKWT.
-                    </p>
+                    <p className="text-xs text-slate-400">PKWTT &amp; PKWT</p>
                   </div>
                 </div>
-                <div className="pt-3 border-t border-slate-800/80 text-[11px] font-medium text-blue-400">
-                  Buka Portal Organik →
-                </div>
+                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-blue-400 group-hover:translate-x-0.5 transition" />
               </div>
               <div onClick={() => setAccessMode('subkon')}
-                className="bg-slate-900 border border-slate-800 hover:border-amber-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex flex-col justify-between gap-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-lg">
-                      <HardHat className="w-5 h-5" />
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition" />
+                className="bg-slate-900 border border-slate-800 hover:border-amber-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-lg">
+                    <HardHat className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-white">Mitra / Subkon</h3>
-                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                      Penerbitan Work Order (WO), penomoran JO otomatis, dan riwayat penugasan personel outsourcing per biro.
-                    </p>
+                    <p className="text-xs text-slate-400">Outsourcing</p>
                   </div>
                 </div>
-                <div className="pt-3 border-t border-slate-800/80 text-[11px] font-medium text-amber-400">
-                  Buka Portal Mitra / Subkon →
-                </div>
+                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition" />
               </div>
             </div>
           </div>
@@ -3766,11 +3749,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </div>
             </div>
 
-            {/* Toolbar Data Master & Sinkronisasi Excel (dikelompokkan rapi agar ramah pengguna) */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between flex-wrap gap-3">
-              <div className="text-xs text-slate-400">
-                <span className="font-semibold text-slate-200">Pembaruan Data Master:</span> Unggah file Excel untuk memperbarui database personel, katalog, atau tarikan timesheet.
-              </div>
+            {/* Toolbar Data Master & Sinkronisasi Excel */}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center justify-between flex-wrap gap-2">
+              <span className="text-xs font-semibold text-slate-300">Data Master</span>
               <div className="flex items-center gap-2 flex-wrap">
                 <label className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs rounded-md border border-slate-700 flex items-center gap-1.5 cursor-pointer transition">
                   <Users className="w-3.5 h-3.5 text-blue-400" /><span>Personel IM4</span>
