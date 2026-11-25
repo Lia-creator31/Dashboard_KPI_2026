@@ -1232,57 +1232,40 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
+      <main className="w-full px-6 py-6">
         {/* ================= 1. LANDING PAGE ================= */}
         {accessMode === 'landing' && (
-          <div className="max-w-3xl mx-auto space-y-6 pt-4">
-            <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-400 mb-1">Portal Kepala Biro</div>
-                <h1 className="text-xl sm:text-2xl font-bold text-white">Pilih Kategori Penugasan Personel</h1>
-              </div>
-              <span className="text-xs text-slate-400">Masuk sebagai <b className="text-slate-200">{user.nama}</b></span>
+          <div className="w-full space-y-5 pt-2">
+            <div className="border-b border-slate-800 pb-3 flex items-center justify-between gap-2">
+              <h1 className="text-lg font-bold text-white">Pilih Portal</h1>
+              <span className="text-xs text-slate-400">{user.nama}</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div onClick={() => setAccessMode('organik')}
-                className="bg-slate-900 border border-slate-800 hover:border-blue-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex flex-col justify-between gap-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-lg">
-                      <Briefcase className="w-5 h-5" />
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-blue-400 group-hover:translate-x-0.5 transition" />
+                className="bg-slate-900 border border-slate-800 hover:border-blue-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-lg">
+                    <Briefcase className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-white">Pegawai Organik</h3>
-                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                      Kelola penugasan Jobcard, pantau Realisasi JO, sinkronisasi tanggal Release gambar, dan lihat Dashboard KPI biro.
-                    </p>
+                    <p className="text-xs text-slate-400">PKWTT &amp; PKWT</p>
                   </div>
                 </div>
-                <div className="pt-3 border-t border-slate-800/80 text-[11px] font-medium text-blue-400">
-                  Buka Portal Organik →
-                </div>
+                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-blue-400 group-hover:translate-x-0.5 transition" />
               </div>
               <div onClick={() => setAccessMode('subkon')}
-                className="bg-slate-900 border border-slate-800 hover:border-amber-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex flex-col justify-between gap-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-lg">
-                      <HardHat className="w-5 h-5" />
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition" />
+                className="bg-slate-900 border border-slate-800 hover:border-amber-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-lg">
+                    <HardHat className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-white">Mitra / Subkon</h3>
-                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                      Buat dan terbitkan Work Order (WO) dengan nomor JO otomatis serta pantau daftar pekerjaan personel outsourcing.
-                    </p>
+                    <p className="text-xs text-slate-400">Outsourcing</p>
                   </div>
                 </div>
-                <div className="pt-3 border-t border-slate-800/80 text-[11px] font-medium text-amber-400">
-                  Buka Portal Mitra / Subkon →
-                </div>
+                <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition" />
               </div>
             </div>
           </div>
