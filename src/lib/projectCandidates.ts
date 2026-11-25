@@ -255,18 +255,7 @@ export function findMatchingDriveSheet(projectCode: string): DrawingSheetConfig 
 
 export const dedupeRows = <T extends { noDwg: string; drawingName?: string; rev: string; finishDate: string; planStart?: string; planFinish?: string; jo?: string }>(rows: T[]): T[] => {
   const map = new Map<string, T>();
-  const scheduleByDwg = new Map<string, { planStart?: string; planFinish?: string; jo?: string }>();
-
   for (const r of rows) {
-    const dwgKey = cleanAlnum(r.noDwg) || cleanAlnum(r.drawingName || '');
-    if (dwgKey) {
-      const prev = scheduleByDwg.get(dwgKey) || {};
-      if (!prev.planStart && r.planStart) prev.planStart = r.planStart;
-      if (!prev.planFinish && r.planFinish) prev.planFinish = r.planFinish;
-      if (!prev.jo && r.jo) prev.jo = r.jo;
-      scheduleByDwg.set(dwgKey, prev);
-    }
-
     const k = `${cleanAlnum(r.noDwg)}|${cleanAlnum(r.drawingName || '')}|${String(r.rev ?? '0').trim()}`;
     const existing = map.get(k);
     if (!existing) {
@@ -279,18 +268,6 @@ export const dedupeRows = <T extends { noDwg: string; drawingName?: string; rev:
       if (!existing.jo && r.jo) existing.jo = r.jo;
     }
   }
-
-  // Wariskan nilai jo, planStart, planFinish ke baris gambar yang sama (mis. Rev 1 mewarisi JO & Plan Finish dari Rev 0)
-  map.forEach((item) => {
-    const dwgKey = cleanAlnum(item.noDwg) || cleanAlnum(item.drawingName || '');
-    const sch = dwgKey ? scheduleByDwg.get(dwgKey) : undefined;
-    if (sch) {
-      if (!item.planStart && sch.planStart) item.planStart = sch.planStart;
-      if (!item.planFinish && sch.planFinish) item.planFinish = sch.planFinish;
-      if (!item.jo && sch.jo) item.jo = sch.jo;
-    }
-  });
-
   return Array.from(map.values());
 };
 
@@ -549,9 +526,10 @@ export function parseDrawingControlSheetRows(rawRows: any[][]): DrawingControlRo
     (h, i) => i > cName && (h.includes('finish date') || h.includes('release date') || h.includes('actual finish') || h.includes('tgl release')),
     cRev !== -1 && (combinedHdr[cRev + 1]?.includes('finish') || combinedHdr[cRev + 1]?.includes('date')) ? cRev + 1 : 14 + offset
   );
-  const cJo = combinedHdr.findIndex(
+  const cJoExact = combinedHdr.findIndex(
     (h, i) => i > cName && (/\bjo\b/.test(h) || h.includes('plan jo') || h.includes('jam orang') || h.includes('manhour') || h.includes('man hour') || /\bmh\b/.test(h))
   );
+  const cJo = cJoExact !== -1 ? cJoExact : findHdrCol((h, i) => i > cName && h.includes('durasi'), 8 + offset);
 
   const SKIP_LABELS = new Set([
     'no dwg', 'no. dwg', 'no.dwg', 'nodwg', 'drawing number', 'drawing no', 'dwg no',
@@ -848,6 +826,48 @@ export async function fetchDrawingControlRowsForProject(projectCode: string): Pr
   return deduped;
 }
 
+export interface DrawingPlanInfo {
+  row?: DrawingControlRow;
+  planStart: string;
+  planFinish: string;
+  jo: string;
+}
+
+// Ambil Plan Start, Plan Finish (kolom PLAN FINISH) dan Plan JO (kolom JO) untuk satu gambar dari Drawing Control.
+// Di sheet Drive, nilai plan biasanya hanya ditulis pada baris Rev 0, sedangkan baris Rev 1, 2, dst. kosong.
+// Karena itu: utamakan baris dengan Rev yang sama, lalu lengkapi nilai yang kosong dari baris lain dengan NO DWG yang sama.
+export function findDrawingPlanInfo(
+  rows: DrawingControlRow[],
+  drawingNumber: string,
+  drawingName: string,
+  rev?: string
+): DrawingPlanInfo {
+  const empty: DrawingPlanInfo = { planStart: '', planFinish: '', jo: '' };
+  if (!rows || rows.length === 0) return empty;
+  const cNo = cleanAlnum(drawingNumber);
+  const cName = cleanAlnum(drawingName);
+  let cands: DrawingControlRow[] = [];
+  if (cNo) cands = rows.filter(r => cleanAlnum(r.noDwg) === cNo);
+  if (cands.length === 0 && cName) cands = rows.filter(r => cleanAlnum(r.drawingName) === cName);
+  if (cands.length === 0) return empty;
+  const revStr = String(rev ?? '').trim();
+  const sameRev = revStr ? cands.filter(r => String(r.rev || '0').trim() === revStr) : [];
+  const ordered = [...sameRev, ...cands.filter(r => !sameRev.includes(r))];
+  const pick = (get: (r: DrawingControlRow) => string | undefined): string => {
+    for (const r of ordered) {
+      const v = String(get(r) ?? '').trim();
+      if (v && v !== '-' && v !== '0') return v;
+    }
+    return '';
+  };
+  return {
+    row: ordered[0],
+    planStart: pick(r => r.planStart),
+    planFinish: pick(r => r.planFinish),
+    jo: pick(r => r.jo),
+  };
+}
+
 // Pecah teks deskripsi gabungan (mis. "E25291.01100 - ESTIMATION MATERIAL..." atau "R0 - E25291.01100 - ...")
 // menjadi 2 bagian terpisah: Drawing Number (noDwg) dan Drawing Name (drawingName).
 export function splitTaskToDrawingParts(raw: string): { drawingNumber: string; drawingName: string } {
@@ -889,92 +909,6 @@ export function splitTaskToDrawingParts(raw: string): { drawingNumber: string; d
   }
 
   return { drawingNumber: '', drawingName: s };
-}
-
-function extractSimpleDrawingNumber(desc: string): string {
-  let s = (desc || '')
-    .replace(/(\b[A-Z]{1,4}\d{2,}[A-Z0-9]*)\s*\.\s*([A-Z0-9]+)/gi, '$1.$2')
-    .replace(/\s+/g, ' ')
-    .trim();
-  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
-  s = s.replace(/^[WM]\d{4,6}\s*[-–—_:/]\s*/i, '');
-  s = s.replace(/^(?:KSOT|LCU|W?FFBNW\d*)\s*[-–—_:/]\s*/i, '');
-  s = s.replace(/^[A-Z]{2,12}\d{0,6}\s*[-–—_:/]\s*(?=[A-Z]{1,4}\d{2,}[A-Z0-9]*\.)/i, '');
-  s = s.replace(/^R(?:EV)?\.?\s*\d{0,2}\s*[-\s_:]\s*/i, '');
-  const mDot = s.match(/\b[A-Z]{1,4}\d{2,}[A-Z0-9]*(?:\.[A-Z0-9]+)+/i);
-  if (mDot) return mDot[0].toUpperCase();
-  const m = s.match(/^[A-Z]{1,4}\d{3,}[A-Z0-9]*(?:\.[A-Z0-9]+)*/i);
-  if (m) return m[0].toUpperCase();
-  const first = s.split(/\s+-\s+|\s+|_/)[0] || '';
-  return /\d/.test(first) && first.length >= 4 ? first.toUpperCase() : '';
-}
-
-// Cari baris Drawing Control yang cocok dengan taskName dan rev (prioritaskan rev yang sama, fallback ke gambar yang sama untuk jadwal/JO)
-export function findDrawingControlMatch(
-  rows: DrawingControlRow[],
-  taskName: string,
-  rev: string | number = '0'
-): { release: string; planStart: string; planFinish: string; jo: string } {
-  const empty = { release: '', planStart: '', planFinish: '', jo: '' };
-  if (!rows || rows.length === 0 || !taskName) return empty;
-
-  const wanted = cleanAlnum(extractSimpleDrawingNumber(taskName) || taskName);
-  const strippedTask = (taskName || '')
-    .replace(/^[WM]\d{4,6}\s*[-–—_:/]\s*/i, '')
-    .replace(/^[A-Z0-9]{2,12}(?:-[A-Z0-9]{2,8})?\s*[-–—_:/]\s*/i, '')
-    .trim();
-  const cleanTarget = cleanAlnum(taskName);
-  const cleanStripped = cleanAlnum(strippedTask);
-  if (!wanted && !cleanTarget) return empty;
-
-  const toNum = (v: any) => {
-    const n = parseInt(String(v ?? '').replace(/[^0-9]/g, ''), 10);
-    return isNaN(n) ? 0 : n;
-  };
-  const wantRev = toNum(rev);
-
-  const isRowDrawingMatch = (r: DrawingControlRow): boolean => {
-    const rKey = cleanAlnum(extractSimpleDrawingNumber(r.noDwg) || r.noDwg);
-    if (wanted && rKey && rKey === wanted) return true;
-    const cDwg = cleanAlnum(r.noDwg);
-    if (cDwg && cDwg.length >= 5 && cleanTarget.includes(cDwg)) return true;
-    const cName = cleanAlnum(r.drawingName);
-    if (
-      cName &&
-      cName.length >= 5 &&
-      (cName === cleanStripped ||
-        cleanTarget.includes(cName) ||
-        (cleanStripped.length >= 5 && cName.includes(cleanStripped)))
-    ) {
-      return true;
-    }
-    return false;
-  };
-
-  const matchedRows = rows.filter(isRowDrawingMatch);
-  if (matchedRows.length === 0) return empty;
-
-  const revMatches = matchedRows.filter(r => toNum(r.rev) === wantRev);
-  const releaseHit = revMatches.find(r => /^\d{4}-\d{2}-\d{2}$/.test(parseDrawingControlDate(r.finishDate)));
-  const release = releaseHit ? parseDrawingControlDate(releaseHit.finishDate) : '';
-
-  const pickVal = (getter: (r: DrawingControlRow) => string | undefined): string => {
-    for (const r of revMatches) {
-      const v = getter(r);
-      if (v) return v;
-    }
-    for (const r of matchedRows) {
-      const v = getter(r);
-      if (v) return v;
-    }
-    return '';
-  };
-
-  const planStart = pickVal(r => (/^\d{4}-\d{2}-\d{2}$/.test(parseDrawingControlDate(r.planStart)) ? parseDrawingControlDate(r.planStart) : ''));
-  const planFinish = pickVal(r => (/^\d{4}-\d{2}-\d{2}$/.test(parseDrawingControlDate(r.planFinish)) ? parseDrawingControlDate(r.planFinish) : ''));
-  const jo = pickVal(r => (r.jo && r.jo !== '-' && r.jo !== '0' ? r.jo : ''));
-
-  return { release, planStart, planFinish, jo };
 }
 
 // Gabungkan kembali Drawing Number dan Drawing Name menjadi teks task_name untuk disimpan di database
