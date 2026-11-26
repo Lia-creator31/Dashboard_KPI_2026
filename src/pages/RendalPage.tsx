@@ -5,12 +5,12 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
-import TimesheetAccomplishmentPage from './TimesheetAccomplishmentPage';
+import { parseUploadedTimesheetFolder } from '../lib/timesheetAccomplishment';
 import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow, findDrawingPlanInfo, calculatePlanFinish, TASK_TYPE_OPTIONS } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
-  FileSpreadsheet, Users, Search, TrendingUp
+  FileSpreadsheet, Users, Search, TrendingUp, FolderUp
 } from 'lucide-react';
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
@@ -1820,7 +1820,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
   const [showRekapDivisi, setShowRekapDivisi] = useState(user.role === 'rekap');
-  const [showTimesheetAccomplishment, setShowTimesheetAccomplishment] = useState(false);
+  const [isImportingTimesheet, setIsImportingTimesheet] = useState(false);
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
@@ -2511,6 +2511,29 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     } finally {
       setIsImportingUnified(false);
       input.value = '';
+    }
+  };
+
+  const handleImportTimesheetFolder = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsImportingTimesheet(true);
+    try {
+      const res = await parseUploadedTimesheetFolder(files);
+      if (res.addedMonths.length === 0) {
+        alert('Tidak ditemukan file timesheet Excel/CSV yang valid di dalam folder bulan. Pastikan struktur subfolder bertuliskan nama bulan (mis. Agustus, September, dsb).');
+      } else {
+        alert(
+          `Berhasil membaca ${res.processedFiles} file Timesheet dari ${res.addedMonths.length} folder bulan: ${res.addedMonths.join(', ')}.\n` +
+          `Data Accomplishment (%) otomatis tampil pada Rincian Proyek personel di Dashboard KPI Individual!`
+        );
+      }
+    } catch (err: any) {
+      console.error('Error importing timesheet folder:', err);
+      alert('Gagal membaca folder timesheet: ' + (err?.message || err));
+    } finally {
+      setIsImportingTimesheet(false);
+      e.target.value = '';
     }
   };
 
@@ -3459,9 +3482,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   if (showKpi) {
     return <KpiDashboardPage user={user} onLogout={onLogout} onBack={() => setShowKpi(false)} />;
   }
-  if (showTimesheetAccomplishment) {
-    return <TimesheetAccomplishmentPage onBack={() => setShowTimesheetAccomplishment(false)} />;
-  }
   if (showRekapDivisi) {
     return (
       <RekapAbsensiDivisiPage
@@ -4021,13 +4041,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 >
                   <Clock className="w-3.5 h-3.5 text-sky-400" /> Rekap Absensi Divisi
                 </button>
-                <button
-                  onClick={() => setShowTimesheetAccomplishment(true)}
-                  className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
-                  title="Buka Accomplishment Timesheet Bulanan (Input Folder Bulan)"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" /> Accomplishment Timesheet
-                </button>
                 <div className="relative">
                   <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
                   <input type="text" placeholder="Cari departemen..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
@@ -4060,6 +4073,21 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <Clock className="w-3.5 h-3.5 text-sky-400" />
                   <span>{isImportingHour ? 'Mengimpor...' : `Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleImportHourPlanner} disabled={isImportingHour} className="hidden" />
+                </label>
+                <label
+                  className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs rounded-md border border-slate-700 flex items-center gap-1.5 cursor-pointer transition"
+                  title="Input Folder Timesheet Bulanan (berisi subfolder bulan seperti Januari, Agustus, dll. beserta file Excel/CSV di dalamnya)"
+                >
+                  <FolderUp className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{isImportingTimesheet ? 'Membaca Folder...' : 'Folder Timesheet'}</span>
+                  <input
+                    type="file"
+                    {...({ webkitdirectory: '', directory: '' } as any)}
+                    multiple
+                    onChange={handleImportTimesheetFolder}
+                    disabled={isImportingTimesheet}
+                    className="hidden"
+                  />
                 </label>
                 <label
                   className="px-3 py-1.5 bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-300 border border-emerald-500/30 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
