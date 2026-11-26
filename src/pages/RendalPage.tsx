@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
+import TimesheetAccomplishmentPage from './TimesheetAccomplishmentPage';
 import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow, findDrawingPlanInfo, calculatePlanFinish, TASK_TYPE_OPTIONS } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
@@ -1819,6 +1820,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
   const [showRekapDivisi, setShowRekapDivisi] = useState(user.role === 'rekap');
+  const [showTimesheetAccomplishment, setShowTimesheetAccomplishment] = useState(false);
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
@@ -3457,6 +3459,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   if (showKpi) {
     return <KpiDashboardPage user={user} onLogout={onLogout} onBack={() => setShowKpi(false)} />;
   }
+  if (showTimesheetAccomplishment) {
+    return <TimesheetAccomplishmentPage onBack={() => setShowTimesheetAccomplishment(false)} />;
+  }
   if (showRekapDivisi) {
     return (
       <RekapAbsensiDivisiPage
@@ -4015,6 +4020,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   title="Buka Rekap Absensi & Cuti Divisi Desain"
                 >
                   <Clock className="w-3.5 h-3.5 text-sky-400" /> Rekap Absensi Divisi
+                </button>
+                <button
+                  onClick={() => setShowTimesheetAccomplishment(true)}
+                  className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                  title="Buka Accomplishment Timesheet Bulanan (Input Folder Bulan)"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" /> Accomplishment Timesheet
                 </button>
                 <div className="relative">
                   <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
