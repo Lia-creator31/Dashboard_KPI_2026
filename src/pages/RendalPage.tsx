@@ -3173,7 +3173,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       if (accessMode === 'subkon') {
         alert(`Tugas tersimpan! Work Order "${autoKode}" (Nomor JO: ${resolvedJo}) langsung terbit dan tersimpan di History.`);
       } else {
-        alert('Tugas tersimpan! Buka Planner untuk approval Jobcard.');
+        alert('Tugas berhasil disimpan!');
       }
       await loadAllJobCards();
     } catch {
@@ -3848,6 +3848,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                           />
                         )}
                       </div>
+                      <div className="col-span-1 md:col-span-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Deskripsi</label>
+                          <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
+                        </div>
+                        <input
+                          type="text"
+                          value={formData.taskName}
+                          onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                          placeholder="Ketik deskripsi tugas / pekerjaan..."
+                          required
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
                       <div>
                         <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
                         <input
@@ -4016,18 +4030,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
-                  onClick={() => setIsPlannerOpen(true)}
-                  className="relative px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
-                  title={pendingTasksCount > 0 ? `${pendingTasksCount} tugas menunggu kode Jobcard` : 'Tidak ada tugas yang menunggu kode Jobcard'}
-                >
-                  <FileCheck className="w-3.5 h-3.5" /> Planner Approval
-                  {pendingTasksCount > 0 && (
-                    <span className="ml-1 px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-bold">
-                      {pendingTasksCount > 99 ? '99+' : pendingTasksCount}
-                    </span>
-                  )}
-                </button>
-                <button
                   onClick={() => setShowKpi(true)}
                   className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
                   title="Buka Dashboard KPI Individual"
@@ -4065,14 +4067,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <FileSpreadsheet className="w-3.5 h-3.5 text-violet-400" />
                   <span>{timeOffWorkbook ? 'Update Time Off' : 'Upload Time Off'}</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleUploadTimeOffExcel} className="hidden" />
-                </label>
-                <label
-                  className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-md border border-slate-700 text-xs flex items-center gap-1.5 cursor-pointer transition"
-                  title="Impor Hour Planner (Hour_Planner.xlsx): kolom Hour Planned masuk ke Plan JO sesuai kode Jobcard"
-                >
-                  <Clock className="w-3.5 h-3.5 text-sky-400" />
-                  <span>{isImportingHour ? 'Mengimpor...' : `Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}</span>
-                  <input type="file" accept=".xlsx, .xls" onChange={handleImportHourPlanner} disabled={isImportingHour} className="hidden" />
                 </label>
                 <label
                   className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs rounded-md border border-slate-700 flex items-center gap-1.5 cursor-pointer transition"
@@ -4293,9 +4287,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                         ? drivePlan.jo
                                         : (jcKey && hourPlannerMap[jcKey] ? String(hourPlannerMap[jcKey].hour) : '-'));
                                     return (
-                                      <tr key={task.id} className="hover:bg-slate-900/40">
+                                        <tr key={task.id} className="hover:bg-slate-900/40">
                                         <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
-                                        <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}</td>
+                                        <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || <span className="text-slate-500 font-normal">-</span>}</td>
                                         <td className="py-2 px-2.5">
                                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
                                             task.type === 'Evatek' ? 'bg-purple-500/10 text-purple-300 border-purple-500/30' :
@@ -4464,6 +4458,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                           required={!formData.drawingNumber}
                         />
                       )}
+                    </div>
+                    <div className="col-span-1 md:col-span-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Deskripsi</label>
+                        <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={formData.taskName}
+                        onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                        placeholder="Ketik deskripsi tugas / pekerjaan..."
+                        required
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
+                      />
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">
@@ -4761,6 +4769,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   )}
                 </div>
               </div>
+              <div className="col-span-1 sm:col-span-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-400">Deskripsi</label>
+                  <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
+                </div>
+                <input
+                  type="text"
+                  value={editFormData.taskName}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                  placeholder="Ketik deskripsi tugas / pekerjaan..."
+                  required
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
+                />
+              </div>
               {accessMode === 'organik' && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -4866,55 +4888,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {isPlannerOpen && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
-            <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-              <span className="font-bold text-xs text-white flex items-center gap-1.5">
-                <FileCheck className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard Semua Biro ({pendingTasksCount} Menunggu)
-              </span>
-              <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-4">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
-                  <span className="text-slate-400">Daftar Pengajuan Jobcard ({pendingTasksCount}) dari {pendingTasksByBiro.length} Biro</span>
-                </div>
-                <div className="max-h-96 overflow-y-auto space-y-4 pr-1">
-                  {pendingTasksByBiro.length > 0 ? pendingTasksByBiro.map(([biroName, list]) => (
-                    <div key={biroName} className="space-y-2">
-                      <div className="flex items-center justify-between text-[11px] px-1">
-                        <span className="font-bold text-slate-300">{biroName}</span>
-                        <span className="font-mono text-amber-400">{list.length} menunggu</span>
-                      </div>
-                      {list.map((task, idx) => (
-                        <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
-                          <div>
-                            <div className="font-semibold text-white">{task.pic} <span className="font-mono text-slate-500">#{idx + 1}</span>{task.rev && <span className="ml-2 font-mono text-[10px] text-cyan-400">Rev.{task.rev}</span>}</div>
-                            <div className="text-slate-400 text-[11px]">{task.taskName}</div>
-                            <div className="text-emerald-400 font-mono text-[10px]">{task.project}</div>
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <input type="text" value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
-                              onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
-                              placeholder="Jobcard (misal: JC020926 39833)..."
-                              className="w-48 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none" />
-                            <button onClick={() => handleSaveKodeJcForTask(task.id)}
-                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer">Simpan</button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )) : <div className="py-8 text-center text-xs text-slate-500">Semua tugas sudah memiliki kode Jobcard</div>}
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       )}
