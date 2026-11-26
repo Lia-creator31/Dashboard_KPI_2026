@@ -1163,7 +1163,7 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
       if (accessMode === 'subkon') {
         alert(`Tugas tersimpan! Work Order "${autoKode}" (Nomor JO: ${resolvedJo}) langsung terbit dan tersimpan di History.`);
       } else {
-        alert('Tugas tersimpan! Menunggu approval dari Planner (Rendal).');
+        alert('Tugas berhasil disimpan!');
       }
       await loadAllJobCards();
     } catch {
@@ -1701,6 +1701,20 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                           />
                         )}
                       </div>
+                      <div className="col-span-1 md:col-span-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Deskripsi</label>
+                          <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
+                        </div>
+                        <input
+                          type="text"
+                          value={formData.taskName}
+                          onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                          placeholder="Ketik deskripsi tugas / pekerjaan..."
+                          required
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
                       <div>
                         <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
                         <input
@@ -2004,7 +2018,7 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                                     return (
                                       <tr key={task.id} className="hover:bg-slate-900/40">
                                         <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
-                                        <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}</td>
+                                        <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || <span className="text-slate-500 font-normal">-</span>}</td>
                                         <td className="py-2 px-2.5">
                                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
                                             task.type === 'Evatek' ? 'bg-purple-500/10 text-purple-300 border-purple-500/30' :
@@ -2173,6 +2187,20 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                           required={!formData.drawingNumber}
                         />
                       )}
+                    </div>
+                    <div className="col-span-1 md:col-span-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Deskripsi</label>
+                        <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={formData.taskName}
+                        onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                        placeholder="Ketik deskripsi tugas / pekerjaan..."
+                        required
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
+                      />
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">
@@ -2456,7 +2484,20 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                   )}
                 </div>
               </div>
-
+              <div className="col-span-1 sm:col-span-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-400">Deskripsi</label>
+                  <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
+                </div>
+                <input
+                  type="text"
+                  value={editFormData.taskName}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                  placeholder="Ketik deskripsi tugas / pekerjaan..."
+                  required
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
+                />
+              </div>
               {accessMode === 'organik' && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
