@@ -1888,7 +1888,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                           Accomplishment Timesheet Bulanan
                         </div>
                         <div className="text-[10px] text-slate-400">
-                          Klik nilai <span className="text-slate-200 font-semibold">%</span> untuk melihat detail jam/hari kerja
+                          Klik batang diagram untuk melihat detail jam/hari kerja
                         </div>
                       </div>
                       <div className="flex items-center gap-3 text-[10px] text-slate-400">
@@ -1902,72 +1902,84 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                         Belum ada data timesheet bulanan untuk {activePerson.name}. Gunakan tombol <b>Folder Timesheet</b> di Data Master untuk mengimpor folder bulan.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                        {personTsMonths.map(pm => {
-                          const reg = pm.regular;
-                          const ot = pm.overtime;
-                          return (
-                            <div key={pm.month} className="bg-slate-950 border border-slate-800/80 rounded-xl p-2.5 space-y-2">
-                              <div className="text-xs font-bold text-slate-200 border-b border-slate-800 pb-1 flex items-center justify-between">
-                                <span>{pm.month}</span>
-                              </div>
-                              <div className="space-y-1.5">
-                                <div className="flex items-center justify-between text-[11px]">
-                                  <span className="text-slate-400 text-[10px]">Reguler:</span>
-                                  {reg ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => setTimesheetDetailModal({
-                                        month: pm.month,
-                                        personName: activePerson.name,
-                                        kind: 'regular',
-                                        accomplishment: reg.accomplishment,
-                                        expectedTs: reg.expectedTotalTimesheet,
-                                        totalTs: reg.totalOfTimesheet,
-                                      })}
-                                      className={`px-1.5 py-0.5 rounded border font-mono font-semibold text-[11px] cursor-pointer transition ${
-                                        reg.accomplishment >= 95 ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25' :
-                                        reg.accomplishment >= 75 ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25' :
-                                        'bg-rose-500/15 text-rose-300 border-rose-500/30 hover:bg-rose-500/25'
-                                      }`}
-                                      title="Klik untuk melihat Expected Total of Timesheet & Total of Timesheet"
-                                    >
-                                      {Math.round(reg.accomplishment * 10) / 10}%
-                                    </button>
-                                  ) : (
-                                    <span className="text-slate-600 font-mono text-[10px]">-</span>
-                                  )}
-                                </div>
-                                <div className="flex items-center justify-between text-[11px]">
-                                  <span className="text-slate-400 text-[10px]">Overtime:</span>
-                                  {ot ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => setTimesheetDetailModal({
-                                        month: pm.month,
-                                        personName: activePerson.name,
-                                        kind: 'overtime',
-                                        accomplishment: ot.accomplishment,
-                                        otHours: ot.totalOvertimeHours,
-                                        tsHours: ot.totalTimesheetHours,
-                                      })}
-                                      className={`px-1.5 py-0.5 rounded border font-mono font-semibold text-[11px] cursor-pointer transition ${
-                                        ot.accomplishment >= 95 ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25' :
-                                        ot.accomplishment >= 75 ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25' :
-                                        'bg-rose-500/15 text-rose-300 border-rose-500/30 hover:bg-rose-500/25'
-                                      }`}
-                                      title="Klik untuk melihat Total Overtime Hours & Total Timesheet Hours"
-                                    >
-                                      {Math.round(ot.accomplishment * 10) / 10}%
-                                    </button>
-                                  ) : (
-                                    <span className="text-slate-600 font-mono text-[10px]">-</span>
-                                  )}
-                                </div>
-                              </div>
+                      <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-4">
+                        <div className="relative flex">
+                          {/* Sumbu Y */}
+                          <div className="flex flex-col justify-between h-48 pr-2 text-[9px] font-mono text-slate-500 text-right w-8 shrink-0">
+                            <span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span>
+                          </div>
+                          <div className="relative flex-1 overflow-x-auto">
+                            {/* Garis bantu */}
+                            <div className="absolute inset-x-0 top-0 h-48 flex flex-col justify-between pointer-events-none">
+                              {[0, 1, 2, 3, 4].map(i => <div key={i} className="border-t border-dashed border-slate-800" />)}
                             </div>
-                          );
-                        })}
+                            <div className="relative flex items-end gap-4 h-48 px-2 min-w-max">
+                              {personTsMonths.map(pm => {
+                                const reg = pm.regular;
+                                const ot = pm.overtime;
+                                const barH = (v: number) => `${Math.max(2, Math.min(100, v))}%`;
+                                return (
+                                  <div key={pm.month} className="flex items-end gap-1.5 h-full min-w-[56px] justify-center">
+                                    {/* Bar Tidak Overtime */}
+                                    <div className="flex flex-col items-center justify-end h-full w-6">
+                                      {reg ? (
+                                        <>
+                                          <span className="text-[9px] font-mono font-bold text-sky-300 mb-0.5">{Math.round(reg.accomplishment * 10) / 10}%</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => setTimesheetDetailModal({
+                                              month: pm.month,
+                                              personName: activePerson.name,
+                                              kind: 'regular',
+                                              accomplishment: reg.accomplishment,
+                                              expectedTs: reg.expectedTotalTimesheet,
+                                              totalTs: reg.totalOfTimesheet,
+                                            })}
+                                            title={`${pm.month} · Tidak Overtime ${Math.round(reg.accomplishment * 10) / 10}% — klik untuk detail`}
+                                            className="w-full rounded-t bg-sky-400/80 hover:bg-sky-300 transition cursor-pointer"
+                                            style={{ height: barH(reg.accomplishment) }}
+                                          />
+                                        </>
+                                      ) : (
+                                        <span className="text-[9px] text-slate-600 font-mono">-</span>
+                                      )}
+                                    </div>
+                                    {/* Bar Overtime */}
+                                    <div className="flex flex-col items-center justify-end h-full w-6">
+                                      {ot ? (
+                                        <>
+                                          <span className="text-[9px] font-mono font-bold text-purple-300 mb-0.5">{Math.round(ot.accomplishment * 10) / 10}%</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => setTimesheetDetailModal({
+                                              month: pm.month,
+                                              personName: activePerson.name,
+                                              kind: 'overtime',
+                                              accomplishment: ot.accomplishment,
+                                              otHours: ot.totalOvertimeHours,
+                                              tsHours: ot.totalTimesheetHours,
+                                            })}
+                                            title={`${pm.month} · Overtime ${Math.round(ot.accomplishment * 10) / 10}% — klik untuk detail`}
+                                            className="w-full rounded-t bg-purple-400/80 hover:bg-purple-300 transition cursor-pointer"
+                                            style={{ height: barH(ot.accomplishment) }}
+                                          />
+                                        </>
+                                      ) : (
+                                        <span className="text-[9px] text-slate-600 font-mono">-</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {/* Label bulan (sumbu X) */}
+                            <div className="flex gap-4 px-2 pt-1.5 border-t border-slate-700 min-w-max">
+                              {personTsMonths.map(pm => (
+                                <div key={pm.month} className="min-w-[56px] text-center text-[10px] font-semibold text-slate-300">{pm.month}</div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
