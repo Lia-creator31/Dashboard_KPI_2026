@@ -1,4 +1,8 @@
 import * as XLSX from 'xlsx';
+import { supabase } from './supabase';
+
+const MASTER_BUCKET = 'master-files';
+export const TIMESHEET_DATA_FILE = 'timesheet_accomplishment.json';
 
 export const MONTH_ORDER = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -202,6 +206,44 @@ export function getStoredUploadedTimesheets(): Record<string, MonthTimesheetData
   }
 }
 
+// Simpan ke Supabase Storage (master-files) dan localStorage
+export async function saveTimesheetToDatabase(data: Record<string, MonthTimesheetData>): Promise<void> {
+  try {
+    const jsonStr = JSON.stringify(data);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const { error } = await supabase.storage
+      .from(MASTER_BUCKET)
+      .upload(TIMESHEET_DATA_FILE, blob, { upsert: true, contentType: 'application/json' });
+    if (error) {
+      console.warn('Gagal menyimpan timesheet_accomplishment.json ke Supabase storage:', error.message);
+    }
+  } catch (err) {
+    console.warn('Error saveTimesheetToDatabase:', err);
+  }
+}
+
+// Muat data dari Supabase Storage (master-files), dengan fallback ke localStorage
+export async function loadTimesheetFromDatabase(): Promise<Record<string, MonthTimesheetData>> {
+  try {
+    const { data, error } = await supabase.storage
+      .from(MASTER_BUCKET)
+      .download(TIMESHEET_DATA_FILE);
+    if (!error && data) {
+      const text = await data.text();
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === 'object') {
+        try {
+          localStorage.setItem(TIMESHEET_STORAGE_KEY, text);
+        } catch {}
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('Gagal memuat timesheet dari database Supabase:', err);
+  }
+  return getStoredUploadedTimesheets();
+}
+
 // Hanya data dari folder yang diinput lewat tombol "Folder Timesheet"
 export function getAllTimesheetData(): Record<string, MonthTimesheetData> {
   return getStoredUploadedTimesheets();
@@ -258,6 +300,33 @@ export async function parseUploadedTimesheetFolder(
     }
   } catch (e) {
     console.warn('Failed to persist timesheet to localStorage:', e);
+  }
+
+  // Simpan data terstruktur dan file-file asli ke database Supabase Storage
+  if (Object.keys(parsed).length > 0) {
+    await saveTimesheetToDatabase(nextUploaded);
+
+    // Upload juga file-file excel/csv asli ke Supabase Storage di bawah folder timesheets/
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const lowerName = file.name.toLowerCase();
+      if (!lowerName.endsWith('.csv') && !lowerName.endsWith('.xlsx') && !lowerName.endsWith('.xls')) {
+        continue;
+      }
+      const relPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+      const parts = relPath.split(/[\/\\]/).filter(Boolean);
+      const month = detectMonthName(parts) || 'general';
+      try {
+        await supabase.storage
+          .from(MASTER_BUCKET)
+          .upload(`timesheets/${month}/${file.name}`, file, {
+            upsert: true,
+            contentType: file.type || 'application/octet-stream',
+          });
+      } catch (err) {
+        console.warn(`Gagal upload file ${file.name} ke storage:`, err);
+      }
+    }
   }
 
   return {
