@@ -2524,8 +2524,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         alert('Tidak ditemukan file timesheet Excel/CSV yang valid di dalam folder bulan. Pastikan struktur subfolder bertuliskan nama bulan (mis. Agustus, September, dsb).');
       } else {
         alert(
-          `Berhasil membaca ${res.processedFiles} file Timesheet dari ${res.addedMonths.length} folder bulan: ${res.addedMonths.join(', ')}.\n` +
-          `Data Accomplishment (%) otomatis tampil pada Rincian Proyek personel di Dashboard KPI Individual!`
+          `Berhasil membaca ${res.processedFiles} file Timesheet dari ${res.addedMonths.length} folder bulan: ${res.addedMonths.join(', ')}.\n\n` +
+          `Data dan file berhasil tersimpan di Database (Supabase Storage) & tersinkronisasi ke Dashboard KPI Individual!`
         );
       }
     } catch (err: any) {
