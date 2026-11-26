@@ -1794,155 +1794,99 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                     </div>
                   </div>
                   {rows.length > 0 ? (
-                    <div className="space-y-4">
-                      {/* Diagram Batang Rincian per Proyek */}
-                      <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-4">
-                        <div className="relative flex">
-                          {/* Sumbu Y */}
-                          <div className="flex flex-col justify-between h-44 mt-6 pr-2 text-[9px] font-mono text-slate-500 text-right w-10 shrink-0">
-                            <span>{Math.round(maxJo)} jam</span>
-                            <span>{Math.round(maxJo * 0.75)}</span>
-                            <span>{Math.round(maxJo * 0.5)}</span>
-                            <span>{Math.round(maxJo * 0.25)}</span>
-                            <span>0</span>
-                          </div>
-
-                          <div className="relative flex-1 overflow-x-auto pt-6">
-                            {/* Garis Grid Horizontal */}
-                            <div className="absolute inset-x-0 top-6 h-44 flex flex-col justify-between pointer-events-none">
-                              {[0, 1, 2, 3, 4].map(i => <div key={i} className="border-t border-dashed border-slate-800/90" />)}
+                    <div className="space-y-3">
+                      {rows.map(r => {
+                        const ps = scorePerson(activePerson.name, activePerson.biro, r.cards);
+                        const eff = r.plan > 0 && r.real > 0 ? Math.min((r.plan / r.real) * 100, CAP_EFFICIENCY) : null;
+                        const relPct = r.total ? (r.released / r.total) * 100 : 0;
+                        return (
+                          <div key={r.project} className="space-y-2">
+                          <div onClick={() => toggleProject(r.project)}
+                            className="grid grid-cols-12 gap-3 items-center text-xs cursor-pointer hover:bg-slate-950/60 rounded-lg p-1.5 -m-1.5 transition">
+                            <div className="col-span-12 sm:col-span-2 font-mono font-bold text-emerald-400 flex items-center gap-1">
+                              <ChevronRight className={`w-3.5 h-3.5 text-slate-500 transition-transform ${expandedProjects[r.project] ? 'rotate-90 text-blue-400' : ''}`} />
+                              {r.project}
+                              <span className="text-[10px] font-normal text-slate-500">({r.total})</span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-slate-950 ml-1" style={{ background: getCategory(ps.kpi).color }}>
+                                KPI {fmt(ps.kpi, 0)}
+                              </span>
                             </div>
-
-                            {/* Batang Diagram per Proyek */}
-                            <div className="relative flex items-end gap-8 h-44 px-3 min-w-max">
-                              {rows.map(r => {
-                                const ps = scorePerson(activePerson.name, activePerson.biro, r.cards);
-                                const eff = r.plan > 0 && r.real > 0 ? Math.min((r.plan / r.real) * 100, CAP_EFFICIENCY) : null;
-                                const planH = maxJo > 0 ? `${Math.max(3, Math.min(100, (r.plan / maxJo) * 100))}%` : '3%';
-                                const realH = maxJo > 0 ? `${Math.max(3, Math.min(100, (r.real / maxJo) * 100))}%` : '3%';
-                                const isExpanded = !!expandedProjects[r.project];
-
-                                return (
-                                  <div
-                                    key={r.project}
-                                    onClick={() => toggleProject(r.project)}
-                                    className={`group flex flex-col items-center cursor-pointer p-1.5 rounded-lg transition ${
-                                      isExpanded ? 'bg-slate-900/80 ring-1 ring-blue-500/50' : 'hover:bg-slate-900/50'
-                                    }`}
-                                    title={`Klik untuk melihat rincian jobcard proyek ${r.project}`}
-                                  >
-                                    <div className="flex items-end gap-2 h-44 w-28 justify-center">
-                                      {/* Batang Plan JO */}
-                                      <div className="flex flex-col items-center justify-end h-full w-10">
-                                        <div className="relative w-full" style={{ height: planH }}>
-                                          <span className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-mono font-bold text-violet-300">
-                                            {r.plan ? Math.round(r.plan * 10) / 10 : '0'}
-                                          </span>
-                                          <div className="w-full h-full rounded-t bg-violet-400/85 group-hover:bg-violet-300 transition shadow-sm" />
-                                        </div>
-                                      </div>
-
-                                      {/* Batang Real JO */}
-                                      <div className="flex flex-col items-center justify-end h-full w-10">
-                                        <div className="relative w-full" style={{ height: realH }}>
-                                          <span className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-mono font-bold text-emerald-300">
-                                            {r.real ? Math.round(r.real * 10) / 10 : '0'}
-                                          </span>
-                                          <div className="w-full h-full rounded-t bg-emerald-400/85 group-hover:bg-emerald-300 transition shadow-sm" />
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    {/* Label Bawah Proyek */}
-                                    <div className="mt-2 text-center w-28">
-                                      <div className="font-mono font-bold text-emerald-400 text-xs truncate flex items-center justify-center gap-1">
-                                        <ChevronRight className={`w-3 h-3 text-slate-500 transition-transform ${isExpanded ? 'rotate-90 text-blue-400' : ''}`} />
-                                        {r.project}
-                                      </div>
-                                      <div className="flex items-center justify-center gap-1 mt-1">
-                                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full text-slate-950" style={{ background: getCategory(ps.kpi).color }}>
-                                          KPI {fmt(ps.kpi, 0)}
-                                        </span>
-                                        <span className="text-[9px] font-mono text-slate-400">
-                                          {eff === null ? '—' : `${Math.round(eff)}%`}
-                                        </span>
-                                      </div>
-                                      <div className="text-[9px] text-amber-400 font-mono mt-0.5">
-                                        {r.released}/{r.total} release
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Detail Pekerjaan per Proyek yang Di-expand */}
-                      {rows.some(r => expandedProjects[r.project]) && (
-                        <div className="space-y-3 pt-2">
-                          {rows.filter(r => expandedProjects[r.project]).map(r => {
-                            const maxCard = Math.max(1, ...r.cards.flatMap(c => [c.plannedJo, c.realJo]));
-                            return (
-                              <div key={r.project} className="bg-slate-950/70 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
-                                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 text-xs">
-                                  <div className="font-mono font-bold text-emerald-400 flex items-center gap-1.5">
-                                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                                    Jobcard Proyek {r.project} ({r.cards.length})
-                                  </div>
-                                  <button
-                                    onClick={() => toggleProject(r.project)}
-                                    className="text-slate-400 hover:text-white text-[11px] cursor-pointer"
-                                  >
-                                    Tutup
-                                  </button>
+                            <div className="col-span-12 sm:col-span-6 space-y-1">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div className="h-2.5 rounded-full" style={{ width: `${(r.plan / maxJo) * 100}%`, background: '#a78bfa' }} />
                                 </div>
-                                <div className="space-y-2">
-                                  {r.cards.map(c => {
-                                    const st = cardStatus(c);
-                                    const isDescOnly = !!(c as any).noJobcardDesc;
-                                    return (
-                                      <div key={c.id} className={`p-2.5 bg-slate-900 border rounded-lg space-y-1.5 text-xs ${isDescOnly ? 'border-slate-700/50 opacity-75' : 'border-slate-800'}`}>
-                                        <div className="flex items-start justify-between gap-3">
-                                          <div className="text-slate-200 font-medium">{c.taskName || '-'}</div>
-                                          <div className="flex items-center gap-2 shrink-0">
-                                            {!isDescOnly && <span className="font-mono text-[10px] text-slate-400">Rev {c.rev}</span>}
-                                            <span className={`text-[10px] font-semibold ${st.cls}`}>{st.text}</span>
-                                          </div>
-                                        </div>
-                                        {!isDescOnly && (
-                                          <>
-                                            <div className="grid grid-cols-2 gap-2 text-[11px] font-mono pt-1">
-                                              <div className="flex items-center gap-1.5">
-                                                <span className="text-slate-400">Plan JO:</span>
-                                                <span className="text-violet-300 font-bold">{c.plannedJo || '-'}</span>
-                                              </div>
-                                              <div className="flex items-center gap-1.5">
-                                                <span className="text-slate-400">Real JO:</span>
-                                                <span className="text-emerald-400 font-bold">{c.realJo ? Math.round(c.realJo * 100) / 100 : '-'}</span>
-                                              </div>
-                                            </div>
-                                            <div className="text-[10px] text-slate-500 font-mono">
-                                              {c.kodeJc} · Plan Finish {formatDisplayDate(c.endDate)} · Release {formatDisplayDate(c.release)}
-                                            </div>
-                                          </>
-                                        )}
-                                        {isDescOnly && c.realJo > 0 && (
-                                          <div className="text-[10px] text-slate-500 font-mono">
-                                            Real JO: {Math.round(c.realJo * 100) / 100} jam
-                                            {c.release && ` · Drawing release: ${formatDisplayDate(c.release)}`}
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
+                                <span className="w-14 text-right font-mono text-violet-300">{r.plan ? Math.round(r.plan * 100) / 100 : '-'}</span>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div className="h-2.5 rounded-full" style={{ width: `${(r.real / maxJo) * 100}%`, background: '#34d399' }} />
+                                </div>
+                                <span className="w-14 text-right font-mono text-emerald-400">{r.real ? Math.round(r.real * 100) / 100 : '-'}</span>
+                              </div>
+                            </div>
+                            <div className="col-span-6 sm:col-span-1 text-center">
+                              <div className="font-bold text-slate-200">{eff === null ? '—' : `${Math.round(eff)}%`}</div>
+                              <div className="text-[10px] text-slate-500">A</div>
+                            </div>
+                            <div className="col-span-6 sm:col-span-3 space-y-1">
+                              <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-2.5 rounded-full" style={{ width: `${relPct}%`, background: '#fbbf24' }} />
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono">{r.released}/{r.total} release</div>
+                            </div>
+                          </div>
+
+                          {expandedProjects[r.project] && (
+                            <div className="ml-4 pl-3 border-l border-slate-700 space-y-2">
+                              {(() => {
+                                const maxCard = Math.max(1, ...r.cards.flatMap(c => [c.plannedJo, c.realJo]));
+                                return r.cards.map(c => {
+                                  const st = cardStatus(c);
+                                  const isDescOnly = !!(c as any).noJobcardDesc;
+                                  return (
+                                    <div key={c.id} className={`p-2.5 bg-slate-950 border rounded-lg space-y-1.5 text-xs ${isDescOnly ? 'border-slate-700/50 opacity-75' : 'border-slate-800'}`}>
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="text-slate-200">{c.taskName || '-'}</div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          {!isDescOnly && <span className="font-mono text-[10px] text-slate-400">Rev {c.rev}</span>}
+                                          <span className={`text-[10px] font-semibold ${st.cls}`}>{st.text}</span>
+                                        </div>
+                                      </div>
+                                      {!isDescOnly && (
+                                        <>
+                                          <div className="flex items-center gap-2">
+                                            <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                                              <div className="h-2 rounded-full" style={{ width: `${(c.plannedJo / maxCard) * 100}%`, background: '#a78bfa' }} />
+                                            </div>
+                                            <span className="w-12 text-right font-mono text-violet-300">{c.plannedJo || '-'}</span>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                                              <div className="h-2 rounded-full" style={{ width: `${(c.realJo / maxCard) * 100}%`, background: '#34d399' }} />
+                                            </div>
+                                            <span className="w-12 text-right font-mono text-emerald-400">{c.realJo ? Math.round(c.realJo * 100) / 100 : '-'}</span>
+                                          </div>
+                                          <div className="text-[10px] text-slate-500 font-mono">
+                                            {c.kodeJc} · Plan Finish {formatDisplayDate(c.endDate)} · Release {formatDisplayDate(c.release)}
+                                          </div>
+                                        </>
+                                      )}
+                                      {isDescOnly && c.realJo > 0 && (
+                                        <div className="text-[10px] text-slate-500 font-mono">
+                                          Real JO: {Math.round(c.realJo * 100) / 100} jam
+                                          {c.release && ` · Drawing release: ${formatDisplayDate(c.release)}`}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                });
+                              })()}
+                            </div>
+                          )}
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="text-xs text-slate-500 italic py-1">Belum ada penugasan proyek pada periode terpilih.</div>
