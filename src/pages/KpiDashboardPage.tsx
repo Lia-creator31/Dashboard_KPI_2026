@@ -7,7 +7,7 @@ import { UserSession } from '../App';
 import { departmentsData } from '../data';
 import { projectCandidates, dedupeRows, resolveDrawingProject, findDrawingProjectInDescription, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, fetchDrawingControlRowsForProject, DrawingControlRow, parseDrawingControlDate } from '../lib/projectCandidates';
 import { Building2, ArrowLeft, ChevronRight, RefreshCw, Users, Layers, ArrowUpDown, FileSpreadsheet, FileText, Clock, X } from 'lucide-react';
-import { getAllTimesheetData, getPersonMonthlyTimesheet, TIMESHEET_STORAGE_KEY } from '../lib/timesheetAccomplishment';
+import { getAllTimesheetData, getPersonMonthlyTimesheet, TIMESHEET_STORAGE_KEY, loadTimesheetFromDatabase } from '../lib/timesheetAccomplishment';
 
 interface KpiDashboardPageProps {
   user: UserSession;
@@ -818,7 +818,11 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
   } | null>(null);
 
   useEffect(() => {
-    setTimesheetAllData(getAllTimesheetData());
+    loadTimesheetFromDatabase().then(data => {
+      if (data && Object.keys(data).length > 0) {
+        setTimesheetAllData(data);
+      }
+    });
     const handleStorage = (e: StorageEvent) => {
       if (e.key === TIMESHEET_STORAGE_KEY) {
         setTimesheetAllData(getAllTimesheetData());
@@ -845,14 +849,18 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
         return all;
       };
 
-      const [jcAllData, tsRes, lineRes, wbRes, im4Wb, hourPlanner] = await Promise.all([
+      const [jcAllData, tsRes, lineRes, wbRes, im4Wb, hourPlanner, dbTimesheet] = await Promise.all([
         fetchAllJcRows(),
         supabase.from('outsourcing_timesheets').select('id, status'),
         supabase.from('outsourcing_timesheet_lines').select('timesheet_id, work_order_code, effective_hours, overtime_hours'),
         supabase.storage.from(MASTER_BUCKET).download('realisasi.xlsx'),
         loadIm4Workbook(),
         loadHourPlanner(),
+        loadTimesheetFromDatabase(),
       ]);
+      if (dbTimesheet && Object.keys(dbTimesheet).length > 0) {
+        setTimesheetAllData(dbTimesheet);
+      }
 
       // Daftar pegawai organik (dan anggota per biro) dari master IM4
       const { organic, outsourcing, members: memberList } = parseMemberNames(im4Wb);
@@ -1905,12 +1913,12 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                       <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-4">
                         <div className="relative flex">
                           {/* Sumbu Y */}
-                          <div className="flex flex-col justify-between h-48 pr-2 text-[9px] font-mono text-slate-500 text-right w-8 shrink-0">
+                          <div className="flex flex-col justify-between h-48 mt-5 pr-2 text-[9px] font-mono text-slate-500 text-right w-8 shrink-0">
                             <span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span>
                           </div>
-                          <div className="relative flex-1 overflow-x-auto">
+                          <div className="relative flex-1 overflow-x-auto pt-5">
                             {/* Garis bantu */}
-                            <div className="absolute inset-x-0 top-0 h-48 flex flex-col justify-between pointer-events-none">
+                            <div className="absolute inset-x-0 top-5 h-48 flex flex-col justify-between pointer-events-none">
                               {[0, 1, 2, 3, 4].map(i => <div key={i} className="border-t border-dashed border-slate-800" />)}
                             </div>
                             <div className="relative flex items-end gap-4 h-48 px-2 min-w-max">
@@ -1923,8 +1931,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                                     {/* Bar Tidak Overtime */}
                                     <div className="flex flex-col items-center justify-end h-full w-6">
                                       {reg ? (
-                                        <>
-                                          <span className="text-[9px] font-mono font-bold text-sky-300 mb-0.5">{Math.round(reg.accomplishment * 10) / 10}%</span>
+                                        <div className="relative w-full" style={{ height: barH(reg.accomplishment) }}><span className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-mono font-bold text-sky-300">{Math.round(reg.accomplishment * 10) / 10}%</span>
                                           <button
                                             type="button"
                                             onClick={() => setTimesheetDetailModal({
@@ -1936,10 +1943,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                                               totalTs: reg.totalOfTimesheet,
                                             })}
                                             title={`${pm.month} · Tidak Overtime ${Math.round(reg.accomplishment * 10) / 10}% — klik untuk detail`}
-                                            className="w-full rounded-t bg-sky-400/80 hover:bg-sky-300 transition cursor-pointer"
-                                            style={{ height: barH(reg.accomplishment) }}
-                                          />
-                                        </>
+                                            className="w-full h-full rounded-t bg-sky-400/80 hover:bg-sky-300 transition cursor-pointer" /></div>
                                       ) : (
                                         <span className="text-[9px] text-slate-600 font-mono">-</span>
                                       )}
@@ -1947,8 +1951,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                                     {/* Bar Overtime */}
                                     <div className="flex flex-col items-center justify-end h-full w-6">
                                       {ot ? (
-                                        <>
-                                          <span className="text-[9px] font-mono font-bold text-purple-300 mb-0.5">{Math.round(ot.accomplishment * 10) / 10}%</span>
+                                        <div className="relative w-full" style={{ height: barH(ot.accomplishment) }}><span className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-mono font-bold text-purple-300">{Math.round(ot.accomplishment * 10) / 10}%</span>
                                           <button
                                             type="button"
                                             onClick={() => setTimesheetDetailModal({
@@ -1960,10 +1963,7 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                                               tsHours: ot.totalTimesheetHours,
                                             })}
                                             title={`${pm.month} · Overtime ${Math.round(ot.accomplishment * 10) / 10}% — klik untuk detail`}
-                                            className="w-full rounded-t bg-purple-400/80 hover:bg-purple-300 transition cursor-pointer"
-                                            style={{ height: barH(ot.accomplishment) }}
-                                          />
-                                        </>
+                                            className="w-full h-full rounded-t bg-purple-400/80 hover:bg-purple-300 transition cursor-pointer" /></div>
                                       ) : (
                                         <span className="text-[9px] text-slate-600 font-mono">-</span>
                                       )}
