@@ -6,7 +6,8 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import { departmentsData } from '../data';
 import { projectCandidates, dedupeRows, resolveDrawingProject, findDrawingProjectInDescription, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, fetchDrawingControlRowsForProject, DrawingControlRow, parseDrawingControlDate } from '../lib/projectCandidates';
-import { Building2, ArrowLeft, ChevronRight, RefreshCw, Users, Layers, ArrowUpDown, FileSpreadsheet, FileText } from 'lucide-react';
+import { Building2, ArrowLeft, ChevronRight, RefreshCw, Users, Layers, ArrowUpDown, FileSpreadsheet, FileText, Clock, X } from 'lucide-react';
+import { getAllTimesheetData, getPersonMonthlyTimesheet, TIMESHEET_STORAGE_KEY } from '../lib/timesheetAccomplishment';
 
 interface KpiDashboardPageProps {
   user: UserSession;
@@ -804,6 +805,28 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
   const [showAllPersonnel, setShowAllPersonnel] = useState(false);
   const [personnelSortOrder, setPersonnelSortOrder] = useState<'desc' | 'asc'>('desc');
   const [personnelSearch, setPersonnelSearch] = useState('');
+  const [timesheetAllData, setTimesheetAllData] = useState(() => getAllTimesheetData());
+  const [timesheetDetailModal, setTimesheetDetailModal] = useState<{
+    month: string;
+    personName: string;
+    kind: 'overtime' | 'regular';
+    accomplishment: number;
+    otHours?: number;
+    tsHours?: number;
+    expectedTs?: number;
+    totalTs?: number;
+  } | null>(null);
+
+  useEffect(() => {
+    setTimesheetAllData(getAllTimesheetData());
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === TIMESHEET_STORAGE_KEY) {
+        setTimesheetAllData(getAllTimesheetData());
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
   const toggleProject = (k: string) => setExpandedProjects(prev => ({ ...prev, [k]: !prev[k] }));
 
   const loadData = useCallback(async () => {
@@ -1744,7 +1767,8 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                 }
               });
               const rows = Array.from(map.values()).sort((x, y) => x.project.localeCompare(y.project));
-              if (rows.length === 0) return null;
+              const personTsMonths = getPersonMonthlyTimesheet(activePerson.name, timesheetAllData);
+              if (rows.length === 0 && personTsMonths.length === 0) return null;
               const maxJo = Math.max(1, ...rows.flatMap(r => [r.plan, r.real]));
               return (
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
@@ -1756,99 +1780,196 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
                       <span className="flex items-center gap-1"><i className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: '#fbbf24' }} /> Release</span>
                     </div>
                   </div>
-                  <div className="space-y-3">
-                    {rows.map(r => {
-                      const ps = scorePerson(activePerson.name, activePerson.biro, r.cards);
-                      const eff = r.plan > 0 && r.real > 0 ? Math.min((r.plan / r.real) * 100, CAP_EFFICIENCY) : null;
-                      const relPct = r.total ? (r.released / r.total) * 100 : 0;
-                      return (
-                        <div key={r.project} className="space-y-2">
-                        <div onClick={() => toggleProject(r.project)}
-                          className="grid grid-cols-12 gap-3 items-center text-xs cursor-pointer hover:bg-slate-950/60 rounded-lg p-1.5 -m-1.5 transition">
-                          <div className="col-span-12 sm:col-span-2 font-mono font-bold text-emerald-400 flex items-center gap-1">
-                            <ChevronRight className={`w-3.5 h-3.5 text-slate-500 transition-transform ${expandedProjects[r.project] ? 'rotate-90 text-blue-400' : ''}`} />
-                            {r.project}
-                            <span className="text-[10px] font-normal text-slate-500">({r.total})</span>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-slate-950 ml-1" style={{ background: getCategory(ps.kpi).color }}>
-                              KPI {fmt(ps.kpi, 0)}
-                            </span>
-                          </div>
-                          <div className="col-span-12 sm:col-span-6 space-y-1">
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-2.5 rounded-full" style={{ width: `${(r.plan / maxJo) * 100}%`, background: '#a78bfa' }} />
+                  {rows.length > 0 ? (
+                    <div className="space-y-3">
+                      {rows.map(r => {
+                        const ps = scorePerson(activePerson.name, activePerson.biro, r.cards);
+                        const eff = r.plan > 0 && r.real > 0 ? Math.min((r.plan / r.real) * 100, CAP_EFFICIENCY) : null;
+                        const relPct = r.total ? (r.released / r.total) * 100 : 0;
+                        return (
+                          <div key={r.project} className="space-y-2">
+                          <div onClick={() => toggleProject(r.project)}
+                            className="grid grid-cols-12 gap-3 items-center text-xs cursor-pointer hover:bg-slate-950/60 rounded-lg p-1.5 -m-1.5 transition">
+                            <div className="col-span-12 sm:col-span-2 font-mono font-bold text-emerald-400 flex items-center gap-1">
+                              <ChevronRight className={`w-3.5 h-3.5 text-slate-500 transition-transform ${expandedProjects[r.project] ? 'rotate-90 text-blue-400' : ''}`} />
+                              {r.project}
+                              <span className="text-[10px] font-normal text-slate-500">({r.total})</span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-slate-950 ml-1" style={{ background: getCategory(ps.kpi).color }}>
+                                KPI {fmt(ps.kpi, 0)}
+                              </span>
+                            </div>
+                            <div className="col-span-12 sm:col-span-6 space-y-1">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div className="h-2.5 rounded-full" style={{ width: `${(r.plan / maxJo) * 100}%`, background: '#a78bfa' }} />
+                                </div>
+                                <span className="w-14 text-right font-mono text-violet-300">{r.plan ? Math.round(r.plan * 100) / 100 : '-'}</span>
                               </div>
-                              <span className="w-14 text-right font-mono text-violet-300">{r.plan ? Math.round(r.plan * 100) / 100 : '-'}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div className="flex-1 h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-2.5 rounded-full" style={{ width: `${(r.real / maxJo) * 100}%`, background: '#34d399' }} />
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1 h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                                  <div className="h-2.5 rounded-full" style={{ width: `${(r.real / maxJo) * 100}%`, background: '#34d399' }} />
+                                </div>
+                                <span className="w-14 text-right font-mono text-emerald-400">{r.real ? Math.round(r.real * 100) / 100 : '-'}</span>
                               </div>
-                              <span className="w-14 text-right font-mono text-emerald-400">{r.real ? Math.round(r.real * 100) / 100 : '-'}</span>
+                            </div>
+                            <div className="col-span-6 sm:col-span-1 text-center">
+                              <div className="font-bold text-slate-200">{eff === null ? '—' : `${Math.round(eff)}%`}</div>
+                              <div className="text-[10px] text-slate-500">A</div>
+                            </div>
+                            <div className="col-span-6 sm:col-span-3 space-y-1">
+                              <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-2.5 rounded-full" style={{ width: `${relPct}%`, background: '#fbbf24' }} />
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono">{r.released}/{r.total} release</div>
                             </div>
                           </div>
-                          <div className="col-span-6 sm:col-span-1 text-center">
-                            <div className="font-bold text-slate-200">{eff === null ? '—' : `${Math.round(eff)}%`}</div>
-                            <div className="text-[10px] text-slate-500">A</div>
-                          </div>
-                          <div className="col-span-6 sm:col-span-3 space-y-1">
-                            <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                              <div className="h-2.5 rounded-full" style={{ width: `${relPct}%`, background: '#fbbf24' }} />
-                            </div>
-                            <div className="text-[10px] text-slate-400 font-mono">{r.released}/{r.total} release</div>
-                          </div>
-                        </div>
 
-                        {expandedProjects[r.project] && (
-                          <div className="ml-4 pl-3 border-l border-slate-700 space-y-2">
-                            {(() => {
-                              const maxCard = Math.max(1, ...r.cards.flatMap(c => [c.plannedJo, c.realJo]));
-                              return r.cards.map(c => {
-                                const st = cardStatus(c);
-                                const isDescOnly = !!(c as any).noJobcardDesc;
-                                return (
-                                  <div key={c.id} className={`p-2.5 bg-slate-950 border rounded-lg space-y-1.5 text-xs ${isDescOnly ? 'border-slate-700/50 opacity-75' : 'border-slate-800'}`}>
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div className="text-slate-200">{c.taskName || '-'}</div>
-                                      <div className="flex items-center gap-2 shrink-0">
-                                        {!isDescOnly && <span className="font-mono text-[10px] text-slate-400">Rev {c.rev}</span>}
-                                        <span className={`text-[10px] font-semibold ${st.cls}`}>{st.text}</span>
+                          {expandedProjects[r.project] && (
+                            <div className="ml-4 pl-3 border-l border-slate-700 space-y-2">
+                              {(() => {
+                                const maxCard = Math.max(1, ...r.cards.flatMap(c => [c.plannedJo, c.realJo]));
+                                return r.cards.map(c => {
+                                  const st = cardStatus(c);
+                                  const isDescOnly = !!(c as any).noJobcardDesc;
+                                  return (
+                                    <div key={c.id} className={`p-2.5 bg-slate-950 border rounded-lg space-y-1.5 text-xs ${isDescOnly ? 'border-slate-700/50 opacity-75' : 'border-slate-800'}`}>
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="text-slate-200">{c.taskName || '-'}</div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          {!isDescOnly && <span className="font-mono text-[10px] text-slate-400">Rev {c.rev}</span>}
+                                          <span className={`text-[10px] font-semibold ${st.cls}`}>{st.text}</span>
+                                        </div>
                                       </div>
-                                    </div>
-                                    {!isDescOnly && (
-                                      <>
-                                        <div className="flex items-center gap-2">
-                                          <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
-                                            <div className="h-2 rounded-full" style={{ width: `${(c.plannedJo / maxCard) * 100}%`, background: '#a78bfa' }} />
+                                      {!isDescOnly && (
+                                        <>
+                                          <div className="flex items-center gap-2">
+                                            <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                                              <div className="h-2 rounded-full" style={{ width: `${(c.plannedJo / maxCard) * 100}%`, background: '#a78bfa' }} />
+                                            </div>
+                                            <span className="w-12 text-right font-mono text-violet-300">{c.plannedJo || '-'}</span>
                                           </div>
-                                          <span className="w-12 text-right font-mono text-violet-300">{c.plannedJo || '-'}</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
-                                            <div className="h-2 rounded-full" style={{ width: `${(c.realJo / maxCard) * 100}%`, background: '#34d399' }} />
+                                          <div className="flex items-center gap-2">
+                                            <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                                              <div className="h-2 rounded-full" style={{ width: `${(c.realJo / maxCard) * 100}%`, background: '#34d399' }} />
+                                            </div>
+                                            <span className="w-12 text-right font-mono text-emerald-400">{c.realJo ? Math.round(c.realJo * 100) / 100 : '-'}</span>
                                           </div>
-                                          <span className="w-12 text-right font-mono text-emerald-400">{c.realJo ? Math.round(c.realJo * 100) / 100 : '-'}</span>
-                                        </div>
+                                          <div className="text-[10px] text-slate-500 font-mono">
+                                            {c.kodeJc} · Plan Finish {formatDisplayDate(c.endDate)} · Release {formatDisplayDate(c.release)}
+                                          </div>
+                                        </>
+                                      )}
+                                      {isDescOnly && c.realJo > 0 && (
                                         <div className="text-[10px] text-slate-500 font-mono">
-                                          {c.kodeJc} · Plan Finish {formatDisplayDate(c.endDate)} · Release {formatDisplayDate(c.release)}
+                                          Real JO: {Math.round(c.realJo * 100) / 100} jam
+                                          {c.release && ` · Drawing release: ${formatDisplayDate(c.release)}`}
                                         </div>
-                                      </>
-                                    )}
-                                    {isDescOnly && c.realJo > 0 && (
-                                      <div className="text-[10px] text-slate-500 font-mono">
-                                        Real JO: {Math.round(c.realJo * 100) / 100} jam
-                                        {c.release && ` · Drawing release: ${formatDisplayDate(c.release)}`}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              });
-                            })()}
+                                      )}
+                                    </div>
+                                  );
+                                });
+                              })()}
+                            </div>
+                          )}
                           </div>
-                        )}
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 italic py-1">Belum ada penugasan proyek pada periode terpilih.</div>
+                  )}
+
+                  {/* Section: Accomplishment Timesheet Bulanan */}
+                  <div className="pt-4 border-t border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                          Accomplishment Timesheet Bulanan
                         </div>
-                      );
-                    })}
+                        <div className="text-[10px] text-slate-400">
+                          Klik nilai <span className="text-slate-200 font-semibold">%</span> untuk melihat detail jam/hari kerja
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-sky-400 inline-block" /> Tidak Overtime</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-400 inline-block" /> Overtime</span>
+                      </div>
+                    </div>
+
+                    {personTsMonths.length === 0 ? (
+                      <div className="text-xs text-slate-500 italic py-1">
+                        Belum ada data timesheet bulanan untuk {activePerson.name}. Gunakan tombol <b>Folder Timesheet</b> di Data Master untuk mengimpor folder bulan.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                        {personTsMonths.map(pm => {
+                          const reg = pm.regular;
+                          const ot = pm.overtime;
+                          return (
+                            <div key={pm.month} className="bg-slate-950 border border-slate-800/80 rounded-xl p-2.5 space-y-2">
+                              <div className="text-xs font-bold text-slate-200 border-b border-slate-800 pb-1 flex items-center justify-between">
+                                <span>{pm.month}</span>
+                              </div>
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="text-slate-400 text-[10px]">Reguler:</span>
+                                  {reg ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setTimesheetDetailModal({
+                                        month: pm.month,
+                                        personName: activePerson.name,
+                                        kind: 'regular',
+                                        accomplishment: reg.accomplishment,
+                                        expectedTs: reg.expectedTotalTimesheet,
+                                        totalTs: reg.totalOfTimesheet,
+                                      })}
+                                      className={`px-1.5 py-0.5 rounded border font-mono font-semibold text-[11px] cursor-pointer transition ${
+                                        reg.accomplishment >= 95 ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25' :
+                                        reg.accomplishment >= 75 ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25' :
+                                        'bg-rose-500/15 text-rose-300 border-rose-500/30 hover:bg-rose-500/25'
+                                      }`}
+                                      title="Klik untuk melihat Expected Total of Timesheet & Total of Timesheet"
+                                    >
+                                      {Math.round(reg.accomplishment * 10) / 10}%
+                                    </button>
+                                  ) : (
+                                    <span className="text-slate-600 font-mono text-[10px]">-</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="text-slate-400 text-[10px]">Overtime:</span>
+                                  {ot ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setTimesheetDetailModal({
+                                        month: pm.month,
+                                        personName: activePerson.name,
+                                        kind: 'overtime',
+                                        accomplishment: ot.accomplishment,
+                                        otHours: ot.totalOvertimeHours,
+                                        tsHours: ot.totalTimesheetHours,
+                                      })}
+                                      className={`px-1.5 py-0.5 rounded border font-mono font-semibold text-[11px] cursor-pointer transition ${
+                                        ot.accomplishment >= 95 ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25' :
+                                        ot.accomplishment >= 75 ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25' :
+                                        'bg-rose-500/15 text-rose-300 border-rose-500/30 hover:bg-rose-500/25'
+                                      }`}
+                                      title="Klik untuk melihat Total Overtime Hours & Total Timesheet Hours"
+                                    >
+                                      {Math.round(ot.accomplishment * 10) / 10}%
+                                    </button>
+                                  ) : (
+                                    <span className="text-slate-600 font-mono text-[10px]">-</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -1905,6 +2026,93 @@ export default function KpiDashboardPage({ user, onLogout, onBack }: KpiDashboar
           </div>
         )}
       </main>
+
+      {/* Modal Detail Saat Nilai Accomplishment (%) Dikelik */}
+      {timesheetDetailModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setTimesheetDetailModal(null)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded border ${
+                      timesheetDetailModal.kind === 'overtime'
+                        ? 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                        : 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+                    }`}
+                  >
+                    {timesheetDetailModal.kind === 'overtime' ? 'Overtime' : 'Tidak Overtime (Reguler)'}
+                  </span>
+                  <span className="text-xs font-semibold text-blue-400">Bulan {timesheetDetailModal.month}</span>
+                </div>
+                <h3 className="text-sm font-bold text-white mt-1.5">{timesheetDetailModal.personName}</h3>
+              </div>
+              <button
+                onClick={() => setTimesheetDetailModal(null)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2.5">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="text-xs text-slate-400">Accomplishment (%)</span>
+                <span className="text-base font-bold font-mono text-emerald-400">
+                  {Math.round(timesheetDetailModal.accomplishment * 10) / 10}%
+                </span>
+              </div>
+
+              {timesheetDetailModal.kind === 'overtime' ? (
+                <>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300">Total Overtime Hours</span>
+                    <span className="font-bold font-mono text-white">
+                      {(Math.round((timesheetDetailModal.otHours ?? 0) * 100) / 100).toLocaleString('id-ID')} jam
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300">Total Timesheet Hours</span>
+                    <span className="font-bold font-mono text-purple-300">
+                      {(Math.round((timesheetDetailModal.tsHours ?? 0) * 100) / 100).toLocaleString('id-ID')} jam
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300">Expected Total of Timesheet</span>
+                    <span className="font-bold font-mono text-white">
+                      {(Math.round((timesheetDetailModal.expectedTs ?? 0) * 100) / 100).toLocaleString('id-ID')} hari
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300">Total of Timesheet</span>
+                    <span className="font-bold font-mono text-sky-300">
+                      {(Math.round((timesheetDetailModal.totalTs ?? 0) * 100) / 100).toLocaleString('id-ID')} hari
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={() => setTimesheetDetailModal(null)}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
