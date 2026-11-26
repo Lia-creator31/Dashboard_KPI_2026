@@ -3744,149 +3744,178 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             {subconPageMode === 'form' && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                  <form onSubmit={handleSubmitForm} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                      <div className="md:col-span-2">
-                        <label className="block text-slate-400 mb-1">Nama Drafter / Personel (Outsourcing)</label>
-                        <SearchableSelect
-                          options={activeSubconMembers.map((p, idx) => {
-                            const autoJo = generateAutoSubconJo(subconSelectedBiro || '', p.nama, activeSubconMembers, currentActiveBiroTasks);
-                            return {
-                              value: p.nama,
-                              label: `${String(idx + 1).padStart(2, '0')}. ${p.nama} (${p.jabatan}) — JO: ${autoJo}`,
-                            };
-                          })}
-                          value={formData.nama}
-                          onChange={(val) => {
-                            const autoJo = generateAutoSubconJo(subconSelectedBiro || '', val, activeSubconMembers, currentActiveBiroTasks);
-                            setFormData(prev => ({ ...prev, nama: val, jo: autoJo }));
-                          }}
-                          placeholder="Ketik nama personel outsourcing..."
-                          required
-                        />
+                  <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
+                    {/* 1. Informasi Personel & Proyek */}
+                    <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
+                      <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
+                        <Users className="w-3.5 h-3.5 text-blue-400" />
+                        <span>1. Informasi Drafter (Outsourcing) &amp; Proyek</span>
                       </div>
-                      <div>
-                        <label className="block text-slate-400 mb-1">Type</label>
-                        <select
-                          value={formData.type || 'Drawing'}
-                          onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                        >
-                          {TASK_TYPE_OPTIONS.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                        <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
-                          placeholder="Ketik kode proyek..." required />
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Nomor JO (Otomatis)</label>
-                          {subconSelectedBiro && formData.nama && (() => {
-                            const { deptOrder, biroOrder } = getDeptAndBiroOrder(subconSelectedBiro);
-                            const pIdx = activeSubconMembers.findIndex(p => cleanText(p.nama) === cleanText(formData.nama));
-                            const pNum = String((pIdx >= 0 ? pIdx : 0) + 1).padStart(2, '0');
-                            const curJo = formData.jo || generateAutoSubconJo(subconSelectedBiro, formData.nama, activeSubconMembers, currentActiveBiroTasks);
-                            const joSeq = curJo.slice(-2) || '01';
-                            return (
-                              <span className="text-[10px] font-mono text-amber-400">
-                                Dept {deptOrder} • Biro {biroOrder} • Urutan #{pNum} • JO #{joSeq}
-                              </span>
-                            );
-                          })()}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="md:col-span-2">
+                          <label className="block text-slate-400 mb-1">Nama Drafter / Personel (Outsourcing) <span className="text-rose-400">*</span></label>
+                          <SearchableSelect
+                            options={activeSubconMembers.map((p, idx) => {
+                              const autoJo = generateAutoSubconJo(subconSelectedBiro || '', p.nama, activeSubconMembers, currentActiveBiroTasks);
+                              return {
+                                value: p.nama,
+                                label: `${String(idx + 1).padStart(2, '0')}. ${p.nama} (${p.jabatan}) — JO: ${autoJo}`,
+                              };
+                            })}
+                            value={formData.nama}
+                            onChange={(val) => {
+                              const autoJo = generateAutoSubconJo(subconSelectedBiro || '', val, activeSubconMembers, currentActiveBiroTasks);
+                              setFormData(prev => ({ ...prev, nama: val, jo: autoJo }));
+                            }}
+                            placeholder="Ketik nama personel outsourcing..."
+                            required
+                          />
                         </div>
-                        <input
-                          type="text"
-                          readOnly
-                          value={formData.jo || (formData.nama && subconSelectedBiro ? generateAutoSubconJo(subconSelectedBiro, formData.nama, activeSubconMembers, currentActiveBiroTasks) : '')}
-                          placeholder="Otomatis terisi saat pilih nama personel..."
-                          required
-                          className="w-full px-3 py-2 bg-slate-950/80 border border-amber-500/40 rounded-lg text-amber-300 font-mono font-bold cursor-not-allowed"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Drawing Number</label>
-                          {isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Drive...</span>}
+                        <div>
+                          <label className="block text-slate-400 mb-1">Kode Proyek <span className="text-rose-400">*</span></label>
+                          <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
+                            placeholder="Ketik kode proyek..." required />
                         </div>
-                        <SearchableSelect
-                          options={formDrawingOpts.numberOptions}
-                          value={formData.drawingNumber}
-                          onChange={handleDrawingNumberChange}
-                          allowCustom
-                          customAddLabel="+ Tambah Drawing Number"
-                          onAddCustom={(val) => setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, val))}
-                          placeholder="Ketik / pilih nomor gambar (misal: E25291.01100)..."
-                        />
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Drawing Name</label>
-                          {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari Drawing Control</span>}
+                        <div>
+                          <label className="block text-slate-400 mb-1">Type Pekerjaan <span className="text-rose-400">*</span></label>
+                          <select
+                            value={formData.type || 'Drawing'}
+                            onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                          >
+                            {TASK_TYPE_OPTIONS.map(opt => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
                         </div>
-                        {isDrawingNumberExisting ? (
+                      </div>
+                    </div>
+
+                    {/* 2. Detail Gambar & Deskripsi Tugas */}
+                    <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
+                      <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>2. Detail Gambar &amp; Deskripsi Tugas</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-400">Drawing Number</label>
+                            {isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Drive...</span>}
+                          </div>
+                          <SearchableSelect
+                            options={formDrawingOpts.numberOptions}
+                            value={formData.drawingNumber}
+                            onChange={handleDrawingNumberChange}
+                            allowCustom
+                            customAddLabel="+ Tambah Drawing Number"
+                            onAddCustom={(val) => setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, val))}
+                            placeholder="Ketik / pilih nomor gambar (misal: E25291.01100)..."
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-400">Drawing Name</label>
+                            {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari Drawing Control</span>}
+                          </div>
+                          {isDrawingNumberExisting ? (
+                            <input
+                              type="text"
+                              readOnly
+                              value={formData.drawingName}
+                              title="Otomatis terkunci dari data Drawing Control"
+                              className="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-400 cursor-not-allowed font-medium"
+                            />
+                          ) : (
+                            <SearchableSelect
+                              options={formDrawingOpts.nameOptions}
+                              value={formData.drawingName}
+                              onChange={handleDrawingNameChange}
+                              allowCustom
+                              customAddLabel="+ Tambah Drawing Name"
+                              onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
+                              placeholder="Ketik / pilih nama gambar..."
+                              required={!formData.drawingNumber}
+                            />
+                          )}
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-400">Nomor JO (Otomatis)</label>
+                            {subconSelectedBiro && formData.nama && (() => {
+                              const { deptOrder, biroOrder } = getDeptAndBiroOrder(subconSelectedBiro);
+                              const pIdx = activeSubconMembers.findIndex(p => cleanText(p.nama) === cleanText(formData.nama));
+                              const pNum = String((pIdx >= 0 ? pIdx : 0) + 1).padStart(2, '0');
+                              const curJo = formData.jo || generateAutoSubconJo(subconSelectedBiro, formData.nama, activeSubconMembers, currentActiveBiroTasks);
+                              const joSeq = curJo.slice(-2) || '01';
+                              return (
+                                <span className="text-[10px] font-mono text-amber-400">
+                                  Dept {deptOrder} • Biro {biroOrder} • Urutan #{pNum} • JO #{joSeq}
+                                </span>
+                              );
+                            })()}
+                          </div>
                           <input
                             type="text"
                             readOnly
-                            value={formData.drawingName}
-                            title="Otomatis terkunci dari data Drawing Control"
-                            className="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-400 cursor-not-allowed font-medium"
+                            value={formData.jo || (formData.nama && subconSelectedBiro ? generateAutoSubconJo(subconSelectedBiro, formData.nama, activeSubconMembers, currentActiveBiroTasks) : '')}
+                            placeholder="Otomatis terisi saat pilih nama personel..."
+                            required
+                            className="w-full px-3 py-2 bg-slate-950/80 border border-amber-500/40 rounded-lg text-amber-300 font-mono font-bold cursor-not-allowed"
                           />
-                        ) : (
-                          <SearchableSelect
-                            options={formDrawingOpts.nameOptions}
-                            value={formData.drawingName}
-                            onChange={handleDrawingNameChange}
-                            allowCustom
-                            customAddLabel="+ Tambah Drawing Name"
-                            onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
-                            placeholder="Ketik / pilih nama gambar..."
-                            required={!formData.drawingNumber}
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-400">Deskripsi Tugas <span className="text-rose-400">*</span></label>
+                            <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
+                          </div>
+                          <input
+                            type="text"
+                            value={formData.taskName}
+                            onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                            placeholder="Ketik deskripsi tugas / pekerjaan..."
+                            required
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
                           />
-                        )}
-                      </div>
-                      <div className="col-span-1 md:col-span-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Deskripsi</label>
-                          <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
                         </div>
-                        <input
-                          type="text"
-                          value={formData.taskName}
-                          onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                          placeholder="Ketik deskripsi tugas / pekerjaan..."
-                          required
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
-                        />
                       </div>
-                      <div>
-                        <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
-                        <input
-                          type="date"
-                          value={formData.startDate}
-                          onChange={(e) => {
-                            const newStart = e.target.value;
-                            const calcFinish = calculatePlanFinish(newStart, formData.jo);
-                            setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
-                          }}
-                          required
-                          style={{ colorScheme: 'dark' }}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                        />
+                    </div>
+
+                    {/* 3. Jadwal Pelaksanaan */}
+                    <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
+                      <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
+                        <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>3. Jadwal Pelaksanaan</span>
                       </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Tanggal Selesai</label>
-                          {formData.jo && formData.startDate && (
-                            <span className="text-[10px] text-cyan-400 font-mono">Otomatis (1 hari = 8 jam) · Bisa diedit</span>
-                          )}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-slate-400 mb-1">Tanggal Mulai <span className="text-rose-400">*</span></label>
+                          <input
+                            type="date"
+                            value={formData.startDate}
+                            onChange={(e) => {
+                              const newStart = e.target.value;
+                              const calcFinish = calculatePlanFinish(newStart, formData.jo);
+                              setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
+                            }}
+                            required
+                            style={{ colorScheme: 'dark' }}
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                          />
                         </div>
-                        <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                          required style={{ colorScheme: 'dark' }}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-400">Tanggal Selesai <span className="text-rose-400">*</span></label>
+                            {formData.jo && formData.startDate && (
+                              <span className="text-[10px] text-cyan-400 font-mono">Otomatis (1 hari = 8 jam) · Bisa diedit</span>
+                            )}
+                          </div>
+                          <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                            required style={{ colorScheme: 'dark' }}
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                        </div>
                       </div>
                     </div>
                     {isSubmittingTask && (
@@ -4375,172 +4404,189 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             {formPageMode === 'form' && (
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                 <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2">
-                      <label className="block text-slate-400 mb-1">Nama Personel (Organik)</label>
-                      <SearchableSelect options={currentBiroMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.status})` }))}
-                        value={formData.nama} onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
-                        placeholder="Ketik nama personel organik..." required />
+                  {/* 1. Informasi Personel & Proyek */}
+                  <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
+                    <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
+                      <Users className="w-3.5 h-3.5 text-blue-400" />
+                      <span>1. Informasi Personel &amp; Proyek</span>
                     </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Type</label>
-                      <select
-                        value={formData.type || 'Drawing'}
-                        onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                      >
-                        {TASK_TYPE_OPTIONS.map(opt => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                      <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
-                        placeholder="Ketik kode proyek (contoh: M000313)..." required />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-slate-400">Plan JO</label>
-                        {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari Drawing Control</span>}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="md:col-span-2">
+                        <label className="block text-slate-400 mb-1">Nama Personel (Organik) <span className="text-rose-400">*</span></label>
+                        <SearchableSelect options={currentBiroMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.status})` }))}
+                          value={formData.nama} onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
+                          placeholder="Ketik nama personel organik..." required />
                       </div>
-                      <input type="text" inputMode="decimal" value={formData.jo}
-                        onChange={(e) => {
-                          const newJo = e.target.value.replace(/[^0-9.]/g, '');
-                          const calcFinish = calculatePlanFinish(formData.startDate, newJo);
-                          setFormData(prev => ({ ...prev, jo: newJo, endDate: calcFinish || prev.endDate }));
-                        }}
-                        placeholder="Contoh: 300426" required
-                        readOnly={isDrawingNumberExisting}
-                        className={`w-full px-3 py-2 rounded-lg font-mono ${
-                          isDrawingNumberExisting
-                            ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
-                            : 'bg-slate-950 border border-slate-700 text-white'
-                        }`} />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-slate-400">Drawing Number</label>
-                        {isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Drive...</span>}
+                      <div>
+                        <label className="block text-slate-400 mb-1">Kode Proyek <span className="text-rose-400">*</span></label>
+                        <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
+                          placeholder="Ketik kode proyek (contoh: M000313)..." required />
                       </div>
-                      <SearchableSelect
-                        options={formDrawingOpts.numberOptions}
-                        value={formData.drawingNumber}
-                        onChange={handleDrawingNumberChange}
-                        allowCustom
-                        customAddLabel="+ Tambah Drawing Number"
-                        onAddCustom={(val) => setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, val))}
-                        placeholder="Ketik / pilih no dwg (misal: E25291.01100)..."
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-slate-400">Drawing Name</label>
-                        {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari Drawing Control</span>}
+                      <div>
+                        <label className="block text-slate-400 mb-1">Type Pekerjaan <span className="text-rose-400">*</span></label>
+                        <select
+                          value={formData.type || 'Drawing'}
+                          onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                        >
+                          {TASK_TYPE_OPTIONS.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
                       </div>
-                      {isDrawingNumberExisting ? (
-                        <input
-                          type="text"
-                          readOnly
-                          value={formData.drawingName}
-                          title="Otomatis terkunci dari data Drawing Control"
-                          className="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-400 cursor-not-allowed font-medium"
-                        />
-                      ) : (
-                        <SearchableSelect
-                          options={formDrawingOpts.nameOptions}
-                          value={formData.drawingName}
-                          onChange={handleDrawingNameChange}
-                          allowCustom
-                          customAddLabel="+ Tambah Drawing Name"
-                          onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
-                          placeholder="Ketik / pilih nama gambar (misal: Shaft Protection)..."
-                          required={!formData.drawingNumber}
-                        />
-                      )}
-                    </div>
-                    <div className="col-span-1 md:col-span-2">
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-slate-400">Deskripsi</label>
-                        <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
-                      </div>
-                      <input
-                        type="text"
-                        value={formData.taskName}
-                        onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                        placeholder="Ketik deskripsi tugas / pekerjaan..."
-                        required
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-slate-400">Rev (Revisi)</label>
-                        {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari kolom rev</span>}
-                      </div>
-                      <input type="text" value={formData.rev}
-                        onChange={(e) => {
-                          const newRev = e.target.value;
-                          const cleanProj = cleanText(formData.kodeProyek || '');
-                          const rows = drawingControlMap[cleanProj] || [];
-                          let autoRel = '';
-                          const exactMatch = rows.find(r => {
-                            const cFull = cleanText(r.fullDeskripsi); const cName = cleanText(r.drawingName);
-                            const isRevMatch = String(r.rev || '0').trim() === String(newRev).trim();
-                            const isNameMatch = cFull === cleanText(formData.taskName) || (cName && cleanText(formData.taskName).includes(cName));
-                            return isNameMatch && isRevMatch;
-                          });
-                          if (exactMatch && exactMatch.finishDate) autoRel = parseToStandardDate(exactMatch.finishDate);
-                          else autoRel = '';
-                          setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
-                        }}
-                        readOnly={isDrawingNumberExisting}
-                        placeholder="0"
-                        className={`w-full px-3 py-2 rounded-lg font-mono ${
-                          isDrawingNumberExisting
-                            ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
-                            : 'bg-slate-950 border border-slate-700 text-white'
-                        }`} />
-                    </div>
-                    <div className="hidden">
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-slate-400">Release (Tanggal-Bulan-Tahun)</label>
-                        <div className="flex items-center gap-1.5">
-                          {formData.release && <span className="text-[10px] text-cyan-300 font-mono font-semibold">{formatDisplayDate(formData.release)}</span>}
-                          <button type="button" onClick={() => handleDeskripsiChange(formData.taskName)}
-                            className="px-1.5 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-[10px] flex items-center gap-1 cursor-pointer" title="Tarik ulang dari Link Drive">
-                            <Sparkles className="w-2.5 h-2.5" /> Dari Drive
-                          </button>
-                        </div>
-                      </div>
-                      <input type="date" value={formData.release} onChange={(e) => setFormData(prev => ({ ...prev, release: e.target.value }))}
-                        style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
-                    </div>
-                    <div>
-                      <label className="block text-slate-400 mb-1">Plan Start</label>
-                      <input type="date" value={formData.startDate}
-                        onChange={(e) => {
-                          const newStart = e.target.value;
-                          const calcFinish = calculatePlanFinish(newStart, formData.jo);
-                          setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
-                        }}
-                        required style={{ colorScheme: 'dark' }}
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-slate-400">Plan Finish</label>
-                        {formData.jo && formData.startDate && (
-                          <span className="text-[10px] text-cyan-400 font-mono">Otomatis (Plan JO ÷ 8 jam) · Bisa diedit</span>
-                        )}
-                      </div>
-                      <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                        required style={{ colorScheme: 'dark' }}
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
                     </div>
                   </div>
+
+                  {/* 2. Detail Gambar & Deskripsi */}
+                  <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
+                    <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>2. Detail Gambar &amp; Deskripsi Tugas</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Drawing Number</label>
+                          {isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Drive...</span>}
+                        </div>
+                        <SearchableSelect
+                          options={formDrawingOpts.numberOptions}
+                          value={formData.drawingNumber}
+                          onChange={handleDrawingNumberChange}
+                          allowCustom
+                          customAddLabel="+ Tambah Drawing Number"
+                          onAddCustom={(val) => setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, val))}
+                          placeholder="Ketik / pilih no dwg (misal: E25291.01100)..."
+                        />
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Drawing Name</label>
+                          {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari Drawing Control</span>}
+                        </div>
+                        {isDrawingNumberExisting ? (
+                          <input
+                            type="text"
+                            readOnly
+                            value={formData.drawingName}
+                            title="Otomatis terkunci dari data Drawing Control"
+                            className="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-400 cursor-not-allowed font-medium"
+                          />
+                        ) : (
+                          <SearchableSelect
+                            options={formDrawingOpts.nameOptions}
+                            value={formData.drawingName}
+                            onChange={handleDrawingNameChange}
+                            allowCustom
+                            customAddLabel="+ Tambah Drawing Name"
+                            onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
+                            placeholder="Ketik / pilih nama gambar (misal: Shaft Protection)..."
+                            required={!formData.drawingNumber}
+                          />
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Rev (Revisi)</label>
+                          {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari kolom rev</span>}
+                        </div>
+                        <input type="text" value={formData.rev}
+                          onChange={(e) => {
+                            const newRev = e.target.value;
+                            const cleanProj = cleanText(formData.kodeProyek || '');
+                            const rows = drawingControlMap[cleanProj] || [];
+                            let autoRel = '';
+                            const exactMatch = rows.find(r => {
+                              const cFull = cleanText(r.fullDeskripsi); const cName = cleanText(r.drawingName);
+                              const isRevMatch = String(r.rev || '0').trim() === String(newRev).trim();
+                              const isNameMatch = cFull === cleanText(formData.taskName) || (cName && cleanText(formData.taskName).includes(cName));
+                              return isNameMatch && isRevMatch;
+                            });
+                            if (exactMatch && exactMatch.finishDate) autoRel = parseToStandardDate(exactMatch.finishDate);
+                            else autoRel = '';
+                            setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
+                          }}
+                          readOnly={isDrawingNumberExisting}
+                          placeholder="0"
+                          className={`w-full px-3 py-2 rounded-lg font-mono ${
+                            isDrawingNumberExisting
+                              ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
+                              : 'bg-slate-950 border border-slate-700 text-white'
+                          }`} />
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Plan JO (Jam Kerja) <span className="text-rose-400">*</span></label>
+                          {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari Drawing Control</span>}
+                        </div>
+                        <input type="text" inputMode="decimal" value={formData.jo}
+                          onChange={(e) => {
+                            const newJo = e.target.value.replace(/[^0-9.]/g, '');
+                            const calcFinish = calculatePlanFinish(formData.startDate, newJo);
+                            setFormData(prev => ({ ...prev, jo: newJo, endDate: calcFinish || prev.endDate }));
+                          }}
+                          placeholder="Contoh: 300426" required
+                          readOnly={isDrawingNumberExisting}
+                          className={`w-full px-3 py-2 rounded-lg font-mono ${
+                            isDrawingNumberExisting
+                              ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
+                              : 'bg-slate-950 border border-slate-700 text-white'
+                          }`} />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Deskripsi Tugas <span className="text-rose-400">*</span></label>
+                          <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
+                        </div>
+                        <input
+                          type="text"
+                          value={formData.taskName}
+                          onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                          placeholder="Ketik deskripsi tugas / pekerjaan..."
+                          required
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Jadwal Pelaksanaan */}
+                  <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
+                    <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
+                      <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>3. Jadwal Pelaksanaan</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-slate-400 mb-1">Plan Start <span className="text-rose-400">*</span></label>
+                        <input type="date" value={formData.startDate}
+                          onChange={(e) => {
+                            const newStart = e.target.value;
+                            const calcFinish = calculatePlanFinish(newStart, formData.jo);
+                            setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
+                          }}
+                          required style={{ colorScheme: 'dark' }}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Plan Finish <span className="text-rose-400">*</span></label>
+                          {formData.jo && formData.startDate && (
+                            <span className="text-[10px] text-cyan-400 font-mono">Otomatis (Plan JO ÷ 8 jam) · Bisa diedit</span>
+                          )}
+                        </div>
+                        <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                          required style={{ colorScheme: 'dark' }}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="flex justify-end pt-2">
-                    <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer">
+                    <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer transition shadow-md">
                       Simpan Tugas
                     </button>
                   </div>
@@ -4574,9 +4620,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </button>
             </div>
             <form onSubmit={handleSaveEdit} className="p-4 space-y-3.5 text-xs">
+              {/* Baris 1: Type & Proyek */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Type</label>
+                  <label className="block text-slate-400 mb-1">Type Pekerjaan <span className="text-rose-400">*</span></label>
                   <select
                     value={editFormData.type || 'Drawing'}
                     onChange={(e) => setEditFormData(prev => ({ ...prev, type: e.target.value }))}
@@ -4588,7 +4635,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Kode Proyek</label>
+                  <label className="block text-slate-400 mb-1">Kode Proyek <span className="text-rose-400">*</span></label>
                   <SearchableSelect
                     options={projectOptions}
                     value={editFormData.project}
@@ -4601,54 +4648,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-400">
-                      {accessMode === 'organik' ? 'Plan JO' : 'Nomor JO'}
-                    </label>
-                    {isEditDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci</span>}
-                  </div>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={editFormData.jo}
-                    onChange={(e) => {
-                      const newJo = e.target.value.replace(/[^0-9.]/g, '');
-                      const calcFinish = calculatePlanFinish(editFormData.startDate, newJo);
-                      setEditFormData(prev => ({ ...prev, jo: newJo, endDate: calcFinish || prev.endDate }));
-                    }}
-                    readOnly={isEditDrawingNumberExisting}
-                    required={accessMode !== 'organik'}
-                    placeholder={accessMode === 'organik' ? 'Otomatis dari Hour Planner / ketik manual' : ''}
-                    className={`w-full px-3 py-2 rounded-lg font-mono ${
-                      isEditDrawingNumberExisting
-                        ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
-                        : 'bg-slate-950 border border-slate-700 text-white'
-                    }`}
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Jobcard' : 'Kode WO'}
-                  </label>
-                  <input
-                    type="text"
-                    value={editFormData.kodeJc}
-                    onChange={(e) => {
-                      const val = e.target.value.toUpperCase();
-                      const hp = accessMode === 'organik' ? hourPlannerMap[cleanText(val)] : undefined;
-                      setEditFormData(prev => ({
-                        ...prev,
-                        kodeJc: val,
-                        jo: ((!prev.jo || prev.jo === '0' || prev.jo === '-') && hp) ? String(hp.hour) : prev.jo,
-                      }));
-                    }}
-                    placeholder={accessMode === 'organik' ? 'JC...' : 'WO...'}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono uppercase"
-                  />
-                </div>
-              </div>
+
+              {/* Baris 2: Drawing Number & Drawing Name */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">Drawing Number</label>
@@ -4769,22 +4770,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   )}
                 </div>
               </div>
-              <div className="col-span-1 sm:col-span-2">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-slate-400">Deskripsi</label>
-                  <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
-                </div>
-                <input
-                  type="text"
-                  value={editFormData.taskName}
-                  onChange={(e) => setEditFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                  placeholder="Ketik deskripsi tugas / pekerjaan..."
-                  required
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              {accessMode === 'organik' && (
-                <div className="grid grid-cols-2 gap-3">
+
+              {/* Baris 3: Rev, Plan JO, dan Jobcard */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {accessMode === 'organik' && (
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-slate-400">Rev (Revisi)</label>
@@ -4823,22 +4812,76 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       }`}
                     />
                   </div>
-                  <div className="hidden">
-                    <label className="block text-slate-400 mb-1">Release</label>
-                    <input
-                      type="date"
-                      value={editFormData.release}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, release: e.target.value }))}
-                      style={{ colorScheme: 'dark' }}
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                    />
+                )}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-400">
+                      {accessMode === 'organik' ? 'Plan JO' : 'Nomor JO'}
+                    </label>
+                    {isEditDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci</span>}
                   </div>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={editFormData.jo}
+                    onChange={(e) => {
+                      const newJo = e.target.value.replace(/[^0-9.]/g, '');
+                      const calcFinish = calculatePlanFinish(editFormData.startDate, newJo);
+                      setEditFormData(prev => ({ ...prev, jo: newJo, endDate: calcFinish || prev.endDate }));
+                    }}
+                    readOnly={isEditDrawingNumberExisting}
+                    required={accessMode !== 'organik'}
+                    placeholder={accessMode === 'organik' ? 'Contoh: 300426' : ''}
+                    className={`w-full px-3 py-2 rounded-lg font-mono ${
+                      isEditDrawingNumberExisting
+                        ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
+                        : 'bg-slate-950 border border-slate-700 text-white'
+                    }`}
+                  />
                 </div>
-              )}
+                <div className={accessMode === 'organik' ? '' : 'col-span-1'}>
+                  <label className="block text-slate-400 mb-1">
+                    {accessMode === 'organik' ? 'Jobcard' : 'Kode WO'}
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.kodeJc}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase();
+                      const hp = accessMode === 'organik' ? hourPlannerMap[cleanText(val)] : undefined;
+                      setEditFormData(prev => ({
+                        ...prev,
+                        kodeJc: val,
+                        jo: ((!prev.jo || prev.jo === '0' || prev.jo === '-') && hp) ? String(hp.hour) : prev.jo,
+                      }));
+                    }}
+                    placeholder={accessMode === 'organik' ? 'JC...' : 'WO...'}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono uppercase"
+                  />
+                </div>
+              </div>
+
+              {/* Baris 4: Deskripsi Tugas (Bebas Diedit) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-400">Deskripsi Tugas <span className="text-rose-400">*</span></label>
+                  <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
+                </div>
+                <input
+                  type="text"
+                  value={editFormData.taskName}
+                  onChange={(e) => setEditFormData(prev => ({ ...prev, taskName: e.target.value }))}
+                  placeholder="Ketik deskripsi tugas / pekerjaan..."
+                  required
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Baris 5: Jadwal Start & Finish */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'}
+                    {accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'} <span className="text-rose-400">*</span>
                   </label>
                   <input
                     type="date"
@@ -4856,7 +4899,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-slate-400">
-                      {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'}
+                      {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'} <span className="text-rose-400">*</span>
                     </label>
                     {editFormData.jo && editFormData.startDate && (
                       <span className="text-[10px] text-cyan-400 font-mono">Otomatis · Bisa diedit</span>
@@ -4872,17 +4915,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   />
                 </div>
               </div>
+
               <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setEditingTask(null)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer transition"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer transition shadow-md"
                 >
                   Simpan Perubahan
                 </button>
