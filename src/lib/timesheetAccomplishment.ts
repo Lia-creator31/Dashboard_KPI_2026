@@ -1,12 +1,5 @@
 import * as XLSX from 'xlsx';
 
-// Pre-load CSV bawaan dari src/timesheet/<Bulan>/*.csv
-const builtinTimesheetCsv = import.meta.glob('../timesheet/**/*.csv', {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-}) as Record<string, string>;
-
 export const MONTH_ORDER = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
@@ -71,12 +64,15 @@ function parseNum(v: unknown): number {
 }
 
 export function detectMonthName(pathParts: string[]): string | null {
-  const folders = pathParts.length > 1 ? pathParts.slice(0, -1) : pathParts;
+  // Hanya membaca nama FOLDER (bukan nama file), dari folder terdalam ke atas.
+  // Dicocokkan per kata utuh agar "Desain" tidak terbaca "Desember", dsb.
+  const folders = pathParts.length > 1 ? pathParts.slice(0, -1) : [];
   for (let i = folders.length - 1; i >= 0; i--) {
     const raw = folders[i].trim().toLowerCase();
     if (MONTH_ALIASES[raw]) return MONTH_ALIASES[raw];
-    for (const [alias, canonical] of Object.entries(MONTH_ALIASES)) {
-      if (raw.includes(alias)) return canonical;
+    const tokens = raw.split(/[^a-z]+/).filter(Boolean);
+    for (const t of tokens) {
+      if (MONTH_ALIASES[t]) return MONTH_ALIASES[t];
     }
   }
   return null;
@@ -197,29 +193,6 @@ export function parseSheetRows(
   return parsedAny;
 }
 
-let cachedBuiltin: Record<string, MonthTimesheetData> | null = null;
-
-export function getBuiltinTimesheetData(): Record<string, MonthTimesheetData> {
-  if (cachedBuiltin) return cachedBuiltin;
-  const result: Record<string, MonthTimesheetData> = {};
-  Object.entries(builtinTimesheetCsv).forEach(([path, raw]) => {
-    const parts = path.split('/').filter(Boolean);
-    const month = detectMonthName(parts);
-    if (!month) return;
-
-    if (!result[month]) {
-      result[month] = { month, fileCount: 0, regular: {}, overtime: {} };
-    }
-    const wb = XLSX.read(raw, { type: 'string' });
-    const firstSheet = wb.SheetNames[0];
-    if (!firstSheet) return;
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[firstSheet], { header: 1, defval: '', raw: false }) as unknown[][];
-    parseSheetRows(rows, parts[parts.length - 1] || '', result[month]);
-  });
-  cachedBuiltin = result;
-  return result;
-}
-
 export function getStoredUploadedTimesheets(): Record<string, MonthTimesheetData> {
   try {
     const raw = localStorage.getItem(TIMESHEET_STORAGE_KEY);
@@ -229,10 +202,9 @@ export function getStoredUploadedTimesheets(): Record<string, MonthTimesheetData
   }
 }
 
+// Hanya data dari folder yang diinput lewat tombol "Folder Timesheet"
 export function getAllTimesheetData(): Record<string, MonthTimesheetData> {
-  const builtin = getBuiltinTimesheetData();
-  const uploaded = getStoredUploadedTimesheets();
-  return { ...builtin, ...uploaded };
+  return getStoredUploadedTimesheets();
 }
 
 export async function parseUploadedTimesheetFolder(
@@ -278,10 +250,12 @@ export async function parseUploadedTimesheetFolder(
     if (fileParsed) processedFiles += 1;
   }
 
-  const existingUploaded = getStoredUploadedTimesheets();
-  const nextUploaded = { ...existingUploaded, ...parsed };
+  // Folder yang baru diinput MENGGANTIKAN data sebelumnya (bulan tampil persis sesuai isi folder)
+  const nextUploaded = parsed;
   try {
-    localStorage.setItem(TIMESHEET_STORAGE_KEY, JSON.stringify(nextUploaded));
+    if (Object.keys(parsed).length > 0) {
+      localStorage.setItem(TIMESHEET_STORAGE_KEY, JSON.stringify(nextUploaded));
+    }
   } catch (e) {
     console.warn('Failed to persist timesheet to localStorage:', e);
   }
