@@ -3162,12 +3162,26 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     loadAllJobCards();
   };
 
+  const isFormInputTask = (t: TaskItem): boolean => {
+    // Hanya tugas murni hasil isian form oleh para Kabiro (bukan impor massal dari file Excel)
+    // 1. Tugas organik hasil form berstatus 'pending' atau belum memiliki kode Jobcard
+    if (t.status === 'pending' || !t.kodeJc || t.kodeJc.trim() === '' || t.kodeJc === '-') {
+      return true;
+    }
+    // 2. Work Order Subkon/Outsourcing hasil isian form (prefix WO-...)
+    if (SUBCON_WO_PREFIX_RE.test(String(t.kodeJc || '').trim())) {
+      return true;
+    }
+    return false;
+  };
+
   const handleExportFormExcel = (targetBiro?: string | null) => {
     try {
       const allTasksList: TaskItem[] = [];
       Object.entries(manualTasks).forEach(([bName, tasks]) => {
         if (!targetBiro || targetBiro === 'all' || cleanText(bName) === cleanText(targetBiro)) {
-          allTasksList.push(...tasks);
+          const formOnly = tasks.filter(isFormInputTask);
+          allTasksList.push(...formOnly);
         }
       });
 
@@ -3223,16 +3237,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     }
   };
 
-  const allBiroNames = useMemo(() => {
+  const formBiroNames = useMemo(() => {
     const set = new Set<string>();
-    (departmentsData || []).forEach(dept => {
-      (dept.biros || []).forEach(biro => {
-        if (biro.name) set.add(biro.name);
-      });
-    });
     Object.values(manualTasks).forEach(tasks => {
       tasks.forEach(t => {
-        if (t.biroName) set.add(t.biroName);
+        if (isFormInputTask(t) && t.biroName) {
+          set.add(t.biroName);
+        }
       });
     });
     return Array.from(set).sort();
@@ -3244,7 +3255,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       if (rekapFilterBiro !== 'all' && cleanText(bKey) !== cleanText(rekapFilterBiro)) {
         return;
       }
-      list.push(...tasks);
+      const formOnly = tasks.filter(isFormInputTask);
+      list.push(...formOnly);
     });
 
     if (!rekapSearchText.trim()) return list;
@@ -4777,8 +4789,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     onChange={(e) => setRekapFilterBiro(e.target.value)}
                     className="px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500 cursor-pointer max-w-[280px]"
                   >
-                    <option value="all">Semua Biro ({allBiroNames.length})</option>
-                    {allBiroNames.map(b => (
+                    <option value="all">Semua Biro Pengisi Form ({formBiroNames.length})</option>
+                    {formBiroNames.map(b => (
                       <option key={b} value={b}>{b}</option>
                     ))}
                   </select>
