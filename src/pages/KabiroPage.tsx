@@ -7,10 +7,17 @@ import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL
 import KpiDashboardPage from './KpiDashboardPage';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
-  Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, Search, TrendingUp
+  Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, Search, TrendingUp,
+  Users, FileSpreadsheet
 } from 'lucide-react';
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
+  query: '?url',
+  import: 'default',
+  eager: true
+}) as Record<string, string>;
+
+const parentExcelGlobUrls = import.meta.glob('../*.xlsx', {
   query: '?url',
   import: 'default',
   eager: true
@@ -622,7 +629,8 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
         let im4Url = '';
         let realisasiUrl = '';
 
-        Object.entries(excelGlobUrls).forEach(([path, url]) => {
+        const allGlobUrls = { ...excelGlobUrls, ...parentExcelGlobUrls };
+        Object.entries(allGlobUrls).forEach(([path, url]) => {
           const pLower = path.toLowerCase();
           if (pLower.includes('jobcard') && !pLower.includes('realisasi')) jcUrl = url;
           else if (pLower.includes('im4') || pLower.includes('drawing') || pLower.includes('akses')) im4Url = url;
@@ -725,6 +733,47 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
     } catch { return []; }
   }, [im4Workbook]);
 
+  // Deteksi Biro dan Departemen milik Kabiro yang sedang login
+  const detectedKabiroInfo = useMemo(() => {
+    if (!user) return null;
+    const cleanUserNip = String(user.nip || '').trim().replace(/\s+/g, '');
+    const cleanUserNama = cleanText(user.nama || '');
+
+    // Cari dari data IM4 yang ter-parse
+    const found = allParsedFromExcel.find(p => {
+      const pNip = String(p.nip || '').trim().replace(/\s+/g, '');
+      const pNama = cleanText(p.nama || '');
+      return (cleanUserNip && pNip === cleanUserNip) || (pNama && cleanUserNama && (pNama === cleanUserNama || pNama.includes(cleanUserNama) || cleanUserNama.includes(pNama)));
+    });
+
+    if (found && found.biro) {
+      const deptMatch = (departmentsData || []).find(d => {
+        return isBiroMatch(d.name, found.dept || '') || d.biros.some(b => isBiroMatch(b.name, found.biro));
+      });
+      const biroMatch = deptMatch?.biros.find(b => isBiroMatch(b.name, found.biro));
+      return {
+        dept: deptMatch || null,
+        deptName: deptMatch?.name || found.dept || 'Departemen Perencanaan Desain',
+        biroName: biroMatch?.name || found.biro,
+        jabatan: found.jabatan || 'Kepala Biro',
+      };
+    }
+
+    // Fallback spesifik jika NIP Dian Nuur Arina
+    if (cleanUserNip === '105204676' || cleanUserNama.includes('diannuur')) {
+      const deptMatch = (departmentsData || []).find(d => d.name.toLowerCase().includes('perencanaan'));
+      const biroMatch = deptMatch?.biros.find(b => b.name.toLowerCase().includes('logistik'));
+      return {
+        dept: deptMatch || null,
+        deptName: deptMatch?.name || 'Departemen Perencanaan Desain',
+        biroName: biroMatch?.name || 'Biro Dukungan Logistik Terpadu',
+        jabatan: 'Kepala Biro Dukungan Logistik Terpadu',
+      };
+    }
+
+    return null;
+  }, [user, allParsedFromExcel]);
+
   const dynamicOutsourcingList = useMemo(() => {
     return allParsedFromExcel.filter(p => p.status.toLowerCase().includes('outsourcing'));
   }, [allParsedFromExcel]);
@@ -746,8 +795,19 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
   }, [getSubconMembersForBiro]);
 
   const getBiroMembers = useCallback((biroName: string) => {
-    return allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName) && !p.status.toLowerCase().includes('outsourcing'));
-  }, [allParsedFromExcel]);
+    const list = allParsedFromExcel.filter(p => isBiroMatch(p.biro, biroName) && !p.status.toLowerCase().includes('outsourcing'));
+    if (list.length === 0 && user && user.nama && isBiroMatch(detectedKabiroInfo?.biroName || '', biroName)) {
+      return [{
+        nama: user.nama,
+        nip: user.nip || '',
+        status: 'PKWTT',
+        jabatan: detectedKabiroInfo?.jabatan || 'Kepala Biro',
+        biro: biroName,
+        dept: detectedKabiroInfo?.deptName || '',
+      }];
+    }
+    return list;
+  }, [allParsedFromExcel, user, detectedKabiroInfo]);
 
   const toggleAccordion = (cardKey: string) => {
     setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
@@ -1203,10 +1263,30 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
   const currentActiveBiroTasks = useMemo(() => manualTasks[currentActiveBiroKey] || [], [manualTasks, currentActiveBiroKey]);
   
   const currentBiroMembers = selectedFormBiro ? getBiroMembers(selectedFormBiro.biroName) : [];
+  const [customSubconNames, setCustomSubconNames] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('custom_subcon_members_v1') || '[]');
+    } catch { return []; }
+  });
+
   const activeSubconMembers = useMemo(() => {
     if (!subconSelectedBiro) return [];
-    return getSubconMembersForBiro(subconSelectedBiro);
-  }, [subconSelectedBiro, getSubconMembersForBiro]);
+    const members = [...getSubconMembersForBiro(subconSelectedBiro)];
+    customSubconNames.forEach(name => {
+      const cleanN = cleanText(name);
+      if (cleanN && !members.some(m => cleanText(m.nama) === cleanN)) {
+        members.push({
+          nama: name,
+          nip: '-',
+          status: 'Outsourcing',
+          jabatan: 'Drafter IV',
+          biro: subconSelectedBiro,
+          dept: subconSelectedDept?.name || '',
+        });
+      }
+    });
+    return members;
+  }, [subconSelectedBiro, getSubconMembersForBiro, customSubconNames, subconSelectedDept]);
 
   const subconWorkOrders = useMemo(() => {
     if (!subconSelectedBiro) return [];
@@ -1395,11 +1475,25 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
         {accessMode === 'landing' && (
           <div className="w-full space-y-5 pt-2">
             <div className="border-b border-slate-800 pb-3 flex items-center justify-between gap-2">
-              <h1 className="text-lg font-bold text-white">Pilih Portal</h1>
+              <div>
+                <h1 className="text-lg font-bold text-white">Pilih Portal Penugasan</h1>
+                {detectedKabiroInfo && (
+                  <p className="text-xs text-blue-400 font-medium mt-0.5">
+                    {detectedKabiroInfo.biroName} • <span className="text-slate-400">{detectedKabiroInfo.deptName}</span>
+                  </p>
+                )}
+              </div>
               <span className="text-xs text-slate-400">{user.nama}</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div onClick={() => setAccessMode('organik')}
+              <div onClick={() => {
+                setAccessMode('organik');
+                if (detectedKabiroInfo) {
+                  if (detectedKabiroInfo.dept) setSelectedDept(detectedKabiroInfo.dept);
+                  setSelectedFormBiro({ biroName: detectedKabiroInfo.biroName, deptName: detectedKabiroInfo.deptName });
+                  setFormPageMode('form');
+                }
+              }}
                 className="bg-slate-900 border border-slate-800 hover:border-blue-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3.5">
                   <div className="p-2.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-lg">
@@ -1408,11 +1502,21 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                   <div>
                     <h3 className="text-base font-bold text-white">Pegawai Organik</h3>
                     <p className="text-xs text-slate-400">PKWTT &amp; PKWT</p>
+                    {detectedKabiroInfo && (
+                      <p className="text-[11px] text-blue-400 font-mono mt-1">Buka Form {detectedKabiroInfo.biroName} →</p>
+                    )}
                   </div>
                 </div>
                 <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-blue-400 group-hover:translate-x-0.5 transition" />
               </div>
-              <div onClick={() => setAccessMode('subkon')}
+              <div onClick={() => {
+                setAccessMode('subkon');
+                if (detectedKabiroInfo) {
+                  if (detectedKabiroInfo.dept) setSubconSelectedDept(detectedKabiroInfo.dept);
+                  setSubconSelectedBiro(detectedKabiroInfo.biroName);
+                  setSubconPageMode('form');
+                }
+              }}
                 className="bg-slate-900 border border-slate-800 hover:border-amber-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3.5">
                   <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-lg">
@@ -1421,6 +1525,9 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                   <div>
                     <h3 className="text-base font-bold text-white">Mitra / Subkon</h3>
                     <p className="text-xs text-slate-400">Outsourcing</p>
+                    {detectedKabiroInfo && (
+                      <p className="text-[11px] text-amber-400 font-mono mt-1">Buka Form Outsourcing {detectedKabiroInfo.biroName} →</p>
+                    )}
                   </div>
                 </div>
                 <ChevronRight className="w-4 h-4 text-slate-500 group-hover:text-amber-400 group-hover:translate-x-0.5 transition" />
@@ -1616,7 +1723,7 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                               const autoJo = generateAutoSubconJo(subconSelectedBiro || '', p.nama, activeSubconMembers, currentActiveBiroTasks);
                               return {
                                 value: p.nama,
-                                label: `${String(idx + 1).padStart(2, '0')}. ${p.nama} (${p.jabatan}) — JO: ${autoJo}`,
+                                label: `${String(idx + 1).padStart(2, '0')}. ${p.nama} (${p.jabatan || 'Outsourcing'}) — JO: ${autoJo}`,
                               };
                             })}
                             value={formData.nama}
@@ -1624,7 +1731,21 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                               const autoJo = generateAutoSubconJo(subconSelectedBiro || '', val, activeSubconMembers, currentActiveBiroTasks);
                               setFormData(prev => ({ ...prev, nama: val, jo: autoJo }));
                             }}
-                            placeholder="Ketik nama personel outsourcing..."
+                            allowCustom
+                            customAddLabel="+ Tambah Personel Outsourcing Baru"
+                            onAddCustom={(val) => {
+                              const trimmed = val.trim();
+                              if (trimmed) {
+                                setCustomSubconNames(prev => {
+                                  const next = Array.from(new Set([...prev, trimmed]));
+                                  try { localStorage.setItem('custom_subcon_members_v1', JSON.stringify(next)); } catch {}
+                                  return next;
+                                });
+                                const autoJo = generateAutoSubconJo(subconSelectedBiro || '', trimmed, activeSubconMembers, currentActiveBiroTasks);
+                                setFormData(prev => ({ ...prev, nama: trimmed, jo: autoJo }));
+                              }
+                            }}
+                            placeholder="Ketik atau pilih nama personel outsourcing..."
                             required
                           />
                         </div>
@@ -2145,9 +2266,19 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="md:col-span-2">
                         <label className="block text-slate-400 mb-1">Nama Personel (Organik) <span className="text-rose-400">*</span></label>
-                        <SearchableSelect options={currentBiroMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.status})` }))}
-                          value={formData.nama} onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
-                          placeholder="Ketik nama personel organik..." required />
+                        <SearchableSelect
+                          options={currentBiroMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.status})` }))}
+                          value={formData.nama}
+                          onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
+                          allowCustom
+                          customAddLabel="+ Tambah Personel Organik"
+                          onAddCustom={(val) => {
+                            const trimmed = val.trim();
+                            if (trimmed) setFormData(prev => ({ ...prev, nama: trimmed }));
+                          }}
+                          placeholder="Ketik atau pilih nama personel organik..."
+                          required
+                        />
                       </div>
                       <div>
                         <label className="block text-slate-400 mb-1">Kode Proyek <span className="text-rose-400">*</span></label>
