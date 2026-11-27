@@ -6,11 +6,10 @@ import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
 import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow, TASK_TYPE_OPTIONS, calculatePlanFinish } from '../lib/projectCandidates';
-import { parseUploadedTimesheetFolder } from '../lib/timesheetAccomplishment';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
-  FileSpreadsheet, Users, Search, TrendingUp, FolderUp, Download
+  FileSpreadsheet, Users, Search, TrendingUp, Download
 } from 'lucide-react';
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
@@ -1819,9 +1818,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     nama: '', kodeProyek: '', taskName: '', drawingNumber: '', drawingName: '', startDate: '', endDate: '',
     pic: '', jo: '', rev: '0', realJo: '', release: '', type: 'Drawing', deskripsi: '',
   });
+  const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
   const [showRekapDivisi, setShowRekapDivisi] = useState(user.role === 'rekap');
-  const [isImportingTimesheet, setIsImportingTimesheet] = useState(false);
+  const [showRekapInputKabiro, setShowRekapInputKabiro] = useState(false);
+  const [rekapFilterBiro, setRekapFilterBiro] = useState<string>('all');
+  const [rekapSearchText, setRekapSearchText] = useState<string>('');
   const [editingReleaseId, setEditingReleaseId] = useState<string | null>(null);
   const [editingReleaseVal, setEditingReleaseVal] = useState<string>('');
   const [drawingControlMap, setDrawingControlMap] = useState<Record<string, DrawingControlRow[]>>({});
@@ -1861,7 +1863,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             id: row.id, biroName: row.biro_name || '', project: row.project || '', taskName: row.task_name || '',
             startDate: row.start_date || '', endDate: row.end_date || '', pic: row.pic || '', jo: row.jo || '',
             kodeJc: row.kode_jc || '', rev: persistedRev, release: persistedRelease, realJo: row.real_jc || row.realJo || '',
-            status: row.status || '', type: row.type || getLocalType(row.id, 'Drawing'), deskripsi: row.deskripsi || '',
+            status: row.status || '',
+            type: row.type || getLocalType(row.id, 'Drawing'),
+            deskripsi: row.deskripsi || row.task_name || '',
           };
           grouped[biroKey].push(item);
           seenIds.add(String(row.id));
@@ -2745,7 +2749,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     setEditingTask(task);
     setEditFormData({
       project: task.project || '',
-      taskName: task.deskripsi || task.taskName || '',
+      taskName: task.taskName || '',
       drawingNumber: parts.drawingNumber,
       drawingName: parts.drawingName,
       startDate: task.startDate || '',
@@ -2754,76 +2758,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       kodeJc: task.kodeJc || '',
       rev: task.rev || '0',
       release: task.release || '',
-      type: task.type || getLocalType(task.id, 'Drawing'),
-      deskripsi: task.deskripsi || task.taskName || '',
     });
     if (task.project) fetchDrawingControlForProject(task.project);
-  };
-
-  const handleExportFormExcel = (targetBiro?: string | null) => {
-    const rowsToExport: any[] = [];
-    let no = 1;
-
-    Object.entries(manualTasks).forEach(([bKey, list]) => {
-      list.forEach(task => {
-        if (targetBiro && !isBiroMatch(task.biroName, targetBiro)) {
-          return;
-        }
-
-        const { drawingNumber, drawingName } = splitTaskToDrawingParts(task.taskName || '');
-        const taskType = task.type || getLocalType(task.id, 'Drawing');
-
-        rowsToExport.push({
-          'No': no++,
-          'Biro': task.biroName || targetBiro || '-',
-          'Nama Personel': task.pic || '-',
-          'Type': taskType,
-          'Kode Proyek': task.project || '-',
-          'Drawing Number': drawingNumber || '-',
-          'Drawing Name': drawingName || task.taskName || '-',
-          'Deskripsi': task.deskripsi || task.taskName || '-',
-          'Rev': task.rev ?? '0',
-          'Plan Start': task.startDate ? formatDisplayDate(task.startDate) : '-',
-          'Plan Finish': task.endDate ? formatDisplayDate(task.endDate) : '-',
-          'Plan JO': task.jo || '-',
-          'Jobcard': '', // Dikosongkan sesuai permintaan user
-        });
-      });
-    });
-
-    if (rowsToExport.length === 0) {
-      alert('Tidak ada data form untuk diexport.');
-      return;
-    }
-
-    const ws = XLSX.utils.json_to_sheet(rowsToExport);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Form Input Kabiro');
-
-    const fileName = targetBiro
-      ? `Form_Input_${cleanText(targetBiro).toUpperCase()}_${new Date().toISOString().slice(0, 10)}.xlsx`
-      : `Form_Input_Semua_Biro_${new Date().toISOString().slice(0, 10)}.xlsx`;
-
-    XLSX.writeFile(wb, fileName);
-  };
-
-  const handleImportTimesheetFolder = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    setIsImportingTimesheet(true);
-    try {
-      const res = await parseUploadedTimesheetFolder(files);
-      if (res.addedMonths.length === 0) {
-        alert('Tidak ditemukan folder bulan yang valid (misal: Juli, Agustus, September, Oktober, November) atau file timesheet di dalamnya.');
-      } else {
-        alert(`Berhasil mengimpor timesheet untuk ${res.addedMonths.length} bulan (${res.addedMonths.join(', ')}) dari ${res.processedFiles} file. Data tersimpan di database.`);
-      }
-    } catch (err: any) {
-      alert(`Gagal memproses folder timesheet: ${err?.message || err}`);
-    } finally {
-      setIsImportingTimesheet(false);
-      e.target.value = '';
-    }
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -2858,16 +2794,14 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       status: nextStatus,
       rev: revVal,
       release: releaseVal,
-      type: editFormData.type || 'Drawing',
     };
     let { error } = await supabase
       .from('job_cards')
       .update(updatePayload)
       .eq('id', editingTask.id);
-    if (error && (error.message?.includes('rev') || error.message?.includes('release') || (error as any).details?.includes('rev') || (error as any).details?.includes('release') || error.message?.includes('type'))) {
+    if (error && (error.message?.includes('rev') || error.message?.includes('release') || (error as any).details?.includes('rev') || (error as any).details?.includes('release'))) {
       delete updatePayload.rev;
       delete updatePayload.release;
-      delete updatePayload.type;
       const retry = await supabase.from('job_cards').update(updatePayload).eq('id', editingTask.id);
       error = retry.error;
     }
@@ -2876,7 +2810,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       return;
     }
     saveLocalRelease(editingTask.id, releaseVal);
-    saveLocalType(editingTask.id, editFormData.type || 'Drawing');
     const updatedItem: TaskItem = {
       ...editingTask,
       project: editFormData.project,
@@ -2888,8 +2821,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       status: nextStatus,
       rev: revVal,
       release: releaseVal,
-      type: editFormData.type || 'Drawing',
-      deskripsi: editFormData.taskName || '',
     };
     if (accessMode === 'subkon' || SUBCON_WO_PREFIX_RE.test(String(updatedItem.kodeJc || '').trim())) {
       upsertSubconHistoryItem(updatedItem);
@@ -2991,7 +2922,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         nextName = parts.drawingName;
       }
     }
-    // Jika ada Plan Start dan Plan JO, hitung Plan Finish otomatis (1 hari = 8 jam kerja)
     const effectiveStart = autoStart || formData.startDate;
     if (effectiveStart && autoJo) {
       const calcFinish = calculatePlanFinish(effectiveStart, autoJo);
@@ -3040,7 +2970,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         selectedName = parts.drawingName;
       }
     }
-    // Jika ada Plan Start dan Plan JO, hitung Plan Finish otomatis (1 hari = 8 jam kerja)
     const effectiveStart = autoStart || formData.startDate;
     if (effectiveStart && autoJo) {
       const calcFinish = calculatePlanFinish(effectiveStart, autoJo);
@@ -3176,35 +3105,33 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         biro_id: validBiroId, biro_name: activeBiro, personil_name: formData.nama, project_code: formData.kodeProyek,
         project: formData.kodeProyek, task_name: combinedTaskName, start_date: formData.startDate, end_date: formData.endDate,
         pic: formData.nama, jo: resolvedJo, kode_jc: autoKode, status: accessMode === 'subkon' ? 'approved' : 'pending',
-        rev: revVal, release: releaseVal, type: formData.type || 'Drawing',
+        rev: revVal, release: releaseVal,
       };
       let insertedRow: any = null;
       const { data: resData, error } = await supabase.from('job_cards').insert(insertPayload).select().single();
       if (error) {
-        delete insertPayload.rev; delete insertPayload.release; delete insertPayload.type;
+        delete insertPayload.rev; delete insertPayload.release;
         const { data: retryData, error: retryError } = await supabase.from('job_cards').insert(insertPayload).select().single();
         if (retryError) { alert('Gagal simpan: ' + retryError.message); return; }
         insertedRow = retryData;
       } else { insertedRow = resData; }
       if (releaseVal) saveLocalRelease(insertedRow.id, releaseVal);
-      saveLocalType(insertedRow.id, formData.type || 'Drawing');
       const newTask: TaskItem = {
         id: insertedRow.id, biroName: activeBiro, project: formData.kodeProyek, taskName: combinedTaskName,
         startDate: formData.startDate, endDate: formData.endDate, pic: formData.nama, jo: resolvedJo,
         kodeJc: autoKode, rev: revVal, release: releaseVal,
         status: accessMode === 'subkon' ? 'approved' : 'pending',
-        type: formData.type || 'Drawing', deskripsi: formData.taskName || '',
       };
       if (accessMode === 'subkon') {
         upsertSubconHistoryItem(newTask);
       }
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
-      setFormData({ nama: '', kodeProyek: '', taskName: '', drawingNumber: '', drawingName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '', release: '', type: 'Drawing', deskripsi: '' });
+      setFormData({ nama: '', kodeProyek: '', taskName: '', drawingNumber: '', drawingName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '', release: '' });
       if (accessMode === 'subkon') {
         alert(`Tugas tersimpan! Work Order "${autoKode}" (Nomor JO: ${resolvedJo}) langsung terbit dan tersimpan di History.`);
       } else {
-        alert('Tugas tersimpan!');
+        alert('Tugas tersimpan! Buka Planner untuk approval Jobcard.');
       }
       await loadAllJobCards();
     } catch {
@@ -3234,6 +3161,104 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     setEditingTaskKode(prev => { const next = { ...prev }; delete next[taskId]; return next; });
     loadAllJobCards();
   };
+
+  const handleExportFormExcel = (targetBiro?: string | null) => {
+    try {
+      const allTasksList: TaskItem[] = [];
+      Object.entries(manualTasks).forEach(([bName, tasks]) => {
+        if (!targetBiro || targetBiro === 'all' || cleanText(bName) === cleanText(targetBiro)) {
+          allTasksList.push(...tasks);
+        }
+      });
+
+      if (allTasksList.length === 0) {
+        alert('Tidak ada data inputan form untuk diexport.');
+        return;
+      }
+
+      const rows = allTasksList.map((t, idx) => {
+        const parts = splitTaskToDrawingParts(t.taskName || '');
+        return {
+          'No': idx + 1,
+          'Biro': t.biroName || '-',
+          'Nama Personel': t.pic || '-',
+          'Type': t.type || 'Drawing',
+          'Kode Proyek': t.project || '-',
+          'Drawing Number': parts.drawingNumber || '-',
+          'Drawing Name': parts.drawingName || t.taskName || '-',
+          'Deskripsi': t.deskripsi || t.taskName || '-',
+          'Rev': t.rev ?? '0',
+          'Plan Start': t.startDate || '-',
+          'Plan Finish': t.endDate || '-',
+          'Plan JO': t.jo || '-',
+          'Jobcard': '', // Dikosongkan sesuai permintaan user
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [
+        { wch: 6 },   // No
+        { wch: 38 },  // Biro
+        { wch: 28 },  // Nama Personel
+        { wch: 16 },  // Type
+        { wch: 18 },  // Kode Proyek
+        { wch: 24 },  // Drawing Number
+        { wch: 45 },  // Drawing Name
+        { wch: 45 },  // Deskripsi
+        { wch: 8 },   // Rev
+        { wch: 14 },  // Plan Start
+        { wch: 14 },  // Plan Finish
+        { wch: 12 },  // Plan JO
+        { wch: 18 },  // Jobcard
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Input Form Kabiro');
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+      const biroSuffix = (targetBiro && targetBiro !== 'all') ? `_${cleanText(targetBiro).substring(0, 15)}` : '_Semua_Biro';
+      XLSX.writeFile(wb, `Form_Penugasan_Kabiro${biroSuffix}_${dateStr}.xlsx`);
+    } catch (err: any) {
+      alert('Gagal mengekspor file excel: ' + (err?.message || err));
+    }
+  };
+
+  const allBiroNames = useMemo(() => {
+    const set = new Set<string>();
+    (departmentsData || []).forEach(dept => {
+      (dept.biros || []).forEach(biro => {
+        if (biro.name) set.add(biro.name);
+      });
+    });
+    Object.values(manualTasks).forEach(tasks => {
+      tasks.forEach(t => {
+        if (t.biroName) set.add(t.biroName);
+      });
+    });
+    return Array.from(set).sort();
+  }, [manualTasks]);
+
+  const filteredRekapTasks = useMemo(() => {
+    const list: TaskItem[] = [];
+    Object.entries(manualTasks).forEach(([bKey, tasks]) => {
+      if (rekapFilterBiro !== 'all' && cleanText(bKey) !== cleanText(rekapFilterBiro)) {
+        return;
+      }
+      list.push(...tasks);
+    });
+
+    if (!rekapSearchText.trim()) return list;
+    const q = rekapSearchText.toLowerCase();
+    return list.filter(t => 
+      (t.pic && t.pic.toLowerCase().includes(q)) ||
+      (t.biroName && t.biroName.toLowerCase().includes(q)) ||
+      (t.project && t.project.toLowerCase().includes(q)) ||
+      (t.taskName && t.taskName.toLowerCase().includes(q)) ||
+      (t.type && t.type.toLowerCase().includes(q)) ||
+      (t.deskripsi && t.deskripsi.toLowerCase().includes(q)) ||
+      (t.kodeJc && t.kodeJc.toLowerCase().includes(q))
+    );
+  }, [manualTasks, rekapFilterBiro, rekapSearchText]);
 
   const filteredDepartments = (departmentsData || []).filter(dept => dept.name.toLowerCase().includes(searchQuery.toLowerCase()));
   const filteredSubconDepartments = (departmentsData || []).filter(dept => dept.name.toLowerCase().includes(subconSearch.toLowerCase()));
@@ -3611,26 +3636,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 <h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3>
                 <span className="text-xs text-slate-400 font-mono">{activeSubconMembers.length} Personel Outsourcing • Kode Biro: <b className="text-amber-400">{getBiroPrefix(subconSelectedBiro)}</b></span>
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => handleExportFormExcel(subconSelectedBiro)}
-                  className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition font-medium"
-                  title={`Export data inputan form dari ${subconSelectedBiro} ke file Excel (kolom Jobcard dikosongkan)`}
-                >
-                  <Download className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Export Excel Form</span>
+              <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
+                <button onClick={() => setSubconPageMode('members')}
+                  className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'members' ? 'bg-amber-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Anggota</button>
+                <button onClick={() => setSubconPageMode('form')}
+                  className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'form' ? 'bg-emerald-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Form</button>
+                <button onClick={() => setSubconPageMode('release')}
+                  className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${subconPageMode === 'release' ? 'bg-purple-600 text-white font-bold shadow' : 'text-purple-300 hover:text-white hover:bg-slate-900'}`}>
+                  <FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({subconWorkOrders.length})
                 </button>
-                <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
-                  <button onClick={() => setSubconPageMode('members')}
-                    className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'members' ? 'bg-amber-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Anggota</button>
-                  <button onClick={() => setSubconPageMode('form')}
-                    className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'form' ? 'bg-emerald-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Form</button>
-                  <button onClick={() => setSubconPageMode('release')}
-                    className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${subconPageMode === 'release' ? 'bg-purple-600 text-white font-bold shadow' : 'text-purple-300 hover:text-white hover:bg-slate-900'}`}>
-                    <FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({subconWorkOrders.length})
-                  </button>
-                </div>
               </div>
             </div>
             {subconPageMode === 'members' && (
@@ -3712,172 +3726,98 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             {subconPageMode === 'form' && (
               <div className="space-y-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-                  <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
-                    {/* 1. Informasi Personel & Proyek */}
-                    <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
-                      <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
-                        <Users className="w-3.5 h-3.5 text-blue-400" />
-                        <span>1. Informasi Drafter (Outsourcing) &amp; Proyek</span>
+                  <form onSubmit={handleSubmitForm} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                      <div className="md:col-span-2">
+                        <label className="block text-slate-400 mb-1">Nama Drafter / Personel (Outsourcing)</label>
+                        <SearchableSelect
+                          options={activeSubconMembers.map((p, idx) => {
+                            const autoJo = generateAutoSubconJo(subconSelectedBiro || '', p.nama, activeSubconMembers, currentActiveBiroTasks);
+                            return {
+                              value: p.nama,
+                              label: `${String(idx + 1).padStart(2, '0')}. ${p.nama} (${p.jabatan}) — JO: ${autoJo}`,
+                            };
+                          })}
+                          value={formData.nama}
+                          onChange={(val) => {
+                            const autoJo = generateAutoSubconJo(subconSelectedBiro || '', val, activeSubconMembers, currentActiveBiroTasks);
+                            setFormData(prev => ({ ...prev, nama: val, jo: autoJo }));
+                          }}
+                          placeholder="Ketik nama personel outsourcing..."
+                          required
+                        />
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="md:col-span-2">
-                          <label className="block text-slate-400 mb-1">Nama Drafter / Personel (Outsourcing) <span className="text-rose-400">*</span></label>
-                          <SearchableSelect
-                            options={activeSubconMembers.map((p, idx) => {
-                              const autoJo = generateAutoSubconJo(subconSelectedBiro || '', p.nama, activeSubconMembers, currentActiveBiroTasks);
-                              return {
-                                value: p.nama,
-                                label: `${String(idx + 1).padStart(2, '0')}. ${p.nama} (${p.jabatan}) — JO: ${autoJo}`,
-                              };
-                            })}
-                            value={formData.nama}
-                            onChange={(val) => {
-                              const autoJo = generateAutoSubconJo(subconSelectedBiro || '', val, activeSubconMembers, currentActiveBiroTasks);
-                              setFormData(prev => ({ ...prev, nama: val, jo: autoJo }));
-                            }}
-                            placeholder="Ketik nama personel outsourcing..."
-                            required
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-slate-400 mb-1">Kode Proyek <span className="text-rose-400">*</span></label>
-                          <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
-                            placeholder="Ketik kode proyek..." required />
-                        </div>
-                        <div>
-                          <label className="block text-slate-400 mb-1">Type Pekerjaan <span className="text-rose-400">*</span></label>
-                          <select
-                            value={formData.type || 'Drawing'}
-                            onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                          >
-                            {TASK_TYPE_OPTIONS.map(opt => (
-                              <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                          </select>
-                        </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1">Kode Proyek</label>
+                        <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
+                          placeholder="Ketik kode proyek..." required />
                       </div>
-                    </div>
-
-                    {/* 2. Detail Gambar & Deskripsi Tugas */}
-                    <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
-                      <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
-                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>2. Detail Gambar &amp; Deskripsi Tugas</span>
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Nomor JO (Otomatis)</label>
+                          {subconSelectedBiro && formData.nama && (() => {
+                            const { deptOrder, biroOrder } = getDeptAndBiroOrder(subconSelectedBiro);
+                            const pIdx = activeSubconMembers.findIndex(p => cleanText(p.nama) === cleanText(formData.nama));
+                            const pNum = String((pIdx >= 0 ? pIdx : 0) + 1).padStart(2, '0');
+                            const curJo = formData.jo || generateAutoSubconJo(subconSelectedBiro, formData.nama, activeSubconMembers, currentActiveBiroTasks);
+                            const joSeq = curJo.slice(-2) || '01';
+                            return (
+                              <span className="text-[10px] font-mono text-amber-400">
+                                Dept {deptOrder} • Biro {biroOrder} • Urutan #{pNum} • JO #{joSeq}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                        <input
+                          type="text"
+                          readOnly
+                          value={formData.jo || (formData.nama && subconSelectedBiro ? generateAutoSubconJo(subconSelectedBiro, formData.nama, activeSubconMembers, currentActiveBiroTasks) : '')}
+                          placeholder="Otomatis terisi saat pilih nama personel..."
+                          required
+                          className="w-full px-3 py-2 bg-slate-950/80 border border-amber-500/40 rounded-lg text-amber-300 font-mono font-bold cursor-not-allowed"
+                        />
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="text-slate-400">Drawing Number</label>
-                            {isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Drive...</span>}
-                          </div>
-                          <SearchableSelect
-                            options={formDrawingOpts.numberOptions}
-                            value={formData.drawingNumber}
-                            onChange={handleDrawingNumberChange}
-                            allowCustom
-                            customAddLabel="+ Tambah Drawing Number"
-                            onAddCustom={(val) => setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, val))}
-                            placeholder="Ketik / pilih nomor gambar (misal: E25291.01100)..."
-                          />
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Drawing Number</label>
+                          {isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Drive...</span>}
                         </div>
-                        <div>
-                          <label className="block text-slate-400 mb-1">Drawing Name</label>
-                          <SearchableSelect
-                            options={formDrawingOpts.nameOptions}
-                            value={formData.drawingName}
-                            onChange={handleDrawingNameChange}
-                            allowCustom
-                            customAddLabel="+ Tambah Drawing Name"
-                            onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
-                            placeholder="Ketik / pilih nama gambar..."
-                            required={!formData.drawingNumber}
-                          />
-                        </div>
-
-                        <div className="md:col-span-2">
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="text-slate-400">Nomor JO (Otomatis)</label>
-                            {subconSelectedBiro && formData.nama && (() => {
-                              const { deptOrder, biroOrder } = getDeptAndBiroOrder(subconSelectedBiro);
-                              const pIdx = activeSubconMembers.findIndex(p => cleanText(p.nama) === cleanText(formData.nama));
-                              const pNum = String((pIdx >= 0 ? pIdx : 0) + 1).padStart(2, '0');
-                              const curJo = formData.jo || generateAutoSubconJo(subconSelectedBiro, formData.nama, activeSubconMembers, currentActiveBiroTasks);
-                              const joSeq = curJo.slice(-2) || '01';
-                              return (
-                                <span className="text-[10px] font-mono text-amber-400">
-                                  Dept {deptOrder} • Biro {biroOrder} • Urutan #{pNum} • JO #{joSeq}
-                                </span>
-                              );
-                            })()}
-                          </div>
-                          <input
-                            type="text"
-                            readOnly
-                            value={formData.jo || (formData.nama && subconSelectedBiro ? generateAutoSubconJo(subconSelectedBiro, formData.nama, activeSubconMembers, currentActiveBiroTasks) : '')}
-                            placeholder="Otomatis terisi saat pilih nama personel..."
-                            required
-                            className="w-full px-3 py-2 bg-slate-950/80 border border-amber-500/40 rounded-lg text-amber-300 font-mono font-bold cursor-not-allowed"
-                          />
-                        </div>
-
-                        <div className="md:col-span-2">
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="text-slate-400">Deskripsi Tugas <span className="text-[10px] text-slate-500 font-normal">(Opsional)</span></label>
-                            <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
-                          </div>
-                          <input
-                            type="text"
-                            value={formData.taskName}
-                            onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                            placeholder="Ketik deskripsi tugas / pekerjaan (opsional)..."
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
-                          />
-                        </div>
+                        <SearchableSelect
+                          options={formDrawingOpts.numberOptions}
+                          value={formData.drawingNumber}
+                          onChange={handleDrawingNumberChange}
+                          allowCustom
+                          customAddLabel="+ Tambah Drawing Number"
+                          onAddCustom={(val) => setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, val))}
+                          placeholder="Ketik / pilih nomor gambar (misal: E25291.01100)..."
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1">Drawing Name</label>
+                        <SearchableSelect
+                          options={formDrawingOpts.nameOptions}
+                          value={formData.drawingName}
+                          onChange={handleDrawingNameChange}
+                          allowCustom
+                          customAddLabel="+ Tambah Drawing Name"
+                          onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
+                          placeholder="Ketik / pilih nama gambar..."
+                          required={!formData.drawingNumber}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1">Tanggal Mulai</label>
+                        <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                          required style={{ colorScheme: 'dark' }}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 mb-1">Tanggal Selesai</label>
+                        <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                          required style={{ colorScheme: 'dark' }}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
                       </div>
                     </div>
-
-                    {/* 3. Jadwal Pelaksanaan */}
-                    <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
-                      <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
-                        <Clock className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>3. Jadwal Pelaksanaan</span>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-slate-400 mb-1">Tanggal Mulai <span className="text-rose-400">*</span></label>
-                          <input
-                            type="date"
-                            value={formData.startDate}
-                            onChange={(e) => {
-                              const newStart = e.target.value;
-                              const calcFinish = calculatePlanFinish(newStart, formData.jo);
-                              setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
-                            }}
-                            required
-                            style={{ colorScheme: 'dark' }}
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                          />
-                        </div>
-                        <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="text-slate-400">Tanggal Selesai <span className="text-rose-400">*</span></label>
-                            {formData.jo && formData.startDate && (
-                              <span className="text-[10px] text-cyan-400 font-mono">Otomatis (1 hari = 8 jam) · Bisa diedit</span>
-                            )}
-                          </div>
-                          <input
-                            type="date"
-                            value={formData.endDate}
-                            onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                            required
-                            style={{ colorScheme: 'dark' }}
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
                     {isSubmittingTask && (
                       <div className="px-3.5 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2.5 animate-pulse">
                         <span className="w-4 h-4 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin shrink-0" />
@@ -4019,13 +3959,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
-                  type="button"
-                  onClick={() => handleExportFormExcel(null)}
-                  className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition shadow-sm"
-                  title="Export seluruh data form dari semua Biro ke file Excel (kolom Jobcard dikosongkan)"
+                  onClick={() => setIsPlannerOpen(true)}
+                  className="relative px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                  title={pendingTasksCount > 0 ? `${pendingTasksCount} tugas menunggu kode Jobcard` : 'Tidak ada tugas yang menunggu kode Jobcard'}
                 >
-                  <Download className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Export Excel Form</span>
+                  <FileCheck className="w-3.5 h-3.5" /> Planner Approval
+                  {pendingTasksCount > 0 && (
+                    <span className="ml-1 px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-bold">
+                      {pendingTasksCount > 99 ? '99+' : pendingTasksCount}
+                    </span>
+                  )}
                 </button>
                 <button
                   onClick={() => setShowKpi(true)}
@@ -4040,6 +3983,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   title="Buka Rekap Absensi & Cuti Divisi Desain"
                 >
                   <Clock className="w-3.5 h-3.5 text-sky-400" /> Rekap Absensi Divisi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowRekapInputKabiro(true)}
+                  className="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition shadow-sm"
+                  title="Lihat rekap seluruh inputan form dari Kabiro dan Export Excel"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Inputan Form Kabiro</span>
                 </button>
                 <div className="relative">
                   <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
@@ -4073,23 +4025,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <Clock className="w-3.5 h-3.5 text-sky-400" />
                   <span>{isImportingHour ? 'Mengimpor...' : `Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleImportHourPlanner} disabled={isImportingHour} className="hidden" />
-                </label>
-                <label
-                  className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-md border border-slate-700 text-xs flex items-center gap-1.5 cursor-pointer transition"
-                  title="Upload folder berisi subfolder bulan (misal: Juli, Agustus, September, Oktober, November) berisi file timesheet overtime & non-overtime"
-                >
-                  <FolderUp className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{isImportingTimesheet ? 'Memproses Timesheet...' : 'Folder Timesheet'}</span>
-                  <input
-                    type="file"
-                    // @ts-ignore
-                    webkitdirectory=""
-                    directory=""
-                    multiple
-                    onChange={handleImportTimesheetFolder}
-                    disabled={isImportingTimesheet}
-                    className="hidden"
-                  />
                 </label>
                 <label
                   className="px-3 py-1.5 bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-300 border border-emerald-500/30 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
@@ -4202,15 +4137,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => handleExportFormExcel(selectedFormBiro.biroName)}
-                  className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition font-medium"
-                  title={`Export data inputan form dari ${selectedFormBiro.biroName} ke file Excel (kolom Jobcard dikosongkan)`}
-                >
-                  <Download className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Export Excel Form</span>
-                </button>
                 <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
                   {/* Sembunyikan tab Anggota & Form khusus untuk Kadep */}
                   {!selectedFormBiro.biroName.startsWith('Kepala ') && (
@@ -4378,164 +4304,110 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             {formPageMode === 'form' && (
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
                 <form onSubmit={handleSubmitForm} className="space-y-4 text-xs">
-                  {/* 1. Informasi Personel & Proyek */}
-                  <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
-                    <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
-                      <Users className="w-3.5 h-3.5 text-blue-400" />
-                      <span>1. Informasi Pegawai (Organik) &amp; Proyek</span>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-slate-400 mb-1">Nama Personel (Organik)</label>
+                      <SearchableSelect options={currentBiroMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.status})` }))}
+                        value={formData.nama} onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
+                        placeholder="Ketik nama personel organik..." required />
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="md:col-span-2">
-                        <label className="block text-slate-400 mb-1">Nama Personel (Organik) <span className="text-rose-400">*</span></label>
-                        <SearchableSelect options={currentBiroMembers.map(p => ({ value: p.nama, label: `${p.nama} (${p.status})` }))}
-                          value={formData.nama} onChange={(val) => setFormData(prev => ({ ...prev, nama: val }))}
-                          placeholder="Ketik nama personel organik..." required />
+                    <div>
+                      <label className="block text-slate-400 mb-1">Kode Proyek</label>
+                      <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
+                        placeholder="Ketik kode proyek (contoh: M000313)..." required />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Plan JO</label>
+                      <input type="text" inputMode="decimal" value={formData.jo}
+                        onChange={(e) => {
+                          const newJo = e.target.value.replace(/[^0-9.]/g, '');
+                          const calcFinish = calculatePlanFinish(formData.startDate, newJo);
+                          setFormData(prev => ({ ...prev, jo: newJo, endDate: calcFinish || prev.endDate }));
+                        }}
+                        placeholder="Contoh: 300426" required
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Drawing Number</label>
+                        {isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Drive...</span>}
                       </div>
-                      <div>
-                        <label className="block text-slate-400 mb-1">Kode Proyek <span className="text-rose-400">*</span></label>
-                        <SearchableSelect options={projectOptions} value={formData.kodeProyek} onChange={(val) => handleProjectChange(val)}
-                          placeholder="Ketik kode proyek (contoh: M000313)..." required />
+                      <SearchableSelect
+                        options={formDrawingOpts.numberOptions}
+                        value={formData.drawingNumber}
+                        onChange={handleDrawingNumberChange}
+                        allowCustom
+                        customAddLabel="+ Tambah Drawing Number"
+                        onAddCustom={(val) => setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, val))}
+                        placeholder="Ketik / pilih no dwg (misal: E25291.01100)..."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Drawing Name</label>
+                      <SearchableSelect
+                        options={formDrawingOpts.nameOptions}
+                        value={formData.drawingName}
+                        onChange={handleDrawingNameChange}
+                        allowCustom
+                        customAddLabel="+ Tambah Drawing Name"
+                        onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
+                        placeholder="Ketik / pilih nama gambar (misal: Shaft Protection)..."
+                        required={!formData.drawingNumber}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
+                      <input type="text" value={formData.rev}
+                        onChange={(e) => {
+                          const newRev = e.target.value;
+                          const cleanProj = cleanText(formData.kodeProyek || '');
+                          const rows = drawingControlMap[cleanProj] || [];
+                          let autoRel = '';
+                          const exactMatch = rows.find(r => {
+                            const cFull = cleanText(r.fullDeskripsi); const cName = cleanText(r.drawingName);
+                            const isRevMatch = String(r.rev || '0').trim() === String(newRev).trim();
+                            const isNameMatch = cFull === cleanText(formData.taskName) || (cName && cleanText(formData.taskName).includes(cName));
+                            return isNameMatch && isRevMatch;
+                          });
+                          if (exactMatch && exactMatch.finishDate) autoRel = parseToStandardDate(exactMatch.finishDate);
+                          else autoRel = '';
+                          setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
+                        }}
+                        placeholder="0" className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
+                    </div>
+                    <div className="hidden">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-400">Release (Tanggal-Bulan-Tahun)</label>
+                        <div className="flex items-center gap-1.5">
+                          {formData.release && <span className="text-[10px] text-cyan-300 font-mono font-semibold">{formatDisplayDate(formData.release)}</span>}
+                          <button type="button" onClick={() => handleDeskripsiChange(formData.taskName)}
+                            className="px-1.5 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded text-[10px] flex items-center gap-1 cursor-pointer" title="Tarik ulang dari Link Drive">
+                            <Sparkles className="w-2.5 h-2.5" /> Dari Drive
+                          </button>
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-slate-400 mb-1">Type Pekerjaan <span className="text-rose-400">*</span></label>
-                        <select
-                          value={formData.type || 'Drawing'}
-                          onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                        >
-                          {TASK_TYPE_OPTIONS.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="md:col-span-2">
-                        <label className="block text-slate-400 mb-1">Plan JO <span className="text-rose-400">*</span></label>
-                        <input type="text" inputMode="decimal" value={formData.jo}
-                          onChange={(e) => {
-                            const newJo = e.target.value.replace(/[^0-9.]/g, '');
-                            const calcFinish = calculatePlanFinish(formData.startDate, newJo);
-                            setFormData(prev => ({ ...prev, jo: newJo, endDate: calcFinish || prev.endDate }));
-                          }}
-                          placeholder="Contoh: 300426" required
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
-                      </div>
+                      <input type="date" value={formData.release} onChange={(e) => setFormData(prev => ({ ...prev, release: e.target.value }))}
+                        style={{ colorScheme: 'dark' }} className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Plan Start</label>
+                      <input type="date" value={formData.startDate} onChange={(e) => {
+                        const newStart = e.target.value;
+                        const calcFinish = calculatePlanFinish(newStart, formData.jo);
+                        setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
+                      }}
+                        required style={{ colorScheme: 'dark' }}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 mb-1">Plan Finish</label>
+                      <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                        required style={{ colorScheme: 'dark' }}
+                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
                     </div>
                   </div>
-
-                  {/* 2. Detail Gambar & Deskripsi Tugas */}
-                  <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
-                    <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
-                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>2. Detail Gambar &amp; Deskripsi Tugas</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Drawing Number</label>
-                          {isFetchingDrawing && <span className="text-[10px] text-amber-400 animate-pulse font-mono">Mengambil dari Drive...</span>}
-                        </div>
-                        <SearchableSelect
-                          options={formDrawingOpts.numberOptions}
-                          value={formData.drawingNumber}
-                          onChange={handleDrawingNumberChange}
-                          allowCustom
-                          customAddLabel="+ Tambah Drawing Number"
-                          onAddCustom={(val) => setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, val))}
-                          placeholder="Ketik / pilih no dwg (misal: E25291.01100)..."
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-slate-400 mb-1">Drawing Name</label>
-                        <SearchableSelect
-                          options={formDrawingOpts.nameOptions}
-                          value={formData.drawingName}
-                          onChange={handleDrawingNameChange}
-                          allowCustom
-                          customAddLabel="+ Tambah Drawing Name"
-                          onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
-                          placeholder="Ketik / pilih nama gambar (misal: Shaft Protection)..."
-                          required={!formData.drawingNumber}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
-                        <input type="text" value={formData.rev}
-                          onChange={(e) => {
-                            const newRev = e.target.value;
-                            const cleanProj = cleanText(formData.kodeProyek || '');
-                            const rows = drawingControlMap[cleanProj] || [];
-                            let autoRel = '';
-                            const exactMatch = rows.find(r => {
-                              const cFull = cleanText(r.fullDeskripsi); const cName = cleanText(r.drawingName);
-                              const isRevMatch = String(r.rev || '0').trim() === String(newRev).trim();
-                              const isNameMatch = cFull === cleanText(formData.taskName) || (cName && cleanText(formData.taskName).includes(cName));
-                              return isNameMatch && isRevMatch;
-                            });
-                            if (exactMatch && exactMatch.finishDate) autoRel = parseToStandardDate(exactMatch.finishDate);
-                            else autoRel = '';
-                            setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
-                          }}
-                          placeholder="0" className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
-                      </div>
-                      <div className="md:col-span-2">
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Deskripsi Tugas <span className="text-[10px] text-slate-500 font-normal">(Opsional)</span></label>
-                          <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
-                        </div>
-                        <input
-                          type="text"
-                          value={formData.taskName}
-                          onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                          placeholder="Ketik deskripsi tugas / pekerjaan (opsional)..."
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 3. Jadwal Pelaksanaan */}
-                  <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
-                    <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
-                      <Clock className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>3. Jadwal Pelaksanaan</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-slate-400 mb-1">Plan Start <span className="text-rose-400">*</span></label>
-                        <input
-                          type="date"
-                          value={formData.startDate}
-                          onChange={(e) => {
-                            const newStart = e.target.value;
-                            const calcFinish = calculatePlanFinish(newStart, formData.jo);
-                            setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
-                          }}
-                          required
-                          style={{ colorScheme: 'dark' }}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Plan Finish <span className="text-rose-400">*</span></label>
-                          {formData.jo && formData.startDate && (
-                            <span className="text-[10px] text-cyan-400 font-mono">Otomatis (Plan JO ÷ 8 jam) · Bisa diedit</span>
-                          )}
-                        </div>
-                        <input
-                          type="date"
-                          value={formData.endDate}
-                          onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                          required
-                          style={{ colorScheme: 'dark' }}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
                   <div className="flex justify-end pt-2">
-                    <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer shadow-md">
+                    <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer">
                       Simpan Tugas
                     </button>
                   </div>
@@ -4569,32 +4441,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </button>
             </div>
             <form onSubmit={handleSaveEdit} className="p-4 space-y-3.5 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 mb-1">Type Pekerjaan</label>
-                  <select
-                    value={editFormData.type || 'Drawing'}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, type: e.target.value }))}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                  >
-                    {TASK_TYPE_OPTIONS.map(opt => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-slate-400 mb-1">Kode Proyek</label>
-                  <SearchableSelect
-                    options={projectOptions}
-                    value={editFormData.project}
-                    onChange={(val) => {
-                      setEditFormData(prev => ({ ...prev, project: val }));
-                      fetchDrawingControlForProject(val);
-                    }}
-                    placeholder="Ketik kode proyek..."
-                    required
-                  />
-                </div>
+              <div>
+                <label className="block text-slate-400 mb-1">Kode Proyek</label>
+                <SearchableSelect
+                  options={projectOptions}
+                  value={editFormData.project}
+                  onChange={(val) => {
+                    setEditFormData(prev => ({ ...prev, project: val }));
+                    fetchDrawingControlForProject(val);
+                  }}
+                  placeholder="Ketik kode proyek..."
+                  required
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -4605,7 +4463,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     type="text"
                     inputMode="decimal"
                     value={editFormData.jo}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
+                    onChange={(e) => {
+                      const newJo = e.target.value.replace(/[^0-9.]/g, '');
+                      const calcFinish = calculatePlanFinish(editFormData.startDate, newJo);
+                      setEditFormData(prev => ({ ...prev, jo: newJo, endDate: calcFinish || prev.endDate }));
+                    }}
                     required={accessMode !== 'organik'}
                     placeholder={accessMode === 'organik' ? 'Otomatis dari Hour Planner / ketik manual' : ''}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
@@ -4763,23 +4625,10 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   </div>
                 </div>
               )}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-slate-400">Deskripsi Tugas <span className="text-[10px] text-slate-500 font-normal">(Opsional)</span></label>
-                  <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
-                </div>
-                <input
-                  type="text"
-                  value={editFormData.taskName}
-                  onChange={(e) => setEditFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                  placeholder="Ketik deskripsi tugas (opsional)..."
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500 text-xs"
-                />
-              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'} <span className="text-rose-400">*</span>
+                    {accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'}
                   </label>
                   <input
                     type="date"
@@ -4795,14 +4644,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   />
                 </div>
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-400">
-                      {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'} <span className="text-rose-400">*</span>
-                    </label>
-                    {editFormData.jo && editFormData.startDate && (
-                      <span className="text-[10px] text-cyan-400 font-mono">Otomatis · Bisa diedit</span>
-                    )}
-                  </div>
+                  <label className="block text-slate-400 mb-1">
+                    {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'}
+                  </label>
                   <input
                     type="date"
                     value={editFormData.endDate}
@@ -4829,6 +4673,234 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isPlannerOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl">
+            <div className="p-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+              <span className="font-bold text-xs text-white flex items-center gap-1.5">
+                <FileCheck className="w-3.5 h-3.5 text-amber-400" /> Planner Panel — Approval Jobcard Semua Biro ({pendingTasksCount} Menunggu)
+              </span>
+              <button onClick={() => setIsPlannerOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs pb-2 border-b border-slate-800">
+                  <span className="text-slate-400">Daftar Pengajuan Jobcard ({pendingTasksCount}) dari {pendingTasksByBiro.length} Biro</span>
+                </div>
+                <div className="max-h-96 overflow-y-auto space-y-4 pr-1">
+                  {pendingTasksByBiro.length > 0 ? pendingTasksByBiro.map(([biroName, list]) => (
+                    <div key={biroName} className="space-y-2">
+                      <div className="flex items-center justify-between text-[11px] px-1">
+                        <span className="font-bold text-slate-300">{biroName}</span>
+                        <span className="font-mono text-amber-400">{list.length} menunggu</span>
+                      </div>
+                      {list.map((task, idx) => (
+                        <div key={task.id} className="p-3 bg-slate-950 border border-slate-800 rounded-lg flex items-center justify-between gap-3 text-xs">
+                          <div>
+                            <div className="font-semibold text-white">{task.pic} <span className="font-mono text-slate-500">#{idx + 1}</span>{task.rev && <span className="ml-2 font-mono text-[10px] text-cyan-400">Rev.{task.rev}</span>}</div>
+                            <div className="text-slate-400 text-[11px]">{task.taskName}</div>
+                            <div className="text-emerald-400 font-mono text-[10px]">{task.project}</div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <input type="text" value={editingTaskKode[task.id] ?? task.kodeJc ?? ''}
+                              onChange={(e) => setEditingTaskKode(prev => ({ ...prev, [task.id]: e.target.value.toUpperCase() }))}
+                              placeholder="Jobcard (misal: JC020926 39833)..."
+                              className="w-48 px-2 py-1 bg-slate-900 border border-slate-700 rounded text-xs font-mono text-white uppercase focus:outline-none" />
+                            <button onClick={() => handleSaveKodeJcForTask(task.id)}
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-xs cursor-pointer">Simpan</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )) : <div className="py-8 text-center text-xs text-slate-500">Semua tugas sudah memiliki kode Jobcard</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRekapInputKabiro && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl">
+            {/* Modal Header */}
+            <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
+                  <FileSpreadsheet className="w-4 h-4 text-indigo-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                    Rekapitulasi Inputan Form Kabiro
+                    <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                      {filteredRekapTasks.length} Tugas
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Daftar seluruh inputan form penugasan (Organik & Subkon) dari Kepala Biro
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleExportFormExcel(rekapFilterBiro === 'all' ? null : rekapFilterBiro)}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                  title="Export data form ini ke file Excel (kolom diperlebar, Jobcard kosong)"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export Excel Form</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowRekapInputKabiro(false)}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="p-3 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between flex-wrap gap-2.5 shrink-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                  <span>Filter Biro:</span>
+                  <select
+                    value={rekapFilterBiro}
+                    onChange={(e) => setRekapFilterBiro(e.target.value)}
+                    className="px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500 cursor-pointer max-w-[280px]"
+                  >
+                    <option value="all">Semua Biro ({allBiroNames.length})</option>
+                    {allBiroNames.map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
+                </div>
+                {rekapFilterBiro !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => setRekapFilterBiro('all')}
+                    className="text-[11px] text-indigo-400 hover:underline cursor-pointer"
+                  >
+                    Reset Filter
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Cari personel, proyek, drawing..."
+                  value={rekapSearchText}
+                  onChange={(e) => setRekapSearchText(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-indigo-500 w-64"
+                />
+              </div>
+            </div>
+
+            {/* Table Area */}
+            <div className="flex-1 overflow-auto p-4">
+              {filteredRekapTasks.length === 0 ? (
+                <div className="py-16 text-center text-slate-500 text-xs">
+                  Tidak ada data inputan form penugasan {rekapFilterBiro !== 'all' ? `untuk biro "${rekapFilterBiro}"` : ''}.
+                </div>
+              ) : (
+                <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950/40">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-900/80 text-slate-400 border-b border-slate-800">
+                        <th className="py-2.5 px-3 w-10 text-center">#</th>
+                        <th className="py-2.5 px-3">Biro</th>
+                        <th className="py-2.5 px-3">Nama Personel</th>
+                        <th className="py-2.5 px-3">Type</th>
+                        <th className="py-2.5 px-3">Proyek</th>
+                        <th className="py-2.5 px-3">No. Drawing / Name</th>
+                        <th className="py-2.5 px-3">Deskripsi</th>
+                        <th className="py-2.5 px-2 text-center">Rev</th>
+                        <th className="py-2.5 px-3">Jadwal (Plan)</th>
+                        <th className="py-2.5 px-2 text-center">Plan JO</th>
+                        <th className="py-2.5 px-3 text-center">Jobcard</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/80 text-slate-300">
+                      {filteredRekapTasks.map((t, idx) => {
+                        const parts = splitTaskToDrawingParts(t.taskName || '');
+                        return (
+                          <tr key={t.id || idx} className="hover:bg-slate-900/50 transition">
+                            <td className="py-2.5 px-3 text-slate-500 text-center font-mono">{idx + 1}</td>
+                            <td className="py-2.5 px-3 font-medium text-slate-200 whitespace-nowrap">{t.biroName || '-'}</td>
+                            <td className="py-2.5 px-3 font-semibold text-white whitespace-nowrap">{t.pic || '-'}</td>
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">
+                                {t.type || 'Drawing'}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-emerald-400 font-semibold whitespace-nowrap">{t.project || '-'}</td>
+                            <td className="py-2.5 px-3 max-w-[200px]">
+                              <div className="font-mono text-indigo-300 text-[11px] truncate">{parts.drawingNumber || '-'}</div>
+                              <div className="text-slate-300 text-[11px] truncate">{parts.drawingName || t.taskName || '-'}</div>
+                            </td>
+                            <td className="py-2.5 px-3 max-w-[220px]">
+                              <div className="text-slate-300 text-[11px] truncate" title={t.deskripsi || t.taskName || '-'}>
+                                {t.deskripsi || t.taskName || '-'}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-mono text-slate-400">{t.rev ?? '0'}</td>
+                            <td className="py-2.5 px-3 font-mono text-[11px] text-slate-400 whitespace-nowrap">
+                              {formatDisplayDate(t.startDate)} s/d {formatDisplayDate(t.endDate)}
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-mono text-amber-300">{t.jo || '-'}</td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              {t.kodeJc ? (
+                                <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono text-[11px]">
+                                  {t.kodeJc}
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px]">
+                                  Kosong di Excel
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between shrink-0 text-xs text-slate-400">
+              <div>
+                Menampilkan <b className="text-white">{filteredRekapTasks.length}</b> tugas
+                {rekapFilterBiro !== 'all' ? ` pada biro "${rekapFilterBiro}"` : ' dari seluruh biro'}.
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleExportFormExcel(rekapFilterBiro === 'all' ? null : rekapFilterBiro)}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export Excel Form</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowRekapInputKabiro(false)}
+                  className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium transition cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
