@@ -32,12 +32,39 @@ interface Im4Member {
 const normalizeNip = (v: any): string =>
   String(v ?? '').trim().replace(/\s+/g, '').replace(/\.0+$/, '');
 
+const excelGlobUrls = import.meta.glob('./*.xlsx', {
+  query: '?url',
+  import: 'default',
+  eager: true
+}) as Record<string, string>;
+
+const parentExcelGlobUrls = import.meta.glob('../*.xlsx', {
+  query: '?url',
+  import: 'default',
+  eager: true
+}) as Record<string, string>;
+
 async function loadIm4Workbook(): Promise<XLSX.WorkBook | null> {
   try {
     const { data, error } = await supabase.storage.from(MASTER_BUCKET).download('im4.xlsx');
     if (!error && data) return XLSX.read(await data.arrayBuffer(), { type: 'array' });
   } catch { /* lanjut ke cadangan */ }
-  for (const p of ['/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx']) {
+
+  const allGlob = { ...excelGlobUrls, ...parentExcelGlobUrls };
+  const globIm4Url = Object.entries(allGlob).find(([k]) => {
+    const lk = k.toLowerCase();
+    return lk.includes('im4') || lk.includes('drawing') || lk.includes('akses');
+  })?.[1];
+
+  const candidateUrls = [
+    globIm4Url,
+    '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx',
+    './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx',
+    '/AKSES_AKUN_IM4_UNTUK_MENU_DRAWING_CONTROL_(1).xlsx',
+    './AKSES_AKUN_IM4_UNTUK_MENU_DRAWING_CONTROL_(1).xlsx',
+  ].filter(Boolean) as string[];
+
+  for (const p of candidateUrls) {
     try {
       const res = await fetch(p);
       if (!res.ok) continue;
