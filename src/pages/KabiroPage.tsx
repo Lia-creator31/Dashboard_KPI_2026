@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow, findDrawingPlanInfo, calculatePlanFinish, TASK_TYPE_OPTIONS } from '../lib/projectCandidates';
 import KpiDashboardPage from './KpiDashboardPage';
+import { DeptWeeklyTimeOffPanel, CutiSakitPanel, fetchSisaCuti, SisaCutiData, loadMasterFile, fetchSafeWorkbook } from './RendalPage';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, Search, TrendingUp,
@@ -22,6 +23,8 @@ const parentExcelGlobUrls = import.meta.glob('../*.xlsx', {
   import: 'default',
   eager: true
 }) as Record<string, string>;
+
+const timeOffUrl = excelGlobUrls['./TIME_OFF_DIVISI_DESAIN.xlsx'] || parentExcelGlobUrls['../TIME_OFF_DIVISI_DESAIN.xlsx'];
 
 const GAS_DRAWING_API_URL = 'https://script.google.com/macros/s/AKfycbx7bLS2vj_oeW4xDFp3a98A19pN347TuQHRceeFVxZZVC84E398vb4rqEK2SQ0JxMpD/exec';
 
@@ -518,7 +521,7 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
   // State Navigasi
   const [selectedDept, setSelectedDept] = useState<Department | null>(null);
   const [selectedFormBiro, setSelectedFormBiro] = useState<SelectedFormPage | null>(null);
-  const [formPageMode, setFormPageMode] = useState<'members' | 'form'>('members');
+  const [formPageMode, setFormPageMode] = useState<'members' | 'form' | 'absensi'>('members');
   const [searchQuery, setSearchQuery] = useState('');
   const [showKpi, setShowKpi] = useState(false);
   
@@ -528,10 +531,12 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
   const [subconPageMode, setSubconPageMode] = useState<'members' | 'form' | 'release'>('members');
   const [subconSearch, setSubconSearch] = useState('');
   
-  // State Data Master (Excel)
+  // State Data Master (Excel & Time Off)
   const [jobcardWorkbook, setJobcardWorkbook] = useState<XLSX.WorkBook | null>(null);
   const [im4Workbook, setIm4Workbook] = useState<XLSX.WorkBook | null>(null);
   const [realisasiWorkbook, setRealisasiWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [timeOffWorkbook, setTimeOffWorkbook] = useState<XLSX.WorkBook | null>(null);
+  const [sisaCuti, setSisaCuti] = useState<SisaCutiData | null>(null);
   
   // State Tasks & UI
   const [manualTasks, setManualTasks] = useState<{ [biroKey: string]: TaskItem[] }>({});
@@ -637,15 +642,19 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
           else if (pLower.includes('realisasi')) realisasiUrl = url;
         });
 
-        const [wbJc, wbIm4, wbRealisasi] = await Promise.all([
+        const [wbJc, wbIm4, wbRealisasi, wbTimeOff, scData] = await Promise.all([
           loadMasterFile('jobcard').then(wb => wb || fetchSafeWorkbook([jcUrl, '/JOBCARD_DESAIN.xlsx', './JOBCARD_DESAIN.xlsx'])),
           loadMasterFile('im4').then(wb => wb || fetchSafeWorkbook([im4Url, '/AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx', './AKSES AKUN IM4 UNTUK MENU DRAWING CONTROL (1).xlsx'])),
           loadMasterFile('realisasi').then(wb => wb || fetchSafeWorkbook([realisasiUrl, '/Realisasi JO.xlsx', './Realisasi JO.xlsx'])),
+          loadMasterFile('timeoff').then(wb => wb || fetchSafeWorkbook([timeOffUrl, '/TIME_OFF_DIVISI_DESAIN.xlsx', './TIME_OFF_DIVISI_DESAIN.xlsx'])),
+          fetchSisaCuti(),
         ]);
 
         if (wbJc) setJobcardWorkbook(wbJc);
         if (wbIm4) setIm4Workbook(wbIm4);
         if (wbRealisasi) setRealisasiWorkbook(wbRealisasi);
+        if (wbTimeOff) setTimeOffWorkbook(wbTimeOff);
+        if (scData) setSisaCuti(scData);
       } catch {}
     }
     initMasterFiles();
@@ -808,6 +817,18 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
     }
     return list;
   }, [allParsedFromExcel, user, detectedKabiroInfo]);
+
+  const allDeptMembers = useMemo(() => {
+    if (!selectedDept) return [];
+    const biroMembers = selectedDept.biros.flatMap(biro => getBiroMembers(biro.name));
+    const seen = new Set<string>();
+    return biroMembers.filter(p => {
+      const id = p.nip || p.nama;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [selectedDept, getBiroMembers]);
 
   const toggleAccordion = (cardKey: string) => {
     setExpandedCards(prev => ({ ...prev, [cardKey]: !prev[cardKey] }));
@@ -2094,6 +2115,15 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
               <h2 className="text-base font-bold text-white">{selectedDept.name}</h2>
               <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
             </div>
+
+            {/* Panel Rencana Tidak Masuk Minggu Ini (Time Off + Rencana dari Google Sheet) */}
+            <DeptWeeklyTimeOffPanel
+              deptName={selectedDept.name}
+              members={allDeptMembers}
+              wb={timeOffWorkbook}
+              sisaCuti={sisaCuti}
+            />
+
             <div className="space-y-2">
               {selectedDept.biros.map((biro) => {
                 const allowed = isMyBiro(biro.name);
@@ -2118,6 +2148,11 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                             className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer transition">Anggota</button>
                           <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }}
                             className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer transition">Form</button>
+                          <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('absensi'); }}
+                            className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer transition flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            <span>Rekap Absensi</span>
+                          </button>
                         </>
                       ) : (
                         <span className="text-[11px] text-slate-500 italic py-1 px-2">Tidak memiliki akses</span>
@@ -2155,6 +2190,11 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                   <button onClick={() => setFormPageMode('form')}
                     className={`px-3 py-1 rounded transition cursor-pointer ${formPageMode === 'form' ? 'bg-emerald-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
                     Form
+                  </button>
+                  <button onClick={() => setFormPageMode('absensi')}
+                    className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1.5 ${formPageMode === 'absensi' ? 'bg-purple-600 text-white font-semibold' : 'text-slate-400 hover:text-white'}`}>
+                    <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Rekap Absensi &amp; Cuti</span>
                   </button>
                 </div>
               </div>
@@ -2491,6 +2531,15 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                   </div>
                 </form>
               </div>
+            )}
+
+            {formPageMode === 'absensi' && (
+              <CutiSakitPanel
+                biroName={selectedFormBiro.biroName}
+                members={currentBiroMembers}
+                wb={timeOffWorkbook}
+                sisaCuti={sisaCuti}
+              />
             )}
           </div>
         )}
