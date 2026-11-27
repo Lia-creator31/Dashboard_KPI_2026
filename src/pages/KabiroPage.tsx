@@ -8,7 +8,7 @@ import KpiDashboardPage from './KpiDashboardPage';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, Search, TrendingUp,
-  Users, FileSpreadsheet
+  Users, FileSpreadsheet, Lock
 } from 'lucide-react';
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
@@ -1251,19 +1251,15 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
     loadAllJobCards();
   };
 
-  // Batasi hanya departemen dan biro milik Kabiro yang sedang login
-  const accessibleDepartments = useMemo(() => {
-    if (!detectedKabiroInfo) return departmentsData || [];
-    return (departmentsData || [])
-      .filter(dept => isBiroMatch(dept.name, detectedKabiroInfo.deptName) || dept.biros.some(b => isBiroMatch(b.name, detectedKabiroInfo.biroName)))
-      .map(dept => ({
-        ...dept,
-        biros: dept.biros.filter(b => isBiroMatch(b.name, detectedKabiroInfo.biroName)),
-      }));
+  // Helper untuk memeriksa apakah suatu biro adalah milik Kabiro yang sedang login
+  const isMyBiro = useCallback((biroName: string) => {
+    if (!detectedKabiroInfo) return true; // jika bukan kabiro terdeteksi, default allow
+    return isBiroMatch(biroName, detectedKabiroInfo.biroName);
   }, [detectedKabiroInfo]);
 
-  const filteredDepartments = accessibleDepartments.filter(dept => dept.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  const filteredSubconDepartments = accessibleDepartments.filter(dept => dept.name.toLowerCase().includes(subconSearch.toLowerCase()));
+  // Semua departemen tetap ditampilkan
+  const filteredDepartments = (departmentsData || []).filter(dept => dept.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredSubconDepartments = (departmentsData || []).filter(dept => dept.name.toLowerCase().includes(subconSearch.toLowerCase()));
   
   const currentActiveBiroName = useMemo(() => {
     if (accessMode === 'subkon') return subconSelectedBiro || '';
@@ -1499,11 +1495,8 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div onClick={() => {
                 setAccessMode('organik');
-                if (detectedKabiroInfo) {
-                  if (detectedKabiroInfo.dept) setSelectedDept(detectedKabiroInfo.dept);
-                  setSelectedFormBiro({ biroName: detectedKabiroInfo.biroName, deptName: detectedKabiroInfo.deptName });
-                  setFormPageMode('form');
-                }
+                setSelectedDept(null);
+                setSelectedFormBiro(null);
               }}
                 className="bg-slate-900 border border-slate-800 hover:border-blue-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3.5">
@@ -1514,7 +1507,7 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                     <h3 className="text-base font-bold text-white">Pegawai Organik</h3>
                     <p className="text-xs text-slate-400">PKWTT &amp; PKWT</p>
                     {detectedKabiroInfo && (
-                      <p className="text-[11px] text-blue-400 font-mono mt-1">Buka Form {detectedKabiroInfo.biroName} →</p>
+                      <p className="text-[11px] text-blue-400 font-mono mt-1">Otorisasi: {detectedKabiroInfo.biroName}</p>
                     )}
                   </div>
                 </div>
@@ -1522,11 +1515,8 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
               </div>
               <div onClick={() => {
                 setAccessMode('subkon');
-                if (detectedKabiroInfo) {
-                  if (detectedKabiroInfo.dept) setSubconSelectedDept(detectedKabiroInfo.dept);
-                  setSubconSelectedBiro(detectedKabiroInfo.biroName);
-                  setSubconPageMode('form');
-                }
+                setSubconSelectedDept(null);
+                setSubconSelectedBiro(null);
               }}
                 className="bg-slate-900 border border-slate-800 hover:border-amber-500/70 rounded-xl p-5 cursor-pointer text-left transition group flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3.5">
@@ -1537,7 +1527,7 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                     <h3 className="text-base font-bold text-white">Mitra / Subkon</h3>
                     <p className="text-xs text-slate-400">Outsourcing</p>
                     {detectedKabiroInfo && (
-                      <p className="text-[11px] text-amber-400 font-mono mt-1">Buka Form Outsourcing {detectedKabiroInfo.biroName} →</p>
+                      <p className="text-[11px] text-amber-400 font-mono mt-1">Otorisasi: {detectedKabiroInfo.biroName}</p>
                     )}
                   </div>
                 </div>
@@ -1596,19 +1586,35 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
             <div className="space-y-2">
               {subconSelectedDept.biros.map((biro) => {
                 const countInBiro = getSubconMembersForBiro(biro.name).length;
+                const allowed = isMyBiro(biro.name);
                 return (
-                  <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div key={biro.id} className={`bg-slate-900 border rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${
+                    allowed ? 'border-slate-800 hover:border-amber-500/50' : 'border-slate-800/60 opacity-60 bg-slate-950/40'
+                  }`}>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-white text-sm">{biro.name}</span>
+                      <span className={`font-semibold text-sm ${allowed ? 'text-white' : 'text-slate-400'}`}>{biro.name}</span>
                       <span className="text-xs text-amber-400 font-mono">({countInBiro} Org)</span>
+                      {allowed ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">Biro Anda</span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono text-slate-500 bg-slate-900 border border-slate-800 flex items-center gap-1">
+                          <Lock className="w-2.5 h-2.5 text-slate-500" /> Terkunci
+                        </span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-1.5 self-end sm:self-auto">
-                      <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('members'); }}
-                        className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-xs rounded border border-slate-700 cursor-pointer">Anggota</button>
-                      <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('form'); }}
-                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer">Form</button>
-                      <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('release'); }}
-                        className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer">Work Order</button>
+                    <div className="flex items-center gap-1.5 self-end sm:self-auto flex-wrap">
+                      {allowed ? (
+                        <>
+                          <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('members'); }}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-xs rounded border border-slate-700 cursor-pointer transition">Anggota</button>
+                          <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('form'); }}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer transition">Form</button>
+                          <button onClick={() => { setSubconSelectedBiro(biro.name); setSubconPageMode('release'); }}
+                            className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs rounded cursor-pointer transition">Work Order</button>
+                        </>
+                      ) : (
+                        <span className="text-[11px] text-slate-500 italic py-1 px-2">Tidak memiliki akses</span>
+                      )}
                     </div>
                   </div>
                 );
@@ -1619,14 +1625,8 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
 
         {accessMode === 'subkon' && subconSelectedBiro && (
           <div className="space-y-4">
-            <button onClick={() => {
-              if (detectedKabiroInfo) {
-                setAccessMode('landing');
-              } else {
-                setSubconSelectedBiro(null);
-              }
-            }} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-              <ArrowLeft className="w-3.5 h-3.5" /> {detectedKabiroInfo ? 'Kembali ke Portal' : 'Kembali'}
+            <button onClick={() => setSubconSelectedBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
+              <ArrowLeft className="w-3.5 h-3.5" /> Kembali
             </button>
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
@@ -2095,31 +2095,45 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
               <span className="text-xs text-slate-400">Daftar Biro Penugasan Pegawai Organik</span>
             </div>
             <div className="space-y-2">
-              {selectedDept.biros.map((biro) => (
-                <div key={biro.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <span className="font-semibold text-white text-sm">{biro.name}</span>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('members'); }}
-                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer">Anggota</button>
-                    <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }}
-                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer">Form</button>
+              {selectedDept.biros.map((biro) => {
+                const allowed = isMyBiro(biro.name);
+                return (
+                  <div key={biro.id} className={`bg-slate-900 border rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${
+                    allowed ? 'border-slate-800 hover:border-blue-500/50' : 'border-slate-800/60 opacity-60 bg-slate-950/40'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`font-semibold text-sm ${allowed ? 'text-white' : 'text-slate-400'}`}>{biro.name}</span>
+                      {allowed ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500/15 text-blue-400 border border-blue-500/30">Biro Anda</span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono text-slate-500 bg-slate-900 border border-slate-800 flex items-center gap-1">
+                          <Lock className="w-2.5 h-2.5 text-slate-500" /> Terkunci
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {allowed ? (
+                        <>
+                          <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('members'); }}
+                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs rounded cursor-pointer transition">Anggota</button>
+                          <button onClick={() => { setSelectedFormBiro({ biroName: biro.name, deptName: selectedDept.name }); setFormPageMode('form'); }}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded cursor-pointer transition">Form</button>
+                        </>
+                      ) : (
+                        <span className="text-[11px] text-slate-500 italic py-1 px-2">Tidak memiliki akses</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
 
         {accessMode === 'organik' && selectedFormBiro && (
           <div className="space-y-4">
-            <button onClick={() => {
-              if (detectedKabiroInfo) {
-                setAccessMode('landing');
-              } else {
-                setSelectedFormBiro(null);
-              }
-            }} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-              <ArrowLeft className="w-3.5 h-3.5" /> {detectedKabiroInfo ? 'Kembali ke Portal' : 'Kembali'}
+            <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
+              <ArrowLeft className="w-3.5 h-3.5" /> Kembali
             </button>
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
