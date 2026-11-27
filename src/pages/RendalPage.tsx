@@ -5,8 +5,8 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
+import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow, TASK_TYPE_OPTIONS } from '../lib/projectCandidates';
 import { parseUploadedTimesheetFolder } from '../lib/timesheetAccomplishment';
-import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow, findDrawingPlanInfo, calculatePlanFinish, TASK_TYPE_OPTIONS } from '../lib/projectCandidates';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
@@ -64,6 +64,7 @@ interface TaskItem {
   release?: string;
   status?: string;
   type?: string;
+  deskripsi?: string;
 }
 
 interface SelectOption {
@@ -1812,12 +1813,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     rev: '0',
     release: '',
     type: 'Drawing',
+    deskripsi: '',
   });
   const [formData, setFormData] = useState({
     nama: '', kodeProyek: '', taskName: '', drawingNumber: '', drawingName: '', startDate: '', endDate: '',
-    pic: '', jo: '', rev: '0', realJo: '', release: '', type: 'Drawing',
+    pic: '', jo: '', rev: '0', realJo: '', release: '', type: 'Drawing', deskripsi: '',
   });
-  const [isPlannerOpen, setIsPlannerOpen] = useState(false);
   const [showKpi, setShowKpi] = useState(false);
   const [showRekapDivisi, setShowRekapDivisi] = useState(user.role === 'rekap');
   const [isImportingTimesheet, setIsImportingTimesheet] = useState(false);
@@ -1860,7 +1861,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             id: row.id, biroName: row.biro_name || '', project: row.project || '', taskName: row.task_name || '',
             startDate: row.start_date || '', endDate: row.end_date || '', pic: row.pic || '', jo: row.jo || '',
             kodeJc: row.kode_jc || '', rev: persistedRev, release: persistedRelease, realJo: row.real_jc || row.realJo || '',
-            status: row.status || '', type: row.type || getLocalType(row.id, 'Drawing'),
+            status: row.status || '', type: row.type || getLocalType(row.id, 'Drawing'), deskripsi: row.deskripsi || '',
           };
           grouped[biroKey].push(item);
           seenIds.add(String(row.id));
@@ -2514,114 +2515,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     }
   };
 
-  // Export data inputan form dari para Kabiro ke file Excel (dengan kolom Jobcard dibiarkan kosong)
-  const handleExportFormExcel = (targetBiroName?: string) => {
-    let tasksToExport: TaskItem[] = [];
-    if (targetBiroName) {
-      const k = cleanText(targetBiroName);
-      tasksToExport = manualTasks[k] || [];
-    } else {
-      tasksToExport = Object.values(manualTasks).flat();
-    }
-
-    if (tasksToExport.length === 0) {
-      alert(targetBiroName ? `Belum ada data inputan form untuk biro "${targetBiroName}".` : 'Belum ada data inputan form dari para kabiro.');
-      return;
-    }
-
-    const headers = [
-      'No',
-      'Biro',
-      'Nama Personel',
-      'Type',
-      'Kode Proyek',
-      'Drawing Number',
-      'Drawing Name',
-      'Deskripsi',
-      'Rev',
-      'Plan Start',
-      'Plan Finish',
-      'Plan JO',
-      'Jobcard',
-    ];
-
-    const rows = tasksToExport.map((t, idx) => {
-      const parts = splitTaskToDrawingParts(t.taskName || '');
-      const dwgNo = parts.drawingNumber || '';
-      const dwgName = parts.drawingName || '';
-      const startStr = formatDisplayDate(t.startDate);
-      const endStr = formatDisplayDate(t.endDate);
-
-      return [
-        idx + 1,
-        t.biroName || '',
-        t.pic || '',
-        t.type || 'Drawing',
-        t.project || '',
-        dwgNo,
-        dwgName,
-        t.taskName || '',
-        t.rev || '0',
-        startStr !== '-' ? startStr : (t.startDate || ''),
-        endStr !== '-' ? endStr : (t.endDate || ''),
-        t.jo || '',
-        '', // Kolom Jobcard dibiarkan kosong sesuai permintaan pengguna
-      ];
-    });
-
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-    ws['!cols'] = [
-      { wch: 6 },  // No
-      { wch: 28 }, // Biro
-      { wch: 28 }, // Nama Personel
-      { wch: 14 }, // Type
-      { wch: 16 }, // Kode Proyek
-      { wch: 22 }, // Drawing Number
-      { wch: 32 }, // Drawing Name
-      { wch: 40 }, // Deskripsi
-      { wch: 8 },  // Rev
-      { wch: 14 }, // Plan Start
-      { wch: 14 }, // Plan Finish
-      { wch: 12 }, // Plan JO
-      { wch: 18 }, // Jobcard (kosong)
-    ];
-
-    const wbOut = XLSX.utils.book_new();
-    const sheetName = targetBiroName ? targetBiroName.slice(0, 31).replace(/[\\/?*[\]]/g, '') : 'Form Penugasan Kabiro';
-    XLSX.utils.book_append_sheet(wbOut, ws, sheetName);
-
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
-    const filename = targetBiroName
-      ? `Form_Penugasan_${targetBiroName.replace(/[^a-zA-Z0-9]/g, '_')}_${dateStr}.xlsx`
-      : `Form_Penugasan_Kabiro_Divisi_Desain_${dateStr}.xlsx`;
-
-    XLSX.writeFile(wbOut, filename);
-  };
-
-  const handleImportTimesheetFolder = async (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    setIsImportingTimesheet(true);
-    try {
-      const res = await parseUploadedTimesheetFolder(files);
-      if (res.addedMonths.length === 0) {
-        alert('Tidak ditemukan file timesheet Excel/CSV yang valid di dalam folder bulan. Pastikan struktur subfolder bertuliskan nama bulan (mis. Agustus, September, dsb).');
-      } else {
-        alert(
-          `Berhasil membaca ${res.processedFiles} file Timesheet dari ${res.addedMonths.length} folder bulan: ${res.addedMonths.join(', ')}.\n\n` +
-          `Data dan file berhasil tersimpan di Database (Supabase Storage) & tersinkronisasi ke Dashboard KPI Individual!`
-        );
-      }
-    } catch (err: any) {
-      console.error('Error importing timesheet folder:', err);
-      alert('Gagal membaca folder timesheet: ' + (err?.message || err));
-    } finally {
-      setIsImportingTimesheet(false);
-      e.target.value = '';
-    }
-  };
-
   // Isi kode Jobcard otomatis pada tugas Form yang masih kosong (nama + proyek + nomor gambar).
   const autoAssignJobcardsFromRealisasi = useCallback(async (wb: XLSX.WorkBook): Promise<number> => {
     const rows = parseRealisasiRows(wb);
@@ -2849,31 +2742,94 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   const handleOpenEdit = (task: TaskItem) => {
     const parts = splitTaskToDrawingParts(task.taskName || '');
-    const drivePlan = getDrivePlanForTask(task);
-    const rawJo = task.jo && String(task.jo).trim() !== '-' ? task.jo : '';
     setEditingTask(task);
     setEditFormData({
       project: task.project || '',
-      taskName: task.taskName || '',
+      taskName: task.deskripsi || task.taskName || '',
       drawingNumber: parts.drawingNumber,
       drawingName: parts.drawingName,
-      startDate: task.startDate || drivePlan.planStart || '',
-      endDate: task.endDate || drivePlan.planFinish || '',
-      jo: rawJo || (accessMode === 'organik' ? drivePlan.jo : '') || '',
+      startDate: task.startDate || '',
+      endDate: task.endDate || '',
+      jo: task.jo || '',
       kodeJc: task.kodeJc || '',
-      rev: task.rev || drivePlan.rev || '0',
+      rev: task.rev || '0',
       release: task.release || '',
       type: task.type || getLocalType(task.id, 'Drawing'),
+      deskripsi: task.deskripsi || task.taskName || '',
     });
     if (task.project) fetchDrawingControlForProject(task.project);
+  };
+
+  const handleExportFormExcel = (targetBiro?: string | null) => {
+    const rowsToExport: any[] = [];
+    let no = 1;
+
+    Object.entries(manualTasks).forEach(([bKey, list]) => {
+      list.forEach(task => {
+        if (targetBiro && !isBiroMatch(task.biroName, targetBiro)) {
+          return;
+        }
+
+        const { drawingNumber, drawingName } = splitTaskToDrawingParts(task.taskName || '');
+        const taskType = task.type || getLocalType(task.id, 'Drawing');
+
+        rowsToExport.push({
+          'No': no++,
+          'Biro': task.biroName || targetBiro || '-',
+          'Nama Personel': task.pic || '-',
+          'Type': taskType,
+          'Kode Proyek': task.project || '-',
+          'Drawing Number': drawingNumber || '-',
+          'Drawing Name': drawingName || task.taskName || '-',
+          'Deskripsi': task.deskripsi || task.taskName || '-',
+          'Rev': task.rev ?? '0',
+          'Plan Start': task.startDate ? formatDisplayDate(task.startDate) : '-',
+          'Plan Finish': task.endDate ? formatDisplayDate(task.endDate) : '-',
+          'Plan JO': task.jo || '-',
+          'Jobcard': '', // Dikosongkan sesuai permintaan user
+        });
+      });
+    });
+
+    if (rowsToExport.length === 0) {
+      alert('Tidak ada data form untuk diexport.');
+      return;
+    }
+
+    const ws = XLSX.utils.json_to_sheet(rowsToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Form Input Kabiro');
+
+    const fileName = targetBiro
+      ? `Form_Input_${cleanText(targetBiro).toUpperCase()}_${new Date().toISOString().slice(0, 10)}.xlsx`
+      : `Form_Input_Semua_Biro_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+    XLSX.writeFile(wb, fileName);
+  };
+
+  const handleImportTimesheetFolder = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsImportingTimesheet(true);
+    try {
+      const res = await parseUploadedTimesheetFolder(files);
+      if (res.addedMonths.length === 0) {
+        alert('Tidak ditemukan folder bulan yang valid (misal: Juli, Agustus, September, Oktober, November) atau file timesheet di dalamnya.');
+      } else {
+        alert(`Berhasil mengimpor timesheet untuk ${res.addedMonths.length} bulan (${res.addedMonths.join(', ')}) dari ${res.processedFiles} file. Data tersimpan di database.`);
+      }
+    } catch (err: any) {
+      alert(`Gagal memproses folder timesheet: ${err?.message || err}`);
+    } finally {
+      setIsImportingTimesheet(false);
+      e.target.value = '';
+    }
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTask) return;
-    const combinedTaskName = (editFormData.taskName && editFormData.taskName.trim())
-      ? editFormData.taskName.trim()
-      : (combineDrawingParts(editFormData.drawingNumber, editFormData.drawingName) || '-');
+    const combinedTaskName = combineDrawingParts(editFormData.drawingNumber, editFormData.drawingName) || editFormData.taskName;
     const revVal = (editFormData.rev && editFormData.rev.trim() !== '') ? editFormData.rev.trim() : '0';
     let releaseVal = editFormData.release ? editFormData.release.trim() : '';
     const keyChanged = editingTask.project !== editFormData.project
@@ -2891,7 +2847,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       ? String(hpEntry.hour)
       : editFormData.jo;
     const nextStatus = trimmedKodeJc ? 'approved' : (editingTask.status || 'pending');
-    const typeVal = editFormData.type || 'Drawing';
     const updatePayload: any = {
       project: editFormData.project,
       project_code: editFormData.project,
@@ -2903,16 +2858,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       status: nextStatus,
       rev: revVal,
       release: releaseVal,
-      type: typeVal,
+      type: editFormData.type || 'Drawing',
     };
     let { error } = await supabase
       .from('job_cards')
       .update(updatePayload)
       .eq('id', editingTask.id);
-    if (error && (error.message?.includes('rev') || error.message?.includes('release') || error.message?.includes('type') || (error as any).details?.includes('rev') || (error as any).details?.includes('release') || (error as any).details?.includes('type'))) {
-      delete updatePayload.type;
+    if (error && (error.message?.includes('rev') || error.message?.includes('release') || (error as any).details?.includes('rev') || (error as any).details?.includes('release') || error.message?.includes('type'))) {
       delete updatePayload.rev;
       delete updatePayload.release;
+      delete updatePayload.type;
       const retry = await supabase.from('job_cards').update(updatePayload).eq('id', editingTask.id);
       error = retry.error;
     }
@@ -2921,7 +2876,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       return;
     }
     saveLocalRelease(editingTask.id, releaseVal);
-    saveLocalType(editingTask.id, typeVal);
+    saveLocalType(editingTask.id, editFormData.type || 'Drawing');
     const updatedItem: TaskItem = {
       ...editingTask,
       project: editFormData.project,
@@ -2933,7 +2888,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       status: nextStatus,
       rev: revVal,
       release: releaseVal,
-      type: typeVal,
+      type: editFormData.type || 'Drawing',
+      deskripsi: editFormData.taskName || '',
     };
     if (accessMode === 'subkon' || SUBCON_WO_PREFIX_RE.test(String(updatedItem.kodeJc || '').trim())) {
       upsertSubconHistoryItem(updatedItem);
@@ -3017,22 +2973,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     let autoJo = formData.jo;
     const cNo = cleanText(selectedNoDwg);
     if (cNo && rowsForThisProj.length > 0) {
-      const matchingRows = rowsForThisProj.filter(r => cleanText(r.noDwg) === cNo);
-      if (matchingRows.length > 0) {
-        // Ambil revisi dari kolom rev pada Drawing Control
-        const currentFormRev = String(formData.rev || '0').trim();
-        const matchWithRev = matchingRows.find(r => String(r.rev || '0').trim() === currentFormRev);
-        const matchAny = matchWithRev || matchingRows[matchingRows.length - 1];
-        if (matchAny) {
-          if (matchAny.drawingName) nextName = matchAny.drawingName;
-          if (matchAny.finishDate) autoRelease = parseToStandardDate(matchAny.finishDate);
-          if (matchAny.rev !== undefined && matchAny.rev !== '') autoRev = matchAny.rev;
-          const plan = findDrawingPlanInfo(rowsForThisProj, selectedNoDwg, nextName, autoRev);
-          if (plan.planStart) autoStart = plan.planStart;
-          if (plan.planFinish) autoEnd = plan.planFinish;
-          if (accessMode === 'organik' && plan.jo) autoJo = plan.jo;
-          if (plan.rev) autoRev = plan.rev;
-        }
+      const currentFormRev = String(formData.rev || '0').trim();
+      const matchWithRev = rowsForThisProj.find(r => cleanText(r.noDwg) === cNo && String(r.rev || '0').trim() === currentFormRev);
+      const matchAny = matchWithRev || rowsForThisProj.find(r => cleanText(r.noDwg) === cNo);
+      if (matchAny) {
+        if (matchAny.drawingName) nextName = matchAny.drawingName;
+        if (matchAny.finishDate) autoRelease = parseToStandardDate(matchAny.finishDate);
+        if (matchAny.rev !== undefined && matchAny.rev !== '') autoRev = matchAny.rev;
+        if (matchAny.planStart) autoStart = matchAny.planStart;
+        if (matchAny.planFinish) autoEnd = matchAny.planFinish;
+        if (accessMode === 'organik' && matchAny.jo) autoJo = matchAny.jo;
       }
     } else if (selectedNoDwg && (!nextName || !cNo)) {
       const parts = splitTaskToDrawingParts(selectedNoDwg);
@@ -3040,12 +2990,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         selectedNoDwg = parts.drawingNumber;
         nextName = parts.drawingName;
       }
-    }
-    // Jika ada Plan Start dan Plan JO, hitung Plan Finish otomatis (1 hari = 8 jam kerja)
-    const effectiveStart = autoStart || formData.startDate;
-    if (effectiveStart && autoJo) {
-      const calcFinish = calculatePlanFinish(effectiveStart, autoJo);
-      if (calcFinish) autoEnd = calcFinish;
     }
     const combined = combineDrawingParts(selectedNoDwg, nextName);
     setFormData(prev => ({
@@ -3072,21 +3016,16 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     let autoJo = formData.jo;
     const cName = cleanText(selectedName);
     if (cName && rowsForThisProj.length > 0) {
-      const matchingRows = rowsForThisProj.filter(r => cleanText(r.drawingName) === cName);
-      if (matchingRows.length > 0) {
-        const currentFormRev = String(formData.rev || '0').trim();
-        const matchWithRev = matchingRows.find(r => String(r.rev || '0').trim() === currentFormRev);
-        const matchAny = matchWithRev || matchingRows[matchingRows.length - 1];
-        if (matchAny) {
-          if (matchAny.noDwg) nextNo = matchAny.noDwg;
-          if (matchAny.finishDate) autoRelease = parseToStandardDate(matchAny.finishDate);
-          if (matchAny.rev !== undefined && matchAny.rev !== '') autoRev = matchAny.rev;
-          const plan = findDrawingPlanInfo(rowsForThisProj, nextNo, selectedName, autoRev);
-          if (plan.planStart) autoStart = plan.planStart;
-          if (plan.planFinish) autoEnd = plan.planFinish;
-          if (accessMode === 'organik' && plan.jo) autoJo = plan.jo;
-          if (plan.rev) autoRev = plan.rev;
-        }
+      const currentFormRev = String(formData.rev || '0').trim();
+      const matchWithRev = rowsForThisProj.find(r => cleanText(r.drawingName) === cName && String(r.rev || '0').trim() === currentFormRev);
+      const matchAny = matchWithRev || rowsForThisProj.find(r => cleanText(r.drawingName) === cName);
+      if (matchAny) {
+        if (matchAny.noDwg) nextNo = matchAny.noDwg;
+        if (matchAny.finishDate) autoRelease = parseToStandardDate(matchAny.finishDate);
+        if (matchAny.rev !== undefined && matchAny.rev !== '') autoRev = matchAny.rev;
+        if (matchAny.planStart) autoStart = matchAny.planStart;
+        if (matchAny.planFinish) autoEnd = matchAny.planFinish;
+        if (accessMode === 'organik' && matchAny.jo) autoJo = matchAny.jo;
       }
     } else if (selectedName && !nextNo) {
       const parts = splitTaskToDrawingParts(selectedName);
@@ -3094,12 +3033,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         nextNo = parts.drawingNumber;
         selectedName = parts.drawingName;
       }
-    }
-    // Jika ada Plan Start dan Plan JO, hitung Plan Finish otomatis (1 hari = 8 jam kerja)
-    const effectiveStart = autoStart || formData.startDate;
-    if (effectiveStart && autoJo) {
-      const calcFinish = calculatePlanFinish(effectiveStart, autoJo);
-      if (calcFinish) autoEnd = calcFinish;
     }
     const combined = combineDrawingParts(nextNo, selectedName);
     setFormData(prev => ({
@@ -3197,9 +3130,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
       const resolvedJo = accessMode === 'subkon'
         ? (formData.jo || generateAutoSubconJo(activeBiro, formData.nama, getSubconMembersForBiro(activeBiro), currentList))
         : formData.jo;
-      const combinedTaskName = (formData.taskName && formData.taskName.trim())
-        ? formData.taskName.trim()
-        : (combineDrawingParts(formData.drawingNumber, formData.drawingName) || '-');
+      const combinedTaskName = combineDrawingParts(formData.drawingNumber, formData.drawingName) || formData.taskName;
       if (formData.drawingNumber.trim()) {
         setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, formData.drawingNumber.trim()));
       }
@@ -3229,40 +3160,39 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         const rows = cached && cached.length > 0 ? cached : await fetchDrawingRowsFor(effProj);
         releaseVal = findReleaseInRows(rows, combinedTaskName, revVal);
       }
-      const typeVal = formData.type || 'Drawing';
       const insertPayload: any = {
         biro_id: validBiroId, biro_name: activeBiro, personil_name: formData.nama, project_code: formData.kodeProyek,
         project: formData.kodeProyek, task_name: combinedTaskName, start_date: formData.startDate, end_date: formData.endDate,
         pic: formData.nama, jo: resolvedJo, kode_jc: autoKode, status: accessMode === 'subkon' ? 'approved' : 'pending',
-        rev: revVal, release: releaseVal, type: typeVal,
+        rev: revVal, release: releaseVal, type: formData.type || 'Drawing',
       };
       let insertedRow: any = null;
       const { data: resData, error } = await supabase.from('job_cards').insert(insertPayload).select().single();
       if (error) {
-        delete insertPayload.type; delete insertPayload.rev; delete insertPayload.release;
+        delete insertPayload.rev; delete insertPayload.release; delete insertPayload.type;
         const { data: retryData, error: retryError } = await supabase.from('job_cards').insert(insertPayload).select().single();
         if (retryError) { alert('Gagal simpan: ' + retryError.message); return; }
         insertedRow = retryData;
       } else { insertedRow = resData; }
       if (releaseVal) saveLocalRelease(insertedRow.id, releaseVal);
-      saveLocalType(insertedRow.id, typeVal);
+      saveLocalType(insertedRow.id, formData.type || 'Drawing');
       const newTask: TaskItem = {
         id: insertedRow.id, biroName: activeBiro, project: formData.kodeProyek, taskName: combinedTaskName,
         startDate: formData.startDate, endDate: formData.endDate, pic: formData.nama, jo: resolvedJo,
         kodeJc: autoKode, rev: revVal, release: releaseVal,
         status: accessMode === 'subkon' ? 'approved' : 'pending',
-        type: typeVal,
+        type: formData.type || 'Drawing', deskripsi: formData.taskName || '',
       };
       if (accessMode === 'subkon') {
         upsertSubconHistoryItem(newTask);
       }
       setManualTasks({ ...manualTasks, [biroKey]: [...currentList, newTask] });
       setExpandedCards(prev => ({ ...prev, [formData.nama]: true }));
-      setFormData({ nama: '', kodeProyek: '', taskName: '', drawingNumber: '', drawingName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '', release: '', type: 'Drawing' });
+      setFormData({ nama: '', kodeProyek: '', taskName: '', drawingNumber: '', drawingName: '', startDate: '', endDate: '', pic: '', jo: '', rev: '0', realJo: '', release: '', type: 'Drawing', deskripsi: '' });
       if (accessMode === 'subkon') {
         alert(`Tugas tersimpan! Work Order "${autoKode}" (Nomor JO: ${resolvedJo}) langsung terbit dan tersimpan di History.`);
       } else {
-        alert('Tugas berhasil disimpan!');
+        alert('Tugas tersimpan!');
       }
       await loadAllJobCards();
     } catch {
@@ -3303,63 +3233,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
 
   const currentActiveBiroKey = useMemo(() => cleanText(currentActiveBiroName), [currentActiveBiroName]);
   const currentActiveBiroTasks = useMemo(() => manualTasks[currentActiveBiroKey] || [], [manualTasks, currentActiveBiroKey]);
-
-  // ===== Plan JO & Plan Finish otomatis dari Drawing Control (Link Drive) untuk tabel tugas =====
-  // Kolom JO -> Plan JO, kolom PLAN FINISH -> Plan Finish, kolom PLAN START -> Plan Start
-  const getTaskDriveProject = useCallback((task: TaskItem): string => {
-    const effProj = resolveDrawingProject(task.project || '', task.taskName || '');
-    if (effProj && isKnownDriveProject(effProj)) return effProj;
-    return '';
-  }, []);
-
-  const getDrivePlanForTask = useCallback((task: TaskItem) => {
-    const parts = splitTaskToDrawingParts(task.taskName || '');
-    const effProj = getTaskDriveProject(task);
-    const rev = String(task.rev || '0');
-    if (effProj) {
-      const rows = drawingControlMap[cleanText(effProj)] || drawingControlMap[cleanText(task.project || '')] || [];
-      return findDrawingPlanInfo(rows, parts.drawingNumber, parts.drawingName, rev);
-    }
-    // Proyek CORP / tanpa kode proyek di deskripsi: cari nomor gambar di seluruh proyek Drive yang sudah dimuat
-    if (parts.drawingNumber) {
-      for (const k of ALL_DRIVE_PROJECT_KEYS) {
-        const rows = drawingControlMap[cleanText(k)];
-        if (!rows || rows.length === 0) continue;
-        const info = findDrawingPlanInfo(rows, parts.drawingNumber, '', rev);
-        if (info.row) return info;
-      }
-    }
-    return { planStart: '', planFinish: '', jo: '' } as ReturnType<typeof findDrawingPlanInfo>;
-  }, [drawingControlMap, getTaskDriveProject]);
-
-  const drivePlanFetchingRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (accessMode !== 'organik' || formPageMode !== 'members') return;
-    const needed = new Set<string>();
-    let needAll = false;
-    currentActiveBiroTasks.forEach(t => {
-      const lacksPlan = !t.endDate || !t.jo || String(t.jo).trim() === '-' || !t.startDate;
-      if (!lacksPlan) return;
-      const effProj = getTaskDriveProject(t);
-      if (effProj) needed.add(effProj);
-      else if (splitTaskToDrawingParts(t.taskName || '').drawingNumber) needAll = true;
-    });
-    if (needAll) ALL_DRIVE_PROJECT_KEYS.forEach(k => needed.add(k));
-    const todo = Array.from(needed).filter(p => {
-      const key = cleanText(p);
-      return key && !drawingControlMap[key] && !drivePlanFetchingRef.current.has(key);
-    });
-    if (todo.length === 0) return;
-    todo.forEach(p => drivePlanFetchingRef.current.add(cleanText(p)));
-    todo.forEach(async (p) => {
-      try {
-        const rows = await fetchDrawingRowsFor(p);
-        setDrawingControlMap(prev => (prev[cleanText(p)] ? prev : { ...prev, [cleanText(p)]: rows }));
-      } catch {
-        setDrawingControlMap(prev => (prev[cleanText(p)] ? prev : { ...prev, [cleanText(p)]: [] }));
-      }
-    });
-  }, [accessMode, formPageMode, currentActiveBiroTasks, drawingControlMap, getTaskDriveProject]);
 
   // Memastikan data Kadep muncul saat diklik
   const currentBiroMembers = useMemo(() => {
@@ -3528,23 +3401,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     () => buildDrawingNumberAndNameOptions(editFormData.project),
     [buildDrawingNumberAndNameOptions, editFormData.project]
   );
-
-  // Ketika nomor drawing nya sudah ada di data Drawing Control, kolom Plan JO, Drawing Name, dan Revisi dibuat tidak bisa diedit
-  const isDrawingNumberExisting = useMemo(() => {
-    if (!formData.drawingNumber || !formData.drawingNumber.trim()) return false;
-    const cNo = cleanText(formData.drawingNumber);
-    const cleanProj = cleanText(formData.kodeProyek || '');
-    const rows = drawingControlMap[cleanProj] || [];
-    return rows.some(r => cleanText(r.noDwg) === cNo);
-  }, [formData.drawingNumber, formData.kodeProyek, drawingControlMap]);
-
-  const isEditDrawingNumberExisting = useMemo(() => {
-    if (!editFormData.drawingNumber || !editFormData.drawingNumber.trim()) return false;
-    const cNo = cleanText(editFormData.drawingNumber);
-    const cleanProj = cleanText(editFormData.project || '');
-    const rows = drawingControlMap[cleanProj] || [];
-    return rows.some(r => cleanText(r.noDwg) === cNo);
-  }, [editFormData.drawingNumber, editFormData.project, drawingControlMap]);
 
   // Planner hanya menampilkan tugas hasil isian Form (status 'pending') yang belum punya kode Jobcard.
   // Baris dari Excel Realisasi JO tidak pernah masuk ke sini.
@@ -3754,14 +3610,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <span>Export Excel Form</span>
                 </button>
                 <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
-                <button onClick={() => setSubconPageMode('members')}
-                  className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'members' ? 'bg-amber-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Anggota</button>
-                <button onClick={() => setSubconPageMode('form')}
-                  className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'form' ? 'bg-emerald-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Form</button>
-                <button onClick={() => setSubconPageMode('release')}
-                  className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${subconPageMode === 'release' ? 'bg-purple-600 text-white font-bold shadow' : 'text-purple-300 hover:text-white hover:bg-slate-900'}`}>
-                  <FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({subconWorkOrders.length})
-                </button>
+                  <button onClick={() => setSubconPageMode('members')}
+                    className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'members' ? 'bg-amber-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Anggota</button>
+                  <button onClick={() => setSubconPageMode('form')}
+                    className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'form' ? 'bg-emerald-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Form</button>
+                  <button onClick={() => setSubconPageMode('release')}
+                    className={`px-3 py-1 rounded transition cursor-pointer flex items-center gap-1 ${subconPageMode === 'release' ? 'bg-purple-600 text-white font-bold shadow' : 'text-purple-300 hover:text-white hover:bg-slate-900'}`}>
+                    <FileCheck className="w-3 h-3 text-amber-300" /> Work Order ({subconWorkOrders.length})
+                  </button>
+                </div>
               </div>
             </div>
             {subconPageMode === 'members' && (
@@ -3913,30 +3770,17 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                           />
                         </div>
                         <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="text-slate-400">Drawing Name</label>
-                            {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari Drawing Control</span>}
-                          </div>
-                          {isDrawingNumberExisting ? (
-                            <input
-                              type="text"
-                              readOnly
-                              value={formData.drawingName}
-                              title="Otomatis terkunci dari data Drawing Control"
-                              className="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-400 cursor-not-allowed font-medium"
-                            />
-                          ) : (
-                            <SearchableSelect
-                              options={formDrawingOpts.nameOptions}
-                              value={formData.drawingName}
-                              onChange={handleDrawingNameChange}
-                              allowCustom
-                              customAddLabel="+ Tambah Drawing Name"
-                              onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
-                              placeholder="Ketik / pilih nama gambar..."
-                              required={!formData.drawingNumber}
-                            />
-                          )}
+                          <label className="block text-slate-400 mb-1">Drawing Name</label>
+                          <SearchableSelect
+                            options={formDrawingOpts.nameOptions}
+                            value={formData.drawingName}
+                            onChange={handleDrawingNameChange}
+                            allowCustom
+                            customAddLabel="+ Tambah Drawing Name"
+                            onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
+                            placeholder="Ketik / pilih nama gambar..."
+                            required={!formData.drawingNumber}
+                          />
                         </div>
 
                         <div className="md:col-span-2">
@@ -3990,32 +3834,19 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Mulai <span className="text-rose-400">*</span></label>
-                          <input
-                            type="date"
-                            value={formData.startDate}
-                            onChange={(e) => {
-                              const newStart = e.target.value;
-                              const calcFinish = calculatePlanFinish(newStart, formData.jo);
-                              setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
-                            }}
-                            required
-                            style={{ colorScheme: 'dark' }}
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
-                          />
+                          <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                            required style={{ colorScheme: 'dark' }}
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
                         </div>
                         <div>
-                          <div className="flex items-center justify-between mb-1">
-                            <label className="text-slate-400">Tanggal Selesai <span className="text-rose-400">*</span></label>
-                            {formData.jo && formData.startDate && (
-                              <span className="text-[10px] text-cyan-400 font-mono">Otomatis (1 hari = 8 jam) · Bisa diedit</span>
-                            )}
-                          </div>
+                          <label className="block text-slate-400 mb-1">Tanggal Selesai <span className="text-rose-400">*</span></label>
                           <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
                             required style={{ colorScheme: 'dark' }}
                             className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
                         </div>
                       </div>
                     </div>
+
                     {isSubmittingTask && (
                       <div className="px-3.5 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2.5 animate-pulse">
                         <span className="w-4 h-4 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin shrink-0" />
@@ -4184,9 +4015,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
-                  onClick={() => handleExportFormExcel()}
-                  className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs rounded-md flex items-center gap-1.5 cursor-pointer transition font-semibold"
-                  title="Export seluruh data inputan form dari para Kabiro ke file Excel (kolom Jobcard dikosongkan)"
+                  onClick={() => handleExportFormExcel(null)}
+                  className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
+                  title="Export seluruh data form dari semua Biro ke file Excel (kolom Jobcard dikosongkan)"
                 >
                   <Download className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Export Excel Form</span>
@@ -4205,14 +4036,24 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <input type="file" accept=".xlsx, .xls" onChange={handleUploadTimeOffExcel} className="hidden" />
                 </label>
                 <label
-                  className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs rounded-md border border-slate-700 flex items-center gap-1.5 cursor-pointer transition"
-                  title="Input Folder Timesheet Bulanan (berisi subfolder bulan seperti Januari, Agustus, dll. beserta file Excel/CSV di dalamnya)"
+                  className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-md border border-slate-700 text-xs flex items-center gap-1.5 cursor-pointer transition"
+                  title="Impor Hour Planner (Hour_Planner.xlsx): kolom Hour Planned masuk ke Plan JO sesuai kode Jobcard"
                 >
-                  <FolderUp className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{isImportingTimesheet ? 'Membaca Folder...' : 'Folder Timesheet'}</span>
+                  <Clock className="w-3.5 h-3.5 text-sky-400" />
+                  <span>{isImportingHour ? 'Mengimpor...' : `Hour Planner${Object.keys(hourPlannerMap).length > 0 ? ` (${Object.keys(hourPlannerMap).length})` : ''}`}</span>
+                  <input type="file" accept=".xlsx, .xls" onChange={handleImportHourPlanner} disabled={isImportingHour} className="hidden" />
+                </label>
+                <label
+                  className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded-md border border-slate-700 text-xs flex items-center gap-1.5 cursor-pointer transition"
+                  title="Upload folder berisi subfolder bulan (misal: Juli, Agustus, September, Oktober, November) berisi file timesheet overtime & non-overtime"
+                >
+                  <FolderUp className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{isImportingTimesheet ? 'Memproses Timesheet...' : 'Folder Timesheet'}</span>
                   <input
                     type="file"
-                    {...({ webkitdirectory: '', directory: '' } as any)}
+                    // @ts-ignore
+                    webkitdirectory=""
+                    directory=""
                     multiple
                     onChange={handleImportTimesheetFolder}
                     disabled={isImportingTimesheet}
@@ -4409,7 +4250,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                 <thead><tr className="text-slate-400 border-b border-slate-800">
                                   <th className="py-2 px-2.5 w-8">#</th>
                                   <th className="py-2 px-2.5 font-mono text-amber-400">Jobcard</th>
-                                  <th className="py-2 px-2.5">Type</th>
                                   <th className="py-2 px-2.5">Proyek</th>
                                   <th className="py-2 px-2.5">Deskripsi</th>
                                   <th className="py-2 px-2.5 text-center font-mono">Rev</th>
@@ -4425,31 +4265,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                                     const jcKey = cleanText(task.kodeJc || '');
                                     const calculatedRealHours = getRealHoursForTask(task.pic, task.kodeJc);
                                     const rawJo = task.jo ? String(task.jo).replace(/^#+/, '').trim() : '';
-                                    const drivePlan = getDrivePlanForTask(task);
                                     const displayPlanJo = (rawJo && rawJo !== '-')
                                       ? rawJo
-                                      : (drivePlan.jo
-                                        ? drivePlan.jo
-                                        : (jcKey && hourPlannerMap[jcKey] ? String(hourPlannerMap[jcKey].hour) : '-'));
+                                      : (jcKey && hourPlannerMap[jcKey] ? String(hourPlannerMap[jcKey].hour) : '-');
                                     return (
-                                        <tr key={task.id} className="hover:bg-slate-900/40">
+                                      <tr key={task.id} className="hover:bg-slate-900/40">
                                         <td className="py-2 px-2.5 text-slate-500 font-mono">{tIdx + 1}</td>
-                                        <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || <span className="text-slate-500 font-normal">-</span>}</td>
-                                        <td className="py-2 px-2.5">
-                                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
-                                            task.type === 'Evatek' ? 'bg-purple-500/10 text-purple-300 border-purple-500/30' :
-                                            task.type === 'Tender' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' :
-                                            task.type === 'Modeling' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
-                                            'bg-blue-500/10 text-blue-300 border-blue-500/30'
-                                          }`}>
-                                            {task.type || 'Drawing'}
-                                          </span>
-                                        </td>
+                                        <td className="py-2 px-2.5 font-mono font-bold text-amber-300">{task.kodeJc || <span className="text-rose-400 font-normal">Menunggu Planner</span>}</td>
                                         <td className="py-2 px-2.5 text-emerald-400">{task.project}</td>
                                         <td className="py-2 px-2.5 text-slate-200">{task.taskName}</td>
                                         <td className="py-2 px-2.5 text-center font-mono text-slate-300">{task.rev || '0'}</td>
-                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate || drivePlan.planStart || (jcKey && hourPlannerMap[jcKey]?.start))}</td>
-                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate || drivePlan.planFinish || (jcKey && hourPlannerMap[jcKey]?.end))}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.startDate || (jcKey && hourPlannerMap[jcKey]?.start))}</td>
+                                        <td className="py-2 px-2.5 font-mono text-[11px] text-slate-300">{formatDisplayDate(task.endDate || (jcKey && hourPlannerMap[jcKey]?.end))}</td>
                                         <td className="py-2 px-2.5 font-mono text-violet-300">{displayPlanJo}</td>
                                         <td className="py-2 px-2.5 font-mono font-bold">
                                           {calculatedRealHours !== undefined ? (
@@ -4524,7 +4351,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
                     <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
                       <Users className="w-3.5 h-3.5 text-blue-400" />
-                      <span>1. Informasi Personel &amp; Proyek</span>
+                      <span>1. Informasi Pegawai (Organik) &amp; Proyek</span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="md:col-span-2">
@@ -4550,10 +4377,17 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                           ))}
                         </select>
                       </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-slate-400 mb-1">Plan JO <span className="text-rose-400">*</span></label>
+                        <input type="text" inputMode="decimal" value={formData.jo}
+                          onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
+                          placeholder="Contoh: 300426" required
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
+                      </div>
                     </div>
                   </div>
 
-                  {/* 2. Detail Gambar & Deskripsi */}
+                  {/* 2. Detail Gambar & Deskripsi Tugas */}
                   <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3.5 space-y-3">
                     <div className="text-[11px] font-bold text-white flex items-center gap-1.5 border-b border-slate-800/80 pb-2">
                       <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
@@ -4576,37 +4410,20 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         />
                       </div>
                       <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Drawing Name</label>
-                          {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari Drawing Control</span>}
-                        </div>
-                        {isDrawingNumberExisting ? (
-                          <input
-                            type="text"
-                            readOnly
-                            value={formData.drawingName}
-                            title="Otomatis terkunci dari data Drawing Control"
-                            className="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-400 cursor-not-allowed font-medium"
-                          />
-                        ) : (
-                          <SearchableSelect
-                            options={formDrawingOpts.nameOptions}
-                            value={formData.drawingName}
-                            onChange={handleDrawingNameChange}
-                            allowCustom
-                            customAddLabel="+ Tambah Drawing Name"
-                            onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
-                            placeholder="Ketik / pilih nama gambar (misal: Shaft Protection)..."
-                            required={!formData.drawingNumber}
-                          />
-                        )}
+                        <label className="block text-slate-400 mb-1">Drawing Name</label>
+                        <SearchableSelect
+                          options={formDrawingOpts.nameOptions}
+                          value={formData.drawingName}
+                          onChange={handleDrawingNameChange}
+                          allowCustom
+                          customAddLabel="+ Tambah Drawing Name"
+                          onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
+                          placeholder="Ketik / pilih nama gambar (misal: Shaft Protection)..."
+                          required={!formData.drawingNumber}
+                        />
                       </div>
-
                       <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Rev (Revisi)</label>
-                          {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari kolom rev</span>}
-                        </div>
+                        <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
                         <input type="text" value={formData.rev}
                           onChange={(e) => {
                             const newRev = e.target.value;
@@ -4623,35 +4440,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                             else autoRel = '';
                             setFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
                           }}
-                          readOnly={isDrawingNumberExisting}
-                          placeholder="0"
-                          className={`w-full px-3 py-2 rounded-lg font-mono ${
-                            isDrawingNumberExisting
-                              ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
-                              : 'bg-slate-950 border border-slate-700 text-white'
-                          }`} />
+                          placeholder="0" className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
                       </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Plan JO (Jam Kerja) <span className="text-rose-400">*</span></label>
-                          {isDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci dari Drawing Control</span>}
-                        </div>
-                        <input type="text" inputMode="decimal" value={formData.jo}
-                          onChange={(e) => {
-                            const newJo = e.target.value.replace(/[^0-9.]/g, '');
-                            const calcFinish = calculatePlanFinish(formData.startDate, newJo);
-                            setFormData(prev => ({ ...prev, jo: newJo, endDate: calcFinish || prev.endDate }));
-                          }}
-                          placeholder="Contoh: 300426" required
-                          readOnly={isDrawingNumberExisting}
-                          className={`w-full px-3 py-2 rounded-lg font-mono ${
-                            isDrawingNumberExisting
-                              ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
-                              : 'bg-slate-950 border border-slate-700 text-white'
-                          }`} />
-                      </div>
-
                       <div className="md:col-span-2">
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-slate-400">Deskripsi Tugas <span className="text-[10px] text-slate-500 font-normal">(Opsional)</span></label>
@@ -4677,22 +4467,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-slate-400 mb-1">Plan Start <span className="text-rose-400">*</span></label>
-                        <input type="date" value={formData.startDate}
-                          onChange={(e) => {
-                            const newStart = e.target.value;
-                            const calcFinish = calculatePlanFinish(newStart, formData.jo);
-                            setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
-                          }}
+                        <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
                           required style={{ colorScheme: 'dark' }}
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
                       </div>
                       <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Plan Finish <span className="text-rose-400">*</span></label>
-                          {formData.jo && formData.startDate && (
-                            <span className="text-[10px] text-cyan-400 font-mono">Otomatis (Plan JO ÷ 8 jam) · Bisa diedit</span>
-                          )}
-                        </div>
+                        <label className="block text-slate-400 mb-1">Plan Finish <span className="text-rose-400">*</span></label>
                         <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
                           required style={{ colorScheme: 'dark' }}
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
@@ -4701,7 +4481,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   </div>
 
                   <div className="flex justify-end pt-2">
-                    <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer transition shadow-md">
+                    <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg cursor-pointer shadow-md">
                       Simpan Tugas
                     </button>
                   </div>
@@ -4735,10 +4515,9 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </button>
             </div>
             <form onSubmit={handleSaveEdit} className="p-4 space-y-3.5 text-xs">
-              {/* Baris 1: Type & Proyek */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-400 mb-1">Type Pekerjaan <span className="text-rose-400">*</span></label>
+                  <label className="block text-slate-400 mb-1">Type Pekerjaan</label>
                   <select
                     value={editFormData.type || 'Drawing'}
                     onChange={(e) => setEditFormData(prev => ({ ...prev, type: e.target.value }))}
@@ -4750,7 +4529,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">Kode Proyek <span className="text-rose-400">*</span></label>
+                  <label className="block text-slate-400 mb-1">Kode Proyek</label>
                   <SearchableSelect
                     options={projectOptions}
                     value={editFormData.project}
@@ -4763,8 +4542,42 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   />
                 </div>
               </div>
-
-              {/* Baris 2: Drawing Number & Drawing Name */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 mb-1">
+                    {accessMode === 'organik' ? 'Plan JO' : 'Nomor JO'}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={editFormData.jo}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
+                    required={accessMode !== 'organik'}
+                    placeholder={accessMode === 'organik' ? 'Otomatis dari Hour Planner / ketik manual' : ''}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-400 mb-1">
+                    {accessMode === 'organik' ? 'Jobcard' : 'Kode WO'}
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.kodeJc}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase();
+                      const hp = accessMode === 'organik' ? hourPlannerMap[cleanText(val)] : undefined;
+                      setEditFormData(prev => ({
+                        ...prev,
+                        kodeJc: val,
+                        jo: ((!prev.jo || prev.jo === '0' || prev.jo === '-') && hp) ? String(hp.hour) : prev.jo,
+                      }));
+                    }}
+                    placeholder={accessMode === 'organik' ? 'JC...' : 'WO...'}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono uppercase"
+                  />
+                </div>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">Drawing Number</label>
@@ -4779,37 +4592,27 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       let newRev = editFormData.rev;
                       const cNo = cleanText(val);
                       if (cNo && rows.length > 0) {
-                        const matchingRows = rows.filter(r => cleanText(r.noDwg) === cNo);
-                        if (matchingRows.length > 0) {
-                          const currentEditRev = String(editFormData.rev || '0').trim();
-                          const matchRev = matchingRows.find(r => String(r.rev || '0').trim() === currentEditRev);
-                          const matchAny = matchRev || matchingRows[matchingRows.length - 1];
-                          if (matchAny) {
-                            if (matchAny.drawingName) nextName = matchAny.drawingName;
-                            if (matchAny.finishDate) newRelease = parseToStandardDate(matchAny.finishDate);
-                            if (matchAny.rev !== undefined && matchAny.rev !== '') newRev = matchAny.rev;
-                          }
+                        const currentEditRev = String(editFormData.rev || '0').trim();
+                        const matchRev = rows.find(r => cleanText(r.noDwg) === cNo && String(r.rev || '0').trim() === currentEditRev);
+                        const matchAny = matchRev || rows.find(r => cleanText(r.noDwg) === cNo);
+                        if (matchAny) {
+                          if (matchAny.drawingName) nextName = matchAny.drawingName;
+                          if (matchAny.finishDate) newRelease = parseToStandardDate(matchAny.finishDate);
+                          if (matchAny.rev) newRev = matchAny.rev;
                         }
                       }
                       const combined = combineDrawingParts(val, nextName);
-                      const plan = findDrawingPlanInfo(rows, val, nextName, newRev);
-                      const resolvedJo = (accessMode === 'organik' && plan.jo) ? plan.jo : editFormData.jo;
-                      const effectiveStart = plan.planStart || editFormData.startDate;
-                      let autoEnd = plan.planFinish || editFormData.endDate;
-                      if (effectiveStart && resolvedJo) {
-                        const calcFinish = calculatePlanFinish(effectiveStart, resolvedJo);
-                        if (calcFinish) autoEnd = calcFinish;
-                      }
+                      const matchedRow = rows.find(r => cleanText(r.noDwg) === cNo);
                       setEditFormData(prev => ({
                         ...prev,
                         drawingNumber: val,
                         drawingName: nextName,
                         taskName: combined,
                         release: newRelease,
-                        rev: plan.rev || newRev,
-                        startDate: effectiveStart,
-                        endDate: autoEnd,
-                        jo: resolvedJo,
+                        rev: newRev,
+                        startDate: matchedRow?.planStart || prev.startDate,
+                        endDate: matchedRow?.planFinish || prev.endDate,
+                        jo: (accessMode === 'organik' && matchedRow?.jo) ? matchedRow.jo : prev.jo,
                       }));
                     }}
                     allowCustom
@@ -4819,81 +4622,53 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   />
                 </div>
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-400">Drawing Name</label>
-                    {isEditDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci</span>}
-                  </div>
-                  {isEditDrawingNumberExisting ? (
-                    <input
-                      type="text"
-                      readOnly
-                      value={editFormData.drawingName}
-                      title="Otomatis terkunci dari data Drawing Control"
-                      className="w-full px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-slate-400 cursor-not-allowed font-medium"
-                    />
-                  ) : (
-                    <SearchableSelect
-                      options={editDrawingOpts.nameOptions}
-                      value={editFormData.drawingName}
-                      onChange={(val) => {
-                        const cleanProj = cleanText(editFormData.project || '');
-                        const rows = drawingControlMap[cleanProj] || [];
-                        let nextNo = editFormData.drawingNumber;
-                        let newRelease = editFormData.release;
-                        let newRev = editFormData.rev;
-                        const cName = cleanText(val);
-                        if (cName && rows.length > 0) {
-                          const matchingRows = rows.filter(r => cleanText(r.drawingName) === cName);
-                          if (matchingRows.length > 0) {
-                            const currentEditRev = String(editFormData.rev || '0').trim();
-                            const matchRev = matchingRows.find(r => String(r.rev || '0').trim() === currentEditRev);
-                            const matchAny = matchRev || matchingRows[matchingRows.length - 1];
-                            if (matchAny) {
-                              if (matchAny.noDwg) nextNo = matchAny.noDwg;
-                              if (matchAny.finishDate) newRelease = parseToStandardDate(matchAny.finishDate);
-                              if (matchAny.rev !== undefined && matchAny.rev !== '') newRev = matchAny.rev;
-                            }
-                          }
+                  <label className="block text-slate-400 mb-1">Drawing Name</label>
+                  <SearchableSelect
+                    options={editDrawingOpts.nameOptions}
+                    value={editFormData.drawingName}
+                    onChange={(val) => {
+                      const cleanProj = cleanText(editFormData.project || '');
+                      const rows = drawingControlMap[cleanProj] || [];
+                      let nextNo = editFormData.drawingNumber;
+                      let newRelease = editFormData.release;
+                      let newRev = editFormData.rev;
+                      const cName = cleanText(val);
+                      if (cName && rows.length > 0) {
+                        const currentEditRev = String(editFormData.rev || '0').trim();
+                        const matchRev = rows.find(r => cleanText(r.drawingName) === cName && String(r.rev || '0').trim() === currentEditRev);
+                        const matchAny = matchRev || rows.find(r => cleanText(r.drawingName) === cName);
+                        if (matchAny) {
+                          if (matchAny.noDwg) nextNo = matchAny.noDwg;
+                          if (matchAny.finishDate) newRelease = parseToStandardDate(matchAny.finishDate);
+                          if (matchAny.rev) newRev = matchAny.rev;
                         }
-                        const combined = combineDrawingParts(nextNo, val);
-                        const plan = findDrawingPlanInfo(rows, nextNo, val, newRev);
-                        const resolvedJo = (accessMode === 'organik' && plan.jo) ? plan.jo : editFormData.jo;
-                        const effectiveStart = plan.planStart || editFormData.startDate;
-                        let autoEnd = plan.planFinish || editFormData.endDate;
-                        if (effectiveStart && resolvedJo) {
-                          const calcFinish = calculatePlanFinish(effectiveStart, resolvedJo);
-                          if (calcFinish) autoEnd = calcFinish;
-                        }
-                        setEditFormData(prev => ({
-                          ...prev,
-                          drawingNumber: nextNo,
-                          drawingName: val,
-                          taskName: combined,
-                          release: newRelease,
-                          rev: plan.rev || newRev,
-                          startDate: effectiveStart,
-                          endDate: autoEnd,
-                          jo: resolvedJo,
-                        }));
-                      }}
-                      allowCustom
-                      customAddLabel="+ Tambah Drawing Name"
-                      onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
-                      placeholder="Ketik nama gambar..."
-                      required={!editFormData.drawingNumber}
-                    />
-                  )}
+                      }
+                      const combined = combineDrawingParts(nextNo, val);
+                      const matchedRow = rows.find(r => cleanText(r.drawingName) === cName);
+                      setEditFormData(prev => ({
+                        ...prev,
+                        drawingNumber: nextNo,
+                        drawingName: val,
+                        taskName: combined,
+                        release: newRelease,
+                        rev: newRev,
+                        startDate: matchedRow?.planStart || prev.startDate,
+                        endDate: matchedRow?.planFinish || prev.endDate,
+                        jo: (accessMode === 'organik' && matchedRow?.jo) ? matchedRow.jo : prev.jo,
+                      }));
+                    }}
+                    allowCustom
+                    customAddLabel="+ Tambah Drawing Name"
+                    onAddCustom={(val) => setCustomDrawingNames(addCustomListByKey(CUSTOM_DWG_NAME_KEY, val))}
+                    placeholder="Ketik nama gambar..."
+                    required={!editFormData.drawingNumber}
+                  />
                 </div>
               </div>
-
-              {/* Baris 3: Rev, Plan JO, dan Jobcard */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {accessMode === 'organik' && (
+              {accessMode === 'organik' && (
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-slate-400">Rev (Revisi)</label>
-                      {isEditDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci</span>}
-                    </div>
+                    <label className="block text-slate-400 mb-1">Rev (Revisi)</label>
                     <input
                       type="text"
                       value={editFormData.rev}
@@ -4918,65 +4693,22 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                         }
                         setEditFormData(prev => ({ ...prev, rev: newRev, release: autoRel }));
                       }}
-                      readOnly={isEditDrawingNumberExisting}
                       placeholder="0"
-                      className={`w-full px-3 py-2 rounded-lg font-mono ${
-                        isEditDrawingNumberExisting
-                          ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
-                          : 'bg-slate-950 border border-slate-700 text-white'
-                      }`}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
                     />
                   </div>
-                )}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-400">
-                      {accessMode === 'organik' ? 'Plan JO' : 'Nomor JO'}
-                    </label>
-                    {isEditDrawingNumberExisting && <span className="text-[10px] text-amber-400/80 font-mono">Terkunci</span>}
+                  <div className="hidden">
+                    <label className="block text-slate-400 mb-1">Release</label>
+                    <input
+                      type="date"
+                      value={editFormData.release}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, release: e.target.value }))}
+                      style={{ colorScheme: 'dark' }}
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                    />
                   </div>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={editFormData.jo}
-                    onChange={(e) => {
-                      const newJo = e.target.value.replace(/[^0-9.]/g, '');
-                      const calcFinish = calculatePlanFinish(editFormData.startDate, newJo);
-                      setEditFormData(prev => ({ ...prev, jo: newJo, endDate: calcFinish || prev.endDate }));
-                    }}
-                    readOnly={isEditDrawingNumberExisting}
-                    required={accessMode !== 'organik'}
-                    placeholder={accessMode === 'organik' ? 'Contoh: 300426' : ''}
-                    className={`w-full px-3 py-2 rounded-lg font-mono ${
-                      isEditDrawingNumberExisting
-                        ? 'bg-slate-900/60 border border-slate-800 text-slate-400 cursor-not-allowed'
-                        : 'bg-slate-950 border border-slate-700 text-white'
-                    }`}
-                  />
                 </div>
-                <div className={accessMode === 'organik' ? '' : 'col-span-1'}>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Jobcard' : 'Kode WO'}
-                  </label>
-                  <input
-                    type="text"
-                    value={editFormData.kodeJc}
-                    onChange={(e) => {
-                      const val = e.target.value.toUpperCase();
-                      const hp = accessMode === 'organik' ? hourPlannerMap[cleanText(val)] : undefined;
-                      setEditFormData(prev => ({
-                        ...prev,
-                        kodeJc: val,
-                        jo: ((!prev.jo || prev.jo === '0' || prev.jo === '-') && hp) ? String(hp.hour) : prev.jo,
-                      }));
-                    }}
-                    placeholder={accessMode === 'organik' ? 'JC...' : 'WO...'}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono uppercase"
-                  />
-                </div>
-              </div>
-
-              {/* Baris 4: Deskripsi Tugas (Bebas Diedit, Opsional) */}
+              )}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-slate-400">Deskripsi Tugas <span className="text-[10px] text-slate-500 font-normal">(Opsional)</span></label>
@@ -4986,39 +4718,28 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   type="text"
                   value={editFormData.taskName}
                   onChange={(e) => setEditFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                  placeholder="Ketik deskripsi tugas / pekerjaan (opsional)..."
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
+                  placeholder="Ketik deskripsi tugas (opsional)..."
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-blue-500 text-xs"
                 />
               </div>
-
-              {/* Baris 5: Jadwal Start & Finish */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'} <span className="text-rose-400">*</span>
+                    {accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'}
                   </label>
                   <input
                     type="date"
                     value={editFormData.startDate}
-                    onChange={(e) => {
-                      const newStart = e.target.value;
-                      const calcFinish = calculatePlanFinish(newStart, editFormData.jo);
-                      setEditFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
-                    }}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, startDate: e.target.value }))}
                     required
                     style={{ colorScheme: 'dark' }}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
                   />
                 </div>
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-400">
-                      {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'} <span className="text-rose-400">*</span>
-                    </label>
-                    {editFormData.jo && editFormData.startDate && (
-                      <span className="text-[10px] text-cyan-400 font-mono">Otomatis · Bisa diedit</span>
-                    )}
-                  </div>
+                  <label className="block text-slate-400 mb-1">
+                    {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'}
+                  </label>
                   <input
                     type="date"
                     value={editFormData.endDate}
@@ -5029,18 +4750,17 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                   />
                 </div>
               </div>
-
               <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setEditingTask(null)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer transition"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-lg cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer transition shadow-md"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg cursor-pointer"
                 >
                   Simpan Perubahan
                 </button>
