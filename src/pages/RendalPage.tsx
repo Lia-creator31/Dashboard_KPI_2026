@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import KpiDashboardPage from './KpiDashboardPage';
 import RekapAbsensiDivisiPage, { DivisiGroup } from './RekapAbsensiDivisiPage';
-import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow, TASK_TYPE_OPTIONS } from '../lib/projectCandidates';
+import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow, TASK_TYPE_OPTIONS, calculatePlanFinish } from '../lib/projectCandidates';
 import { parseUploadedTimesheetFolder } from '../lib/timesheetAccomplishment';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
@@ -2991,6 +2991,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         nextName = parts.drawingName;
       }
     }
+    // Jika ada Plan Start dan Plan JO, hitung Plan Finish otomatis (1 hari = 8 jam kerja)
+    const effectiveStart = autoStart || formData.startDate;
+    if (effectiveStart && autoJo) {
+      const calcFinish = calculatePlanFinish(effectiveStart, autoJo);
+      if (calcFinish) autoEnd = calcFinish;
+    }
     const combined = combineDrawingParts(selectedNoDwg, nextName);
     setFormData(prev => ({
       ...prev,
@@ -3033,6 +3039,12 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
         nextNo = parts.drawingNumber;
         selectedName = parts.drawingName;
       }
+    }
+    // Jika ada Plan Start dan Plan JO, hitung Plan Finish otomatis (1 hari = 8 jam kerja)
+    const effectiveStart = autoStart || formData.startDate;
+    if (effectiveStart && autoJo) {
+      const calcFinish = calculatePlanFinish(effectiveStart, autoJo);
+      if (calcFinish) autoEnd = calcFinish;
     }
     const combined = combineDrawingParts(nextNo, selectedName);
     setFormData(prev => ({
@@ -3834,15 +3846,34 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-slate-400 mb-1">Tanggal Mulai <span className="text-rose-400">*</span></label>
-                          <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                            required style={{ colorScheme: 'dark' }}
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                          <input
+                            type="date"
+                            value={formData.startDate}
+                            onChange={(e) => {
+                              const newStart = e.target.value;
+                              const calcFinish = calculatePlanFinish(newStart, formData.jo);
+                              setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
+                            }}
+                            required
+                            style={{ colorScheme: 'dark' }}
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                          />
                         </div>
                         <div>
-                          <label className="block text-slate-400 mb-1">Tanggal Selesai <span className="text-rose-400">*</span></label>
-                          <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                            required style={{ colorScheme: 'dark' }}
-                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="text-slate-400">Tanggal Selesai <span className="text-rose-400">*</span></label>
+                            {formData.jo && formData.startDate && (
+                              <span className="text-[10px] text-cyan-400 font-mono">Otomatis (1 hari = 8 jam) · Bisa diedit</span>
+                            )}
+                          </div>
+                          <input
+                            type="date"
+                            value={formData.endDate}
+                            onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                            required
+                            style={{ colorScheme: 'dark' }}
+                            className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                          />
                         </div>
                       </div>
                     </div>
@@ -3988,6 +4019,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button
+                  type="button"
+                  onClick={() => handleExportFormExcel(null)}
+                  className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition shadow-sm"
+                  title="Export seluruh data form dari semua Biro ke file Excel (kolom Jobcard dikosongkan)"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Export Excel Form</span>
+                </button>
+                <button
                   onClick={() => setShowKpi(true)}
                   className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
                   title="Buka Dashboard KPI Individual"
@@ -4013,15 +4053,6 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center justify-between flex-wrap gap-2">
               <span className="text-xs font-semibold text-slate-300">Data Master</span>
               <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => handleExportFormExcel(null)}
-                  className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition"
-                  title="Export seluruh data form dari semua Biro ke file Excel (kolom Jobcard dikosongkan)"
-                >
-                  <Download className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Export Excel Form</span>
-                </button>
                 <label className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs rounded-md border border-slate-700 flex items-center gap-1.5 cursor-pointer transition">
                   <Users className="w-3.5 h-3.5 text-blue-400" /><span>Personel IM4</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
@@ -4380,7 +4411,11 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                       <div className="md:col-span-2">
                         <label className="block text-slate-400 mb-1">Plan JO <span className="text-rose-400">*</span></label>
                         <input type="text" inputMode="decimal" value={formData.jo}
-                          onChange={(e) => setFormData(prev => ({ ...prev, jo: e.target.value.replace(/[^0-9.]/g, '') }))}
+                          onChange={(e) => {
+                            const newJo = e.target.value.replace(/[^0-9.]/g, '');
+                            const calcFinish = calculatePlanFinish(formData.startDate, newJo);
+                            setFormData(prev => ({ ...prev, jo: newJo, endDate: calcFinish || prev.endDate }));
+                          }}
                           placeholder="Contoh: 300426" required
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono" />
                       </div>
@@ -4467,15 +4502,34 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-slate-400 mb-1">Plan Start <span className="text-rose-400">*</span></label>
-                        <input type="date" value={formData.startDate} onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                          required style={{ colorScheme: 'dark' }}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                        <input
+                          type="date"
+                          value={formData.startDate}
+                          onChange={(e) => {
+                            const newStart = e.target.value;
+                            const calcFinish = calculatePlanFinish(newStart, formData.jo);
+                            setFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
+                          }}
+                          required
+                          style={{ colorScheme: 'dark' }}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                        />
                       </div>
                       <div>
-                        <label className="block text-slate-400 mb-1">Plan Finish <span className="text-rose-400">*</span></label>
-                        <input type="date" value={formData.endDate} onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                          required style={{ colorScheme: 'dark' }}
-                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer" />
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-slate-400">Plan Finish <span className="text-rose-400">*</span></label>
+                          {formData.jo && formData.startDate && (
+                            <span className="text-[10px] text-cyan-400 font-mono">Otomatis (Plan JO ÷ 8 jam) · Bisa diedit</span>
+                          )}
+                        </div>
+                        <input
+                          type="date"
+                          value={formData.endDate}
+                          onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                          required
+                          style={{ colorScheme: 'dark' }}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
+                        />
                       </div>
                     </div>
                   </div>
@@ -4725,21 +4779,30 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'}
+                    {accessMode === 'organik' ? 'Plan Start' : 'Tanggal Mulai'} <span className="text-rose-400">*</span>
                   </label>
                   <input
                     type="date"
                     value={editFormData.startDate}
-                    onChange={(e) => setEditFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                    onChange={(e) => {
+                      const newStart = e.target.value;
+                      const calcFinish = calculatePlanFinish(newStart, editFormData.jo);
+                      setEditFormData(prev => ({ ...prev, startDate: newStart, endDate: calcFinish || prev.endDate }));
+                    }}
                     required
                     style={{ colorScheme: 'dark' }}
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:outline-none cursor-pointer"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1">
-                    {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'}
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-400">
+                      {accessMode === 'organik' ? 'Plan Finish' : 'Tanggal Selesai'} <span className="text-rose-400">*</span>
+                    </label>
+                    {editFormData.jo && editFormData.startDate && (
+                      <span className="text-[10px] text-cyan-400 font-mono">Otomatis · Bisa diedit</span>
+                    )}
+                  </div>
                   <input
                     type="date"
                     value={editFormData.endDate}
