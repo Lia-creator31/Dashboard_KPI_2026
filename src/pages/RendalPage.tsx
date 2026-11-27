@@ -10,7 +10,7 @@ import { projectCandidates, dedupeRows, resolveDrawingProject, GOOGLE_DRIVE_SHEE
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles,
-  FileSpreadsheet, Users, Search, TrendingUp, FolderUp
+  FileSpreadsheet, Users, Search, TrendingUp, FolderUp, Download
 } from 'lucide-react';
 
 const excelGlobUrls = import.meta.glob('./*.xlsx', {
@@ -2514,6 +2514,91 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
     }
   };
 
+  // Export data inputan form dari para Kabiro ke file Excel (dengan kolom Jobcard dibiarkan kosong)
+  const handleExportFormExcel = (targetBiroName?: string) => {
+    let tasksToExport: TaskItem[] = [];
+    if (targetBiroName) {
+      const k = cleanText(targetBiroName);
+      tasksToExport = manualTasks[k] || [];
+    } else {
+      tasksToExport = Object.values(manualTasks).flat();
+    }
+
+    if (tasksToExport.length === 0) {
+      alert(targetBiroName ? `Belum ada data inputan form untuk biro "${targetBiroName}".` : 'Belum ada data inputan form dari para kabiro.');
+      return;
+    }
+
+    const headers = [
+      'No',
+      'Biro',
+      'Nama Personel',
+      'Type',
+      'Kode Proyek',
+      'Drawing Number',
+      'Drawing Name',
+      'Deskripsi',
+      'Rev',
+      'Plan Start',
+      'Plan Finish',
+      'Plan JO',
+      'Jobcard',
+    ];
+
+    const rows = tasksToExport.map((t, idx) => {
+      const parts = splitTaskToDrawingParts(t.taskName || '');
+      const dwgNo = parts.drawingNumber || '';
+      const dwgName = parts.drawingName || '';
+      const startStr = formatDisplayDate(t.startDate);
+      const endStr = formatDisplayDate(t.endDate);
+
+      return [
+        idx + 1,
+        t.biroName || '',
+        t.pic || '',
+        t.type || 'Drawing',
+        t.project || '',
+        dwgNo,
+        dwgName,
+        t.taskName || '',
+        t.rev || '0',
+        startStr !== '-' ? startStr : (t.startDate || ''),
+        endStr !== '-' ? endStr : (t.endDate || ''),
+        t.jo || '',
+        '', // Kolom Jobcard dibiarkan kosong sesuai permintaan pengguna
+      ];
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    ws['!cols'] = [
+      { wch: 6 },  // No
+      { wch: 28 }, // Biro
+      { wch: 28 }, // Nama Personel
+      { wch: 14 }, // Type
+      { wch: 16 }, // Kode Proyek
+      { wch: 22 }, // Drawing Number
+      { wch: 32 }, // Drawing Name
+      { wch: 40 }, // Deskripsi
+      { wch: 8 },  // Rev
+      { wch: 14 }, // Plan Start
+      { wch: 14 }, // Plan Finish
+      { wch: 12 }, // Plan JO
+      { wch: 18 }, // Jobcard (kosong)
+    ];
+
+    const wbOut = XLSX.utils.book_new();
+    const sheetName = targetBiroName ? targetBiroName.slice(0, 31).replace(/[\\/?*[\]]/g, '') : 'Form Penugasan Kabiro';
+    XLSX.utils.book_append_sheet(wbOut, ws, sheetName);
+
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const filename = targetBiroName
+      ? `Form_Penugasan_${targetBiroName.replace(/[^a-zA-Z0-9]/g, '_')}_${dateStr}.xlsx`
+      : `Form_Penugasan_Kabiro_Divisi_Desain_${dateStr}.xlsx`;
+
+    XLSX.writeFile(wbOut, filename);
+  };
+
   const handleImportTimesheetFolder = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -3658,7 +3743,17 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 <h3 className="font-bold text-white text-base">{subconSelectedBiro}</h3>
                 <span className="text-xs text-slate-400 font-mono">{activeSubconMembers.length} Personel Outsourcing • Kode Biro: <b className="text-amber-400">{getBiroPrefix(subconSelectedBiro)}</b></span>
               </div>
-              <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleExportFormExcel(subconSelectedBiro)}
+                  className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition font-medium"
+                  title={`Export data inputan form dari ${subconSelectedBiro} ke file Excel (kolom Jobcard dikosongkan)`}
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Export Excel Form</span>
+                </button>
+                <div className="bg-slate-950 p-1 rounded-lg border border-slate-800 flex gap-1 text-xs font-semibold">
                 <button onClick={() => setSubconPageMode('members')}
                   className={`px-3 py-1 rounded transition cursor-pointer ${subconPageMode === 'members' ? 'bg-amber-600 text-white font-bold shadow' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}>Anggota</button>
                 <button onClick={() => setSubconPageMode('form')}
@@ -4087,6 +4182,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center justify-between flex-wrap gap-2">
               <span className="text-xs font-semibold text-slate-300">Data Master</span>
               <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleExportFormExcel()}
+                  className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs rounded-md flex items-center gap-1.5 cursor-pointer transition font-semibold"
+                  title="Export seluruh data inputan form dari para Kabiro ke file Excel (kolom Jobcard dikosongkan)"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Export Excel Form</span>
+                </button>
                 <label className="px-2.5 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs rounded-md border border-slate-700 flex items-center gap-1.5 cursor-pointer transition">
                   <Users className="w-3.5 h-3.5 text-blue-400" /><span>Personel IM4</span>
                   <input type="file" accept=".xlsx, .xls" onChange={handleUpdateIm4Excel} className="hidden" />
@@ -4226,6 +4330,15 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleExportFormExcel(selectedFormBiro.biroName)}
+                  className="px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs rounded-lg flex items-center gap-1.5 cursor-pointer transition font-medium"
+                  title={`Export data inputan form dari ${selectedFormBiro.biroName} ke file Excel (kolom Jobcard dikosongkan)`}
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Export Excel Form</span>
+                </button>
                 <div className="flex gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
                   {/* Sembunyikan tab Anggota & Form khusus untuk Kadep */}
                   {!selectedFormBiro.biroName.startsWith('Kepala ') && (
