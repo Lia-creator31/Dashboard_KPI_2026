@@ -778,7 +778,9 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
     e.preventDefault();
     if (!editingTask) return;
 
-    const combinedTaskName = combineDrawingParts(editFormData.drawingNumber, editFormData.drawingName) || editFormData.taskName;
+    const combinedTaskName = (editFormData.taskName && editFormData.taskName.trim())
+      ? editFormData.taskName.trim()
+      : (combineDrawingParts(editFormData.drawingNumber, editFormData.drawingName) || '-');
     const revVal = (editFormData.rev && editFormData.rev.trim() !== '') ? editFormData.rev.trim() : '0';
     const releaseVal = editFormData.release ? editFormData.release.trim() : '';
     const typeVal = editFormData.type || 'Drawing';
@@ -1109,7 +1111,9 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
       const resolvedJo = accessMode === 'subkon'
         ? (formData.jo || generateAutoSubconJo(activeBiro, formData.nama, getSubconMembersForBiro(activeBiro), currentList))
         : formData.jo;
-      const combinedTaskName = combineDrawingParts(formData.drawingNumber, formData.drawingName) || formData.taskName;
+      const combinedTaskName = (formData.taskName && formData.taskName.trim())
+        ? formData.taskName.trim()
+        : (combineDrawingParts(formData.drawingNumber, formData.drawingName) || '-');
       if (formData.drawingNumber.trim()) {
         setCustomDrawingNumbers(addCustomListByKey(CUSTOM_DWG_NO_KEY, formData.drawingNumber.trim()));
       }
@@ -1721,15 +1725,14 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
 
                         <div className="md:col-span-2">
                           <div className="flex items-center justify-between mb-1">
-                            <label className="text-slate-400">Deskripsi Tugas <span className="text-rose-400">*</span></label>
+                            <label className="text-slate-400">Deskripsi Tugas <span className="text-[10px] text-slate-500 font-normal">(Opsional)</span></label>
                             <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
                           </div>
                           <input
                             type="text"
                             value={formData.taskName}
                             onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                            placeholder="Ketik deskripsi tugas / pekerjaan..."
-                            required
+                            placeholder="Ketik deskripsi tugas / pekerjaan (opsional)..."
                             className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
                           />
                         </div>
@@ -2267,15 +2270,14 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
 
                       <div className="md:col-span-2">
                         <div className="flex items-center justify-between mb-1">
-                          <label className="text-slate-400">Deskripsi Tugas <span className="text-rose-400">*</span></label>
+                          <label className="text-slate-400">Deskripsi Tugas <span className="text-[10px] text-slate-500 font-normal">(Opsional)</span></label>
                           <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
                         </div>
                         <input
                           type="text"
                           value={formData.taskName}
                           onChange={(e) => setFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                          placeholder="Ketik deskripsi tugas / pekerjaan..."
-                          required
+                          placeholder="Ketik deskripsi tugas / pekerjaan (opsional)..."
                           className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
                         />
                       </div>
@@ -2573,18 +2575,17 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
                 </div>
               </div>
 
-              {/* Baris 4: Deskripsi Tugas (Bebas Diedit) */}
+              {/* Baris 4: Deskripsi Tugas (Bebas Diedit, Opsional) */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-slate-400">Deskripsi Tugas <span className="text-rose-400">*</span></label>
+                  <label className="text-slate-400">Deskripsi Tugas <span className="text-[10px] text-slate-500 font-normal">(Opsional)</span></label>
                   <span className="text-[10px] text-cyan-400 font-mono">Bisa diedit</span>
                 </div>
                 <input
                   type="text"
                   value={editFormData.taskName}
                   onChange={(e) => setEditFormData(prev => ({ ...prev, taskName: e.target.value }))}
-                  placeholder="Ketik deskripsi tugas / pekerjaan..."
-                  required
+                  placeholder="Ketik deskripsi tugas / pekerjaan (opsional)..."
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-medium text-xs focus:outline-none focus:border-blue-500"
                 />
               </div>
