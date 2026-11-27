@@ -1251,8 +1251,19 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
     loadAllJobCards();
   };
 
-  const filteredDepartments = (departmentsData || []).filter(dept => dept.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  const filteredSubconDepartments = (departmentsData || []).filter(dept => dept.name.toLowerCase().includes(subconSearch.toLowerCase()));
+  // Batasi hanya departemen dan biro milik Kabiro yang sedang login
+  const accessibleDepartments = useMemo(() => {
+    if (!detectedKabiroInfo) return departmentsData || [];
+    return (departmentsData || [])
+      .filter(dept => isBiroMatch(dept.name, detectedKabiroInfo.deptName) || dept.biros.some(b => isBiroMatch(b.name, detectedKabiroInfo.biroName)))
+      .map(dept => ({
+        ...dept,
+        biros: dept.biros.filter(b => isBiroMatch(b.name, detectedKabiroInfo.biroName)),
+      }));
+  }, [detectedKabiroInfo]);
+
+  const filteredDepartments = accessibleDepartments.filter(dept => dept.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredSubconDepartments = accessibleDepartments.filter(dept => dept.name.toLowerCase().includes(subconSearch.toLowerCase()));
   
   const currentActiveBiroName = useMemo(() => {
     if (accessMode === 'subkon') return subconSelectedBiro || '';
@@ -1608,8 +1619,14 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
 
         {accessMode === 'subkon' && subconSelectedBiro && (
           <div className="space-y-4">
-            <button onClick={() => setSubconSelectedBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-              <ArrowLeft className="w-3.5 h-3.5" /> Kembali
+            <button onClick={() => {
+              if (detectedKabiroInfo) {
+                setAccessMode('landing');
+              } else {
+                setSubconSelectedBiro(null);
+              }
+            }} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
+              <ArrowLeft className="w-3.5 h-3.5" /> {detectedKabiroInfo ? 'Kembali ke Portal' : 'Kembali'}
             </button>
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
@@ -2095,8 +2112,14 @@ export default function KabiroPage({ user, onLogout }: KabiroPageProps) {
 
         {accessMode === 'organik' && selectedFormBiro && (
           <div className="space-y-4">
-            <button onClick={() => setSelectedFormBiro(null)} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
-              <ArrowLeft className="w-3.5 h-3.5" /> Kembali
+            <button onClick={() => {
+              if (detectedKabiroInfo) {
+                setAccessMode('landing');
+              } else {
+                setSelectedFormBiro(null);
+              }
+            }} className="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 flex items-center gap-1 cursor-pointer">
+              <ArrowLeft className="w-3.5 h-3.5" /> {detectedKabiroInfo ? 'Kembali ke Portal' : 'Kembali'}
             </button>
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
