@@ -578,7 +578,7 @@ async function saveMasterFile(key: MasterKey, file: File) {
   return error;
 }
 
-async function loadMasterFile(key: MasterKey): Promise<XLSX.WorkBook | null> {
+export async function loadMasterFile(key: MasterKey): Promise<XLSX.WorkBook | null> {
   try {
     const { data, error } = await supabase.storage.from(MASTER_BUCKET).download(`${key}.xlsx`);
     if (error || !data) return null;
@@ -654,7 +654,7 @@ function parseHourPlannerWorkbook(wb: XLSX.WorkBook): { entries: HourPlannerMap;
   return { entries, rowCount };
 }
 
-async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
+export async function fetchSafeWorkbook(paths: (string | undefined)[]): Promise<XLSX.WorkBook | null> {
   for (const p of paths) {
     if (!p) continue;
     try {
@@ -1079,7 +1079,7 @@ function normalizeRencanaCell(raw: any): string {
   return s;
 }
 
-async function fetchSisaCuti(): Promise<SisaCutiData | null> {
+export async function fetchSisaCuti(): Promise<SisaCutiData | null> {
   try {
     const src = await fetchSisaCutiCsv();
     if (!src) return null;
@@ -1662,7 +1662,7 @@ export function CutiSakitPanel({ biroName, members, wb, sisaCuti, title, kadepId
 // Sumber data:
 //   1) Time Off Approved dari TIME_OFF_DIVISI_DESAIN.xlsx
 //   2) Rencana cuti (Rencana 1, Rencana 2, ...) dari Google Sheet Form Alokasi Cuti
-function DeptWeeklyTimeOffPanel({ deptName, members, wb, sisaCuti }: {
+export function DeptWeeklyTimeOffPanel({ deptName, members, wb, sisaCuti }: {
   deptName: string;
   members: ParsedMember[];
   wb: XLSX.WorkBook | null;
@@ -4842,16 +4842,8 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => handleExportFormExcel(rekapFilterBiro === 'all' ? null : rekapFilterBiro)}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Export Excel Form</span>
-                </button>
-                <button
-                  type="button"
                   onClick={() => setShowRekapInputKabiro(false)}
-                  className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium transition cursor-pointer"
+                  className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium transition cursor-pointer"
                 >
                   Tutup
                 </button>
