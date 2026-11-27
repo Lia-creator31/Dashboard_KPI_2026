@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { UserSession } from '../App';
 import { resolveDrawingProject, GOOGLE_DRIVE_SHEETS, findMatchingDriveSheet, ALL_DRIVE_PROJECT_KEYS, isCorpProject, splitTaskToDrawingParts, combineDrawingParts, getFormDriveProjectOptions, fetchDrawingControlRowsForProject, DrawingControlRow, findDrawingPlanInfo, calculatePlanFinish, TASK_TYPE_OPTIONS } from '../lib/projectCandidates';
 import KpiDashboardPage from './KpiDashboardPage';
-import { DeptWeeklyTimeOffPanel, CutiSakitPanel, fetchSisaCuti, SisaCutiData, loadMasterFile, fetchSafeWorkbook } from './RendalPage';
+import { DeptWeeklyTimeOffPanel, CutiSakitPanel, fetchSisaCuti, SisaCutiData } from './RendalPage';
 import {
   Building2, Briefcase, HardHat, ArrowLeft, ChevronRight, ChevronDown, ChevronUp,
   Pencil, Trash2, X, Check, Printer, FileCheck, Clock, Sparkles, Search, TrendingUp,
@@ -489,7 +489,7 @@ function getProjectNormKey(s: string): string {
 }
 
 // Kabiro hanya bisa MEMUAT (load) file, tidak bisa menyimpan (save/upload)
-async function loadMasterFile(key: 'jobcard' | 'im4' | 'realisasi'): Promise<XLSX.WorkBook | null> {
+async function loadMasterFile(key: 'jobcard' | 'im4' | 'realisasi' | 'timeoff'): Promise<XLSX.WorkBook | null> {
   try {
     const { data, error } = await supabase.storage.from('master-files').download(`${key}.xlsx`);
     if (error || !data) return null;
