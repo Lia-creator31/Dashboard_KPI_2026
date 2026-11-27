@@ -3163,13 +3163,18 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
   };
 
   const isFormInputTask = (t: TaskItem): boolean => {
-    // Hanya tugas murni hasil isian form oleh para Kabiro (bukan impor massal dari file Excel)
-    // 1. Tugas organik hasil form berstatus 'pending' atau belum memiliki kode Jobcard
-    if (t.status === 'pending' || !t.kodeJc || t.kodeJc.trim() === '' || t.kodeJc === '-') {
-      return true;
-    }
-    // 2. Work Order Subkon/Outsourcing hasil isian form (prefix WO-...)
+    // Khusus tugas pegawai Organik saja (Outsourcing gausah dimasukkan)
+    // 1. Exclude jika Work Order Subkon/Outsourcing (prefix WO-...)
     if (SUBCON_WO_PREFIX_RE.test(String(t.kodeJc || '').trim())) {
+      return false;
+    }
+    // 2. Exclude jika nama personil terdaftar sebagai outsourcing
+    const cleanPic = cleanText(t.pic || '');
+    if (cleanPic && dynamicOutsourcingList.some(os => cleanText(os.nama) === cleanPic)) {
+      return false;
+    }
+    // 3. Hanya tugas Organik hasil isian form (status 'pending' atau belum memiliki kode Jobcard)
+    if (t.status === 'pending' || !t.kodeJc || t.kodeJc.trim() === '' || t.kodeJc === '-') {
       return true;
     }
     return false;
@@ -4688,13 +4693,13 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
                 </div>
                 <div>
                   <h3 className="font-bold text-sm text-white flex items-center gap-2">
-                    Rekapitulasi Inputan Form Kabiro
+                    Rekapitulasi Inputan Form Kabiro (Organik)
                     <span className="text-[11px] font-normal px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
                       {filteredRekapTasks.length} Tugas
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Daftar seluruh inputan form penugasan (Organik & Subkon) dari Kepala Biro
+                    Daftar seluruh inputan form penugasan pegawai Organik (PKWTT &amp; PKWT) dari Kepala Biro
                   </p>
                 </div>
               </div>
@@ -4831,7 +4836,7 @@ export default function RendalPage({ user, onLogout }: RendalPageProps) {
             {/* Modal Footer */}
             <div className="p-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between shrink-0 text-xs text-slate-400">
               <div>
-                Menampilkan <b className="text-white">{filteredRekapTasks.length}</b> tugas
+                Menampilkan <b className="text-white">{filteredRekapTasks.length}</b> tugas pegawai organik
                 {rekapFilterBiro !== 'all' ? ` pada biro "${rekapFilterBiro}"` : ' dari seluruh biro'}.
               </div>
               <div className="flex items-center gap-2">
